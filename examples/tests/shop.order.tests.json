@@ -1,0 +1,124 @@
+[
+  {
+    "name": "ordine italiano con coupon",
+    "input": {
+      "orderId": "A-1001",
+      "customer": {
+        "id": "C-1",
+        "country": "IT",
+        "email": "anna@example.com"
+      },
+      "lines": [
+        {
+          "sku": "BOOK-1",
+          "quantity": 2,
+          "unitPrice": 24.5
+        },
+        {
+          "sku": "PEN-3",
+          "quantity": 4,
+          "unitPrice": 2.5
+        }
+      ],
+      "coupon": "WELCOME10",
+      "express": false
+    },
+    "expected": {
+      "outcome": "valid",
+      "feedbackCodes": [],
+      "result": {
+        "subtotal": 59,
+        "discount": 5.9,
+        "shipping": {
+          "cost": 5.9,
+          "days": 3
+        },
+        "total": 59
+      }
+    }
+  },
+  {
+    "name": "quantità oltre il limite, spedizione extra UE",
+    "input": {
+      "orderId": "A-1002",
+      "customer": {
+        "id": "C-2",
+        "country": "US",
+        "email": "bob@example.com"
+      },
+      "lines": [
+        {
+          "sku": "LAMP-9",
+          "quantity": 12,
+          "unitPrice": 15
+        }
+      ],
+      "express": true
+    },
+    "expected": {
+      "outcome": "invalid",
+      "feedbackCodes": [
+        "ORD_QUANTITY"
+      ]
+    }
+  },
+  {
+    "name": "coupon sotto la soglia",
+    "input": {
+      "orderId": "A-1001",
+      "customer": {
+        "id": "C-1",
+        "country": "IT",
+        "email": "anna@example.com"
+      },
+      "lines": [
+        {
+          "sku": "PEN-3",
+          "quantity": 2,
+          "unitPrice": 2.5
+        }
+      ],
+      "coupon": "WELCOME10",
+      "express": false
+    },
+    "expected": {
+      "outcome": "warning",
+      "feedbackCodes": [
+        "ORD_COUPON_IGNORED"
+      ],
+      "result": {
+        "discount": 0,
+        "total": 10.9
+      }
+    }
+  },
+  {
+    "name": "spedizione gratuita sopra 100 euro",
+    "input": {
+      "orderId": "A-1001",
+      "customer": {
+        "id": "C-1",
+        "country": "IT",
+        "email": "anna@example.com"
+      },
+      "lines": [
+        {
+          "sku": "BOOK-1",
+          "quantity": 4,
+          "unitPrice": 30
+        }
+      ],
+      "express": false
+    },
+    "expected": {
+      "outcome": "valid",
+      "result": {
+        "shipping": {
+          "cost": 0,
+          "days": 3
+        },
+        "total": 120
+      }
+    }
+  }
+]

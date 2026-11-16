@@ -1,0 +1,19 @@
+{
+  "applicationId": "L-77",
+  "applicant": {
+    "birthDate": "1985-03-14",
+    "monthlyIncome": 3200,
+    "creditScore": 760,
+    "debts": [
+      {
+        "kind": "car",
+        "monthly": 180
+      }
+    ]
+  },
+  "loan": {
+    "amount": 15000,
+    "years": 5,
+    "purpose": "car"
+  }
+}

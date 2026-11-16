@@ -10,14 +10,25 @@ import {
 } from '@xyflow/react'
 import { useEffect, useState } from 'react'
 
-import invalidPlan from '../../../examples/inputs/studyplan-emba-invalid.json'
-import validPlan from '../../../examples/inputs/studyplan-emba-valid.json'
-import exampleGraph from '../../../examples/rulesets/aurora.studyplan.emba.json'
 import { edgesOnPath, type NodeStatus, type RuleGraph, toFlow } from '../rgd'
 import { RuleNode } from '../RuleNode'
 
-// JSON imports are typed structurally (tuples widen to number[]): cast via unknown.
-const graph = exampleGraph as unknown as RuleGraph
+// Every example of the repository, bundled at build time. Inputs belong to the entity of
+// the rule set: examples/inputs/<entity in lower case>-*.json.
+const graphFiles = import.meta.glob<RuleGraph>('../../../examples/rulesets/*.json', { eager: true, import: 'default' })
+const inputFiles = import.meta.glob<unknown>('../../../examples/inputs/*.json', { eager: true, import: 'default' })
+const EXAMPLES = Object.values(graphFiles).sort((a, b) => a.ruleset.localeCompare(b.ruleset))
+
+function samplesFor(graph: RuleGraph): Record<string, unknown> {
+  const prefix = (graph.schemaRef?.entity ?? '').toLowerCase()
+  const out: Record<string, unknown> = {}
+  for (const [path, data] of Object.entries(inputFiles)) {
+    const name = path.split('/').pop()?.replace(/\.json$/, '') ?? path
+    if (name.startsWith(`${prefix}-`)) out[name.slice(prefix.length + 1)] = data
+  }
+  return out
+}
+
 const nodeTypes = { rule: RuleNode }
 const STATUS_COLOR: Record<NodeStatus, string> = {
   idle: '#adb5bd',
@@ -28,11 +39,6 @@ const STATUS_COLOR: Record<NodeStatus, string> = {
 }
 const minimapColor = (node: { data: Record<string, unknown> }) =>
   STATUS_COLOR[(node.data.status as NodeStatus | undefined) ?? 'idle']
-const initialFlow = toFlow(graph)
-const SAMPLES: Record<string, unknown> = {
-  'Piano valido': validPlan,
-  'Piano non valido': invalidPlan,
-}
 
 interface Feedback {
   code: string
@@ -53,16 +59,25 @@ interface ExecutionResult {
 }
 
 export function DemoPage() {
+  const [ruleset, setRuleset] = useState(EXAMPLES.find((g) => g.ruleset.endsWith('emba'))?.ruleset ?? EXAMPLES[0]?.ruleset)
+  const graph = EXAMPLES.find((g) => g.ruleset === ruleset)
+  if (!graph) return <p>Nessun esempio.</p>
+  // A key per rule set resets the canvas state when the example changes.
+  return <DemoView key={graph.ruleset} graph={graph} onRuleset={setRuleset} />
+}
+
+function DemoView({ graph, onRuleset }: { graph: RuleGraph; onRuleset: (key: string) => void }) {
+  const samples = samplesFor(graph)
   const [selected, setSelected] = useState<string | null>(null)
-  const [sample, setSample] = useState<string>('Piano non valido')
+  const [sample, setSample] = useState<string>(Object.keys(samples).find((s) => s.includes('invalid')) ?? Object.keys(samples)[0] ?? '')
   const [result, setResult] = useState<ExecutionResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
 
   // Node state goes through React Flow's change handlers so that nodes get their measured
   // size (needed by fitView and the minimap); simulation results only patch status/edges.
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialFlow.nodes)
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialFlow.edges)
+  const [nodes, setNodes, onNodesChange] = useNodesState(toFlow(graph).nodes)
+  const [edges, setEdges, onEdgesChange] = useEdgesState(toFlow(graph).edges)
 
   useEffect(() => {
     const status: Record<string, NodeStatus> = {}
@@ -76,7 +91,7 @@ export function DemoPage() {
       current.map((n) => ({ ...n, data: { ...n.data, status: status[n.id] ?? 'idle' } })),
     )
     setEdges(toFlow(graph, status, edgesOnPath(graph, result?.path ?? [])).edges)
-  }, [result, setNodes, setEdges])
+  }, [graph, result, setNodes, setEdges])
 
   const selectedNode = graph.nodes.find((n) => n.id === selected)
 
@@ -87,7 +102,7 @@ export function DemoPage() {
       const res = await fetch(`/v1/exec/local/${graph.ruleset}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ input: SAMPLES[sample], options: { trace: 'summary' } }),
+        body: JSON.stringify({ input: samples[sample], options: { trace: 'summary', referenceDate: '2027-09-20' } }),
       })
       const body: unknown = await res.json()
       if (!res.ok && res.status !== 422) {
@@ -115,8 +130,15 @@ export function DemoPage() {
           </span>
         </div>
         <div className="actions">
+          <select value={graph.ruleset} onChange={(e) => onRuleset(e.target.value)} aria-label="Esempio">
+            {EXAMPLES.map((g) => (
+              <option key={g.ruleset} value={g.ruleset}>
+                {g.ruleset}
+              </option>
+            ))}
+          </select>
           <select value={sample} onChange={(e) => setSample(e.target.value)} aria-label="Input">
-            {Object.keys(SAMPLES).map((name) => (
+            {Object.keys(samples).map((name) => (
               <option key={name}>{name}</option>
             ))}
           </select>

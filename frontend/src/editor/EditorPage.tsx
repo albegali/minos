@@ -9,7 +9,15 @@ import {
   Text,
   Tooltip,
 } from '@fluentui/react-components'
-import { ArrowDownload20Regular, Checkmark20Regular, Play20Regular, Save20Regular } from '@fluentui/react-icons'
+import {
+  ArrowDownload20Regular,
+  ArrowRedo20Regular,
+  ArrowUndo20Regular,
+  Checkmark20Regular,
+  Organization20Regular,
+  Play20Regular,
+  Save20Regular,
+} from '@fluentui/react-icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { ReactFlowProvider } from '@xyflow/react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -20,10 +28,21 @@ import { downloadJson, exportBundle, keys, saveDraft, useCatalog, useDraft, useR
 import { Canvas, Palette } from './Canvas'
 import { type FieldScope, ScopeContext } from './FieldPicker'
 import { addNode, defaultNode, frozenPositions, issueNode, newNodeId, variableNames } from './graph'
+import { autoLayout } from './layout'
 import { NodePanel } from './NodePanel'
 import { IssueList, NodeIO, SettingsPanel, SimulatePanel, TestsPanel, VersionsPanel } from './panels'
 import { listFields } from './schemaPaths'
 import { type PanelTab, useEditor } from './store'
+
+/** Rendered node sizes, so the layout leaves room for large nodes. */
+function measuredSizes(): Record<string, { width: number; height: number }> {
+  const out: Record<string, { width: number; height: number }> = {}
+  document.querySelectorAll<HTMLElement>('.react-flow__node[data-id]').forEach((el) => {
+    const id = el.dataset.id
+    if (id) out[id] = { width: el.offsetWidth, height: el.offsetHeight }
+  })
+  return out
+}
 
 export function EditorPage() {
   const { ws, rs } = useParams() as { ws: string; rs: string }
@@ -45,6 +64,8 @@ export function EditorPage() {
   const change = useEditor((s) => s.change)
   const select = useEditor((s) => s.select)
   const setTab = useEditor((s) => s.setTab)
+  const canUndo = useEditor((s) => s.past.length > 0)
+  const canRedo = useEditor((s) => s.future.length > 0)
 
   const entity = info.data?.entity ?? undefined
   const schemas = useSchemas(ws, entity ?? '')
@@ -95,9 +116,22 @@ export function EditorPage() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      if (!(e.ctrlKey || e.metaKey)) return
+      const key = e.key.toLowerCase()
+      if (key === 's') {
         e.preventDefault()
         void save()
+        return
+      }
+      // Inside a text field the browser's own undo applies to the text.
+      const target = e.target as HTMLElement | null
+      if (target?.closest('input, textarea, [contenteditable="true"]')) return
+      if (key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        useEditor.getState().undo()
+      } else if (key === 'y' || (key === 'z' && e.shiftKey)) {
+        e.preventDefault()
+        useEditor.getState().redo()
       }
     }
     window.addEventListener('keydown', onKey)
@@ -166,6 +200,35 @@ export function EditorPage() {
                 {issues.length ? `${issues.length} problemi` : 'Valido'}
               </Badge>
             )}
+            <Tooltip content="Annulla (Ctrl+Z)" relationship="label">
+              <Button
+                appearance="subtle"
+                icon={<ArrowUndo20Regular />}
+                disabled={!canUndo}
+                onClick={() => useEditor.getState().undo()}
+              />
+            </Tooltip>
+            <Tooltip content="Ripristina (Ctrl+Shift+Z)" relationship="label">
+              <Button
+                appearance="subtle"
+                icon={<ArrowRedo20Regular />}
+                disabled={!canRedo}
+                onClick={() => useEditor.getState().redo()}
+              />
+            </Tooltip>
+            <Tooltip content="Dispone i nodi da sinistra a destra seguendo i collegamenti" relationship="description">
+              <Button
+                appearance="subtle"
+                icon={<Organization20Regular />}
+                onClick={() =>
+                  change((g) => ({ ...g, ui: { ...g.ui, positions: autoLayout(g, measuredSizes()) } }), {
+                    coalesce: false,
+                  })
+                }
+              >
+                Riordina
+              </Button>
+            </Tooltip>
             <Tooltip content="Ctrl+S" relationship="description">
               <Button icon={<Save20Regular />} disabled={!dirty || busy} onClick={() => void save()}>
                 Salva

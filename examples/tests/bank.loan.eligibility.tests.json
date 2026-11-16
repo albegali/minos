@@ -1,0 +1,97 @@
+[
+  {
+    "name": "richiesta idonea, fascia A",
+    "input": {
+      "applicationId": "L-77",
+      "applicant": {
+        "birthDate": "1985-03-14",
+        "monthlyIncome": 3200,
+        "creditScore": 760,
+        "debts": [
+          {
+            "kind": "car",
+            "monthly": 180
+          }
+        ]
+      },
+      "loan": {
+        "amount": 15000,
+        "years": 5,
+        "purpose": "car"
+      }
+    },
+    "referenceDate": "2027-09-20",
+    "expected": {
+      "outcome": "valid",
+      "exitNodeId": "approved",
+      "result": {
+        "instalment": 325,
+        "risk": {
+          "band": "A",
+          "spread": 0.5
+        }
+      }
+    }
+  },
+  {
+    "name": "tre motivi di rifiuto",
+    "input": {
+      "applicationId": "L-78",
+      "applicant": {
+        "birthDate": "1960-01-01",
+        "monthlyIncome": 1500,
+        "creditScore": 520,
+        "debts": [
+          {
+            "kind": "mortgage",
+            "monthly": 400
+          }
+        ]
+      },
+      "loan": {
+        "amount": 40000,
+        "years": 20,
+        "purpose": "home"
+      }
+    },
+    "referenceDate": "2027-09-20",
+    "expected": {
+      "outcome": "invalid",
+      "exitNodeId": "rejected",
+      "feedbackCodes": [
+        "LOAN_REJECTED"
+      ]
+    }
+  },
+  {
+    "name": "fascia B",
+    "input": {
+      "applicationId": "L-77",
+      "applicant": {
+        "birthDate": "1985-03-14",
+        "monthlyIncome": 3200,
+        "creditScore": 690,
+        "debts": [
+          {
+            "kind": "car",
+            "monthly": 180
+          }
+        ]
+      },
+      "loan": {
+        "amount": 15000,
+        "years": 5,
+        "purpose": "car"
+      }
+    },
+    "referenceDate": "2027-09-20",
+    "expected": {
+      "outcome": "valid",
+      "result": {
+        "risk": {
+          "band": "B"
+        }
+      }
+    }
+  }
+]

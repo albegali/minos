@@ -1,0 +1,19 @@
+{
+  "applicationId": "L-78",
+  "applicant": {
+    "birthDate": "1960-01-01",
+    "monthlyIncome": 1500,
+    "creditScore": 520,
+    "debts": [
+      {
+        "kind": "mortgage",
+        "monthly": 400
+      }
+    ]
+  },
+  "loan": {
+    "amount": 40000,
+    "years": 20,
+    "purpose": "home"
+  }
+}

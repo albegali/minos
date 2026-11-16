@@ -52,9 +52,34 @@ def load(rel: str) -> Any:
     return json.loads((EXAMPLES / rel).read_text())
 
 
+def example_rulesets() -> list[dict[str, Any]]:
+    """Every example graph, dependencies (pinned sub-rulesets) before their users."""
+    graphs = {
+        g["ruleset"]: g
+        for g in (
+            load(f"rulesets/{p.name}") for p in sorted((EXAMPLES / "rulesets").glob("*.json"))
+        )
+    }
+    ordered: list[dict[str, Any]] = []
+
+    def visit(key: str) -> None:
+        graph = graphs[key]
+        if graph in ordered:
+            return
+        for node in graph["nodes"]:
+            if node["type"] == "subruleset":
+                visit(node["ruleset"])
+        ordered.append(graph)
+
+    for key in graphs:
+        visit(key)
+    return ordered
+
+
 async def seed(base: str, admin_key: str) -> str:
+    """Publish every example to workspace ``aurora`` (entity schemas inferred from the
+    example inputs), each version gated by its test suite; return an exec key."""
     admin = {"Authorization": f"Bearer {admin_key}"}
-    samples = [json.loads(p.read_text()) for p in sorted((EXAMPLES / "inputs").glob("*.json"))]
     async with httpx.AsyncClient(base_url=base, headers=admin, timeout=30) as c:
 
         async def post(path: str, body: Any) -> dict[str, Any]:
@@ -66,18 +91,24 @@ async def seed(base: str, admin_key: str) -> str:
 
         ws = "/v1/workspaces/aurora"
         await post("/v1/workspaces", {"slug": "aurora", "name": "Aurora Business School"})
-        await post(f"{ws}/entities", {"key": "StudyPlan", "name": "Piano di studi"})
-        await post(f"{ws}/entities/StudyPlan/schemas", {"samples": samples})
-        # Order matters: aurora.studyplan.full pins aurora.studyplan.common@0.1.0.
-        for ruleset in (
-            "aurora.studyplan.common",
-            "aurora.studyplan.emba",
-            "aurora.studyplan.full",
-        ):
-            graph = load(f"rulesets/{ruleset}.json")
+        graphs = example_rulesets()
+        for entity in sorted({g["schemaRef"]["entity"] for g in graphs}):
+            files = sorted((EXAMPLES / "inputs").glob(f"{entity.lower()}-*.json"))
+            await post(f"{ws}/entities", {"key": entity, "name": entity})
+            await post(
+                f"{ws}/entities/{entity}/schemas",
+                {"samples": [json.loads(p.read_text()) for p in files]},
+            )
+        for graph in graphs:
+            ruleset = graph["ruleset"]
             await post(
                 f"{ws}/rulesets",
-                {"key": ruleset, "name": ruleset, "entity": "StudyPlan", "graph": graph},
+                {
+                    "key": ruleset,
+                    "name": ruleset,
+                    "entity": graph["schemaRef"]["entity"],
+                    "graph": graph,
+                },
             )
             for case in load(f"tests/{ruleset}.tests.json"):
                 await post(f"{ws}/rulesets/{ruleset}/tests", case)

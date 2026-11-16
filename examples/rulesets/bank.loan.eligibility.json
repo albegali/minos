@@ -1,0 +1,448 @@
+{
+  "rgdVersion": "1.0",
+  "ruleset": "bank.loan.eligibility",
+  "version": "0.1.0",
+  "schemaRef": {
+    "entity": "LoanApplication",
+    "version": 1
+  },
+  "settings": {
+    "mode": "collect_all",
+    "locale": "it"
+  },
+  "constants": {
+    "minAge": 18,
+    "maxAgeAtEnd": 75,
+    "maxInstalmentRatio": 0.35,
+    "annualRate": 0.06
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start"
+    },
+    {
+      "id": "derive",
+      "type": "set",
+      "label": "Rata e indicatori",
+      "assign": {
+        "age": {
+          "fn": "age",
+          "args": [
+            {
+              "ref": "$.input.applicant.birthDate"
+            }
+          ]
+        },
+        "months": {
+          "op": "*",
+          "args": [
+            {
+              "ref": "$.input.loan.years"
+            },
+            12
+          ]
+        },
+        "instalment": {
+          "fn": "round",
+          "args": [
+            {
+              "op": "/",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "ref": "$.input.loan.amount"
+                    },
+                    {
+                      "op": "+",
+                      "args": [
+                        1,
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "ref": "$.vars.annualRate"
+                            },
+                            {
+                              "ref": "$.input.loan.years"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "ref": "$.input.loan.years"
+                    },
+                    12
+                  ]
+                }
+              ]
+            },
+            2
+          ]
+        },
+        "ratio": {
+          "fn": "round",
+          "args": [
+            {
+              "op": "/",
+              "args": [
+                {
+                  "op": "+",
+                  "args": [
+                    {
+                      "fn": "sum",
+                      "args": [
+                        {
+                          "ref": "$.input.applicant.debts[*].monthly"
+                        }
+                      ]
+                    },
+                    {
+                      "op": "/",
+                      "args": [
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "ref": "$.input.loan.amount"
+                            },
+                            {
+                              "op": "+",
+                              "args": [
+                                1,
+                                {
+                                  "op": "*",
+                                  "args": [
+                                    {
+                                      "ref": "$.vars.annualRate"
+                                    },
+                                    {
+                                      "ref": "$.input.loan.years"
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "op": "*",
+                          "args": [
+                            {
+                              "ref": "$.input.loan.years"
+                            },
+                            12
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "ref": "$.input.applicant.monthlyIncome"
+                }
+              ]
+            },
+            3
+          ]
+        }
+      }
+    },
+    {
+      "id": "reasons",
+      "type": "decision_table",
+      "label": "Motivi di rifiuto",
+      "hitPolicy": "collect",
+      "target": "reasons",
+      "inputs": [
+        {
+          "name": "age",
+          "label": "Età",
+          "expr": {
+            "ref": "$.vars.age"
+          }
+        },
+        {
+          "name": "ageAtEnd",
+          "label": "Età a fine prestito",
+          "expr": {
+            "op": "+",
+            "args": [
+              {
+                "ref": "$.vars.age"
+              },
+              {
+                "ref": "$.input.loan.years"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ratio",
+          "label": "Rata / reddito",
+          "expr": {
+            "ref": "$.vars.ratio"
+          }
+        },
+        {
+          "name": "score",
+          "label": "Punteggio",
+          "expr": {
+            "ref": "$.input.applicant.creditScore"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "code"
+        },
+        {
+          "name": "reason"
+        }
+      ],
+      "rules": [
+        {
+          "when": [
+            {
+              "op": "<",
+              "value": {
+                "ref": "$.vars.minAge"
+              }
+            },
+            null,
+            null,
+            null
+          ],
+          "then": {
+            "code": "LOAN_AGE_MIN",
+            "reason": "Richiedente minorenne"
+          }
+        },
+        {
+          "when": [
+            null,
+            {
+              "op": ">",
+              "value": {
+                "ref": "$.vars.maxAgeAtEnd"
+              }
+            },
+            null,
+            null
+          ],
+          "then": {
+            "code": "LOAN_AGE_END",
+            "reason": "Età a fine prestito oltre il limite"
+          }
+        },
+        {
+          "when": [
+            null,
+            null,
+            {
+              "op": ">",
+              "value": {
+                "ref": "$.vars.maxInstalmentRatio"
+              }
+            },
+            null
+          ],
+          "then": {
+            "code": "LOAN_RATIO",
+            "reason": "Rate oltre il 35% del reddito"
+          }
+        },
+        {
+          "when": [
+            null,
+            null,
+            null,
+            {
+              "op": "<",
+              "value": 550
+            }
+          ],
+          "then": {
+            "code": "LOAN_SCORE",
+            "reason": "Punteggio di credito insufficiente"
+          }
+        }
+      ],
+      "feedback": {
+        "pass": {
+          "code": "LOAN_REJECTED",
+          "severity": "error",
+          "message": {
+            "it": "Richiesta non ammissibile",
+            "en": "Application not eligible"
+          },
+          "data": {
+            "reasons": {
+              "fn": "map",
+              "args": [
+                {
+                  "ref": "$.vars.reasons"
+                }
+              ],
+              "select": {
+                "ref": "$.item.code"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "band",
+      "type": "decision_table",
+      "label": "Fascia di rischio",
+      "hitPolicy": "first",
+      "target": "risk",
+      "inputs": [
+        {
+          "name": "score",
+          "label": "Punteggio",
+          "expr": {
+            "ref": "$.input.applicant.creditScore"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "band"
+        },
+        {
+          "name": "spread"
+        }
+      ],
+      "rules": [
+        {
+          "when": [
+            {
+              "op": ">=",
+              "value": 750
+            }
+          ],
+          "then": {
+            "band": "A",
+            "spread": 0.5
+          }
+        },
+        {
+          "when": [
+            {
+              "op": "between",
+              "value": [
+                650,
+                749
+              ]
+            }
+          ],
+          "then": {
+            "band": "B",
+            "spread": 1.25
+          }
+        },
+        {
+          "when": [
+            null
+          ],
+          "then": {
+            "band": "C",
+            "spread": 2.5
+          }
+        }
+      ]
+    },
+    {
+      "id": "approved",
+      "type": "end",
+      "outcome": "valid",
+      "output": {
+        "instalment": {
+          "ref": "$.vars.instalment"
+        },
+        "ratio": {
+          "ref": "$.vars.ratio"
+        },
+        "risk": {
+          "ref": "$.vars.risk"
+        }
+      }
+    },
+    {
+      "id": "rejected",
+      "type": "end",
+      "outcome": "invalid",
+      "output": {
+        "reasons": {
+          "ref": "$.vars.reasons"
+        },
+        "ratio": {
+          "ref": "$.vars.ratio"
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "to": "derive"
+    },
+    {
+      "from": "derive",
+      "to": "reasons"
+    },
+    {
+      "from": "reasons",
+      "to": "rejected",
+      "on": "pass"
+    },
+    {
+      "from": "reasons",
+      "to": "band",
+      "on": "fail"
+    },
+    {
+      "from": "band",
+      "to": "approved",
+      "on": "pass"
+    }
+  ],
+  "ui": {
+    "positions": {
+      "start": [
+        0,
+        0
+      ],
+      "derive": [
+        286,
+        0
+      ],
+      "reasons": [
+        572,
+        0
+      ],
+      "band": [
+        858,
+        -110
+      ],
+      "approved": [
+        1144,
+        -110
+      ],
+      "rejected": [
+        858,
+        140
+      ]
+    }
+  }
+}

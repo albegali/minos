@@ -8,7 +8,9 @@ const TYPE_LABEL: Record<string, string> = {
   group: 'Gruppo',
   set: 'Calcolo',
   switch: 'Switch',
-  feedback: 'Feedback',
+  feedback: 'Messaggio',
+  decision_table: 'Tabella decisionale',
+  subruleset: 'Rule set annidato',
   end: 'Fine',
 }
 

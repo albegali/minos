@@ -15,8 +15,21 @@ from minos.schema import infer_schema
 
 from .conftest import EXAMPLES
 
-SCHEMA = infer_schema(
-    [json.loads(p.read_text()) for p in sorted((EXAMPLES / "inputs").glob("*.json"))]
+GRAPHS = {p.stem: json.loads(p.read_text()) for p in sorted((EXAMPLES / "rulesets").glob("*.json"))}
+
+
+def samples_for(entity: str) -> list[Any]:
+    """Example inputs of an entity: ``examples/inputs/<entity lower case>-*.json``."""
+    files = sorted((EXAMPLES / "inputs").glob(f"{entity.lower()}-*.json"))
+    return [json.loads(p.read_text()) for p in files]
+
+
+SCHEMAS = {
+    g["schemaRef"]["entity"]: infer_schema(samples_for(g["schemaRef"]["entity"]))
+    for g in GRAPHS.values()
+}
+RESOLVE = resolver_from(
+    {(g["ruleset"], g["version"]): (g, SCHEMAS[g["schemaRef"]["entity"]]) for g in GRAPHS.values()}
 )
 SUITES = sorted((EXAMPLES / "tests").glob("*.tests.json"))
 
@@ -30,17 +43,18 @@ def cases() -> list[Any]:
     return out
 
 
-GRAPHS = {p.stem: json.loads(p.read_text()) for p in sorted((EXAMPLES / "rulesets").glob("*.json"))}
-RESOLVE = resolver_from({(g["ruleset"], g["version"]): (g, SCHEMA) for g in GRAPHS.values()})
-
-
 @pytest.mark.parametrize(("ruleset", "case"), cases())
 def test_example_suites(ruleset: str, case: dict[str, Any]) -> None:
-    compiled = compile_ruleset(GRAPHS[ruleset], SCHEMA, RESOLVE)
+    graph = GRAPHS[ruleset]
+    compiled = compile_ruleset(graph, SCHEMAS[graph["schemaRef"]["entity"]], RESOLVE)
     result = compiled.execute(
         case["input"], ExecuteOptions(reference_date=case.get("referenceDate"))
     )
     assert compare(case["expected"], result) == []
+
+
+def test_every_entity_has_example_inputs() -> None:
+    assert all(samples_for(entity) for entity in SCHEMAS)
 
 
 def test_every_example_ruleset_has_a_suite() -> None:
@@ -50,7 +64,7 @@ def test_every_example_ruleset_has_a_suite() -> None:
 
 def test_feedback_data_lists_offending_items() -> None:
     graph = json.loads((EXAMPLES / "rulesets" / "aurora.studyplan.common.json").read_text())
-    compiled = compile_ruleset(graph, SCHEMA)
+    compiled = compile_ruleset(graph, SCHEMAS["StudyPlan"])
     suite = json.loads((EXAMPLES / "tests" / "aurora.studyplan.common.tests.json").read_text())
     by_name = {c["name"]: c for c in suite}
     result = compiled.execute(by_name["corso fuori catalogo e duplicato"]["input"])
