@@ -221,15 +221,15 @@
   "ui": {
     "positions": {
       "start": [0, 0],
-      "derive": [220, 0],
-      "chkWindow": [440, 0],
-      "grpCfu": [660, 0],
-      "swTrack": [880, 0],
-      "chkFinTrack": [1100, -100],
-      "chkFinLimit": [1100, 100],
-      "price": [1320, 0],
-      "chkInstallments": [1540, 0],
-      "endOk": [1760, 0]
+      "derive": [286, 0],
+      "chkWindow": [572, 0],
+      "grpCfu": [858, 0],
+      "swTrack": [1144, 0],
+      "chkFinTrack": [1430, -120],
+      "chkFinLimit": [1430, 120],
+      "price": [1716, 0],
+      "chkInstallments": [2002, 0],
+      "endOk": [2288, 0]
     }
   }
 }
