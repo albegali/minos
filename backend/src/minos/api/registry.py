@@ -58,6 +58,10 @@ class Deployment:
     workspace: str
     compiled: CompiledRuleset
     validator: InputValidator | None
+    schema: dict[str, Any] | None = None
+    """Entity schema the version was published against (documents the execution API)."""
+    feedback_codes: tuple[tuple[str, str], ...] = ()
+    """``(code, severity)`` of the feedback the graph itself declares, in order of appearance."""
 
     @property
     def hash(self) -> str:
@@ -73,7 +77,32 @@ def build(
     # Published graphs were type-checked at publish time; recompiling with the schema keeps
     # the guarantee if a version is loaded by a newer engine.
     compiled = compile_ruleset(graph, schema, resolve)
-    return Deployment(workspace, compiled, InputValidator(schema) if schema else None)
+    return Deployment(
+        workspace,
+        compiled,
+        InputValidator(schema) if schema else None,
+        schema,
+        declared_feedback(graph),
+    )
+
+
+def declared_feedback(graph: dict[str, Any]) -> tuple[tuple[str, str], ...]:
+    """Feedback codes declared anywhere in the graph's nodes (sub-rule sets not included)."""
+    found: dict[str, str] = {}
+
+    def walk(value: Any) -> None:
+        if isinstance(value, dict):
+            code = value.get("code")
+            if isinstance(code, str) and "message" in value:
+                found.setdefault(code, str(value.get("severity", "error")))
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(graph.get("nodes", []))
+    return tuple(found.items())
 
 
 type Schedule = tuple[tuple[dt.date, Deployment], ...]
@@ -93,6 +122,8 @@ class RulesetRegistry:
         self._schedules: dict[Key, Schedule] = {}
         self._versions: dict[Key, Deployment] = {}
         self.ready = False
+        self.generation = 0
+        """Bumped on every change of the deployed schedules (cache key for derived documents)."""
 
     # ------------------------------------------------------------------ lookups (hot path)
 
@@ -126,6 +157,7 @@ class RulesetRegistry:
         else:
             updated[key] = tuple(sorted(schedule, key=lambda e: e[0]))
         self._schedules = updated  # atomic swap
+        self.generation += 1
 
     def replace_all(
         self, schedules: dict[Key, Schedule], keep_workspace: str | None = None
@@ -134,6 +166,7 @@ class RulesetRegistry:
         kept = {k: v for k, v in self._schedules.items() if k[0] == keep_workspace}
         fresh = {k: tuple(sorted(v, key=lambda e: e[0])) for k, v in schedules.items()}
         self._schedules = {**fresh, **kept}
+        self.generation += 1
 
     def put_version(self, key: Key, deployment: Deployment) -> None:
         if len(self._versions) > 1000:  # bounded: fixed-version calls are the exception

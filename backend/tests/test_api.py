@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 import minos.api.app as module
 from minos.api.app import create_app
+from minos.api.exec_docs import embed_schema
 from minos.settings import Settings
 
 from .conftest import EXAMPLES, graph
@@ -160,3 +161,41 @@ def test_file_mode_resolves_sub_rulesets(client: TestClient, valid_plan: dict[st
     res = client.post("/v1/exec/local/aurora.studyplan.full", json={"input": valid_plan})
     assert res.status_code == 200
     assert res.json()["result"]["tuitionFee"] == 30800
+
+
+def test_exec_openapi(client: TestClient) -> None:
+    doc = client.get("/v1/exec/openapi.json").json()
+    assert doc["openapi"] == "3.1.0"
+    assert f"{EMBA}" in doc["paths"]
+    op = doc["paths"]["/v1/exec/local/shop.order"]["post"]
+    assert op["summary"] == "shop.order @ prod — v0.1.0"
+    assert "`ORD_COUPON_IGNORED` | warning" in op["description"]
+    assert "security" not in doc
+    assert client.get("/v1/exec/openapi.json?workspace=nope").json()["paths"] == {}
+    page = client.get("/v1/exec/docs")
+    assert page.status_code == 200 and "swagger-ui" in page.text
+    # documents of the deployments, not of the platform
+    assert "/v1/exec/openapi.json" not in client.get("/openapi.json").json()["paths"]
+
+
+def test_exec_openapi_follows_registry(client: TestClient) -> None:
+    registry = client.app.state.runtime.registry  # type: ignore[attr-defined]
+    first = client.get("/v1/exec/openapi.json").json()
+    assert client.get("/v1/exec/openapi.json").json() == first
+    registry.put(("local", "shop.order", "prod"), None)
+    assert "/v1/exec/local/shop.order" not in client.get("/v1/exec/openapi.json").json()["paths"]
+
+
+def test_embed_schema_rewrites_local_refs() -> None:
+    schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "$id": "urn:x",
+        "type": "object",
+        "properties": {"a": {"$ref": "#/$defs/A"}, "b": {"$ref": "other.json#/x"}},
+        "$defs": {"A": {"type": "string"}},
+    }
+    out = embed_schema(schema, "W.R.prod.Input")
+    assert out["properties"]["a"]["$ref"] == "#/components/schemas/W.R.prod.Input/$defs/A"
+    assert out["properties"]["b"]["$ref"] == "other.json#/x"
+    assert "$id" not in out and "$schema" not in out
+    assert schema["properties"]["a"]["$ref"] == "#/$defs/A"  # input untouched
