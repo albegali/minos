@@ -1,3 +1,12 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/minos-logo-dark.png">
+    <img alt="Minos" src="docs/brand/minos-logo-light.png" width="360">
+  </picture>
+</p>
+
+<p align="center"><b>Motore di regole JSON · editor visuale · API sub-millisecondo</b></p>
+
 # Minos
 
 **Minos** è un motore di regole JSON-in / JSON-out: valuta un oggetto JSON contro un grafo di regole
@@ -13,6 +22,8 @@ plane su PostgreSQL con versioni, alias e validità temporale, Execution API con
 Studio per costruire, testare e pubblicare le regole senza scrivere JSON, e un server MCP per
 farle scrivere a un assistente AI partendo da una descrizione.
 
+![Minos Studio: un rule set simulato, con il percorso evidenziato sul canvas e messaggi e output nel pannello](docs/screenshots/simulation.png)
+
 ## Struttura
 
 | Percorso | Contenuto |
@@ -27,6 +38,8 @@ farle scrivere a un assistente AI partendo da una descrizione.
 | [`docs/mcp.md`](docs/mcp.md) | Server MCP: regole scritte da un assistente AI |
 | [`docs/benchmarks.md`](docs/benchmarks.md) | Misure e gate di fase |
 | [`docs/adr/`](docs/adr/) | Decisioni architetturali |
+| [`docs/brand/`](docs/brand/) | Logo (originale, versioni per tema chiaro e scuro, marchio) |
+| [`docs/screenshots/`](docs/screenshots/) | Schermate dello Studio usate in questa pagina |
 
 ## Avvio rapido
 
@@ -74,6 +87,54 @@ di `examples/rulesets` e lo Studio apre la demo (`/demo`).
 
 In un'installazione più grande Execution API e Management API girano come processi separati
 (`minos.api.app:execution_app`, `minos.api.app:management_app`).
+
+## Minos Studio
+
+Lo Studio è l'editor web delle regole: si costruisce il grafo trascinando i nodi dalla palette, si
+configura ogni nodo con form guidati dallo schema dell'entità, si simula su un input reale, si
+salvano le simulazioni come test e si pubblica per ambiente, senza scrivere JSON. La
+[guida allo Studio](docs/studio.md) descrive il percorso completo.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/workspace.png" alt="Pagina del workspace con rule set ed entità"></td>
+    <td width="50%"><img src="docs/screenshots/entity.png" alt="Schema di un'entità con campi, tipi e riferimenti"></td>
+  </tr>
+  <tr>
+    <td><b>Workspace.</b> Rule set ed entità di un'area, con importazione da file.</td>
+    <td><b>Entità.</b> Lo schema, inferito da esempi o scritto a mano, con il riferimento da usare in ogni regola.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/editor-node.png" alt="Editor con un nodo Calcolo selezionato e il form nel pannello"></td>
+    <td><img src="docs/screenshots/canvas-full.png" alt="Canvas a tutta larghezza con il pannello chiuso e il percorso simulato"></td>
+  </tr>
+  <tr>
+    <td><b>Configurazione.</b> Palette a sinistra, canvas al centro, il form del nodo selezionato a destra; le espressioni annidate restano leggibili a ogni livello.</td>
+    <td><b>Pannello richiudibile.</b> Il pannello si chiude in una barra di icone e lascia tutto lo spazio al grafo; si riapre selezionando un nodo.</td>
+  </tr>
+</table>
+
+Lo Studio segue il tema del sistema operativo, chiaro o scuro, e si adatta a finestre strette e
+telefoni.
+
+![Lo Studio in tema scuro](docs/screenshots/dark.png)
+
+## Identità visiva
+
+| | Colore | Uso |
+| --- | --- | --- |
+| <img src="docs/brand/swatch-navy.png" width="16" height="16" alt=""> | Blu notte `#0B2D4E` | Testo del marchio, azioni principali |
+| <img src="docs/brand/swatch-teal.png" width="16" height="16" alt=""> | Teal `#039BB0` | Accenti, focus, selezione, percorso simulato |
+| <img src="docs/brand/swatch-green.png" width="16" height="16" alt=""> | Verde `#01928C` | Esito positivo, nodi superati |
+
+- **Font**: [League Spartan](https://fonts.google.com/specimen/League+Spartan), caricato da Google
+  Fonts.
+- **Logo**: l'originale e le versioni per sfondo chiaro e scuro sono in
+  [`docs/brand/`](docs/brand/); nello Studio il marchio è disegnato in SVG
+  ([`Brand.tsx`](frontend/src/components/Brand.tsx)) e cambia colore con il tema.
+- **Tema**: colori, font, raggi e ombre dei componenti Fluent UI stanno in
+  [`theme.ts`](frontend/src/theme.ts); le variabili CSS per canvas e nodi in
+  [`styles.css`](frontend/src/styles.css).
 
 ## Assistente AI (MCP)
 
