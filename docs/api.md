@@ -19,9 +19,11 @@ Configurazione da variabili d'ambiente:
 | `MINOS_POLL_INTERVAL_S` | `30` | Controllo periodico degli alias (rete di sicurezza per NOTIFY persi) |
 | `MINOS_EXAMPLES_DIR` | `examples/` del repo | Esempi caricati da `minos.cli seed-examples` |
 | `MINOS_SEED_EXAMPLES` | `true` solo nell'immagine Docker | Carica gli esempi al primo avvio del container |
+| `MINOS_STUDIO_URL` | `http://localhost:8080` | Indirizzo dello Studio nei link restituiti dal server MCP |
 
 Senza database né directory, `minos.api.app:app` serve gli esempi del repo: è la modalità demo
-usata da Minos Studio.
+usata da Minos Studio. Con il database, `minos.api.app:app` espone anche il server MCP su `/mcp`
+(vedi [`mcp.md`](mcp.md)).
 
 `GET /v1/info` (sempre pubblico) descrive l'installazione:
 `{"name", "version", "authRequired", "management", "database"}`. Lo Studio lo usa per decidere se

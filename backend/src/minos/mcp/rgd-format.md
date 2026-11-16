@@ -1,0 +1,207 @@
+# Rule Graph Document (RGD) · formato 1.0
+
+Un rule set è un documento JSON che descrive un grafo orientato aciclico di nodi. Il modello
+autoritativo è `backend/src/minos/engine/model.py`; esempio completo in
+[`examples/rulesets/aurora.studyplan.emba.json`](../examples/rulesets/aurora.studyplan.emba.json).
+
+```json
+{
+  "rgdVersion": "1.0",
+  "ruleset": "aurora.studyplan.emba",
+  "version": "0.1.0",
+  "schemaRef": { "entity": "StudyPlan", "version": 1 },
+  "settings": { "mode": "collect_all", "locale": "it", "maxSteps": 5000 },
+  "constants": { "minCfu": 60 },
+  "nodes": [],
+  "edges": [],
+  "ui": { "positions": {} }
+}
+```
+
+| Campo | Significato |
+| --- | --- |
+| `ruleset` | Chiave del rule set, usata nell'URL `POST /v1/exec/{ruleset}` (minuscole, `.`, `-`, `_`) |
+| `settings.mode` | `fail_fast` (default) o `collect_all`: cambia il comportamento di default su fallimento |
+| `settings.locale` | Lingua di default dei messaggi |
+| `settings.maxSteps` | Limite di passi per esecuzione (errore 422 se superato) |
+| `constants` | Valori copiati in `$.vars` all'inizio di ogni esecuzione |
+| `ui` | Solo per l'editor (posizioni, note): escluso dall'hash di versione |
+
+## Context
+
+Ogni espressione legge da uno scope JSON:
+
+| Radice | Contenuto |
+| --- | --- |
+| `$.input` | L'oggetto ricevuto, in sola lettura |
+| `$.vars` | Costanti e variabili scritte dai nodi `set` |
+| `$.nodes.<id>` | `{ "outcome": "pass" \| "fail", "output": ... }` dei nodi già eseguiti |
+| `$.meta` | `ruleset`, `version`, `referenceDate`, `requestId`, `locale` |
+| `$.item` | L'elemento corrente dentro `where` / `select` |
+| `$.outer` | In un'aggregazione annidata, l'elemento dell'aggregazione esterna |
+
+Sintassi dei riferimenti: `.chiave`, `["chiave con spazi"]`, `[n]` (anche negativo), `[*]`
+(espande un array: il risultato è una lista).
+
+## Nodi
+
+| Tipo | Campi | Porte in uscita |
+| --- | --- | --- |
+| `start` | | `next` |
+| `condition` | `condition`, `onFail?`, `feedback?` | `pass` (obbligatoria), `fail` |
+| `group` | `operator` (`and`/`or`/`not`), `evaluate` (`short_circuit`/`all`), `children`, `onFail?`, `feedback?` | `pass` (obbligatoria), `fail` |
+| `set` | `assign: { nome: espressione }` scrive in `$.vars` | `next` |
+| `switch` | `cases: [{ name, when }]`, il primo vero vince | ogni `name` + `default` (tutte obbligatorie) |
+| `feedback` | `feedback`, `when?` | `next` |
+| `decision_table` | `hitPolicy`, `inputs`, `outputs`, `rules`, `target`, `onFail?`, `feedback?` | `pass` (una riga vale, obbligatoria), `fail` |
+| `subruleset` | `ruleset`, `version` (fissata), `input?`, `forEach?`, `passWhen?`, `target?`, `onFail?`, `feedback?` | `pass` (obbligatoria), `fail` |
+| `end` | `outcome` (`valid`/`invalid`/`warning`), `output?: { chiave: espressione }` | nessuna |
+
+Gli archi sono `{ "from": id, "to": id, "on": porta }` (`on` di default `next`). Il compiler
+rifiuta: id duplicati, start mancante o multiplo, nessun end, porte inesistenti o collegate due
+volte, porte obbligatorie scollegate, archi verso lo start, cicli. I nodi non raggiungibili
+producono un warning.
+
+I figli di un `group` sono espressioni oppure regole con feedback proprio:
+`{ "rule": <espressione>, "feedback": { "fail": {...} } }`. Con `evaluate: "all"` ogni figlio
+viene valutato (utile per raccogliere tutti gli errori); `not` vale NOT(AND(figli)).
+
+### Tabella decisionale
+
+```json
+{
+  "id": "fees", "type": "decision_table", "hitPolicy": "first", "target": "fees",
+  "inputs": [
+    { "name": "program", "expr": { "ref": "$.input.program.code" } },
+    { "name": "cfu", "expr": { "ref": "$.vars.totalCfu" } }
+  ],
+  "outputs": [{ "name": "baseFee" }, { "name": "discount" }],
+  "rules": [
+    { "when": ["EMBA", { "op": ">=", "value": 60 }], "then": { "baseFee": 38500, "discount": 0 } },
+    { "when": [["MSC", "MBA"], null], "then": { "baseFee": 30000, "discount": 10 } },
+    { "when": [null, null], "then": { "baseFee": 25000, "discount": 0 } }
+  ]
+}
+```
+
+Una cella per colonna di input: `null` (qualsiasi), un valore (uguaglianza), una lista (uno tra),
+`{"op": ..., "value": ...}` con `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `not_in`, `between`,
+`date_before`, `date_after`, `date_between`, `contains`, `starts_with` (il valore può essere
+un'espressione), oppure un'espressione (uguaglianza con il suo valore). Gli output sono valori o
+espressioni.
+
+| Hit policy | Risultato in `$.vars.<target>` |
+| --- | --- |
+| `first` | la prima riga che vale |
+| `unique` | l'unica riga che vale; più righe → errore di esecuzione |
+| `priority` | la riga con `priority` più alta (a parità, la prima) |
+| `any` | le righe che valgono devono concordare; altrimenti errore |
+| `collect` | la lista delle righe che valgono |
+
+Se nessuna riga vale, il nodo fallisce (porta `fail`, con le stesse regole `onFail` delle
+condizioni). Nello Studio le celle si scrivono in forma breve: vuoto o `-`, `EMBA`, `A, B`,
+`>= 60`, `30..59`, `2027-01-01..2027-12-31`, `!= X`, `$.vars.nome`.
+
+### Rule set annidato
+
+Esegue un altro rule set dello stesso workspace a **versione fissata** (`version` è obbligatoria:
+la versione pubblicata è immutabile, quindi il risultato resta riproducibile). La versione deve
+essere pubblicata prima di validare o pubblicare il rule set che la usa.
+
+- `input` (default `$.input`): l'oggetto passato al rule set annidato.
+- `forEach`: una lista; il rule set gira una volta per elemento (`$.item`, che è anche l'`input`
+  di default). `passWhen` = `all` (default) o `any`.
+- Esito: il nodo passa se il rule set annidato è `valid` o `warning` (con `forEach`, secondo
+  `passWhen`); un `error` interrompe l'esecuzione con esito `error`.
+- `target`: `{ "outcome", "result" }`, o la lista di questi con `forEach`, in `$.vars`.
+- I messaggi del rule set annidato confluiscono nel risultato con `nodeId` = `<nodo>/<nodo
+  annidato>` e, con `forEach`, `index` dell'elemento.
+
+Un "dispatcher" (scegliere il rule set in base a un campo) è un normale rule set con uno `switch`
+seguito da nodi `subruleset`.
+
+## Fallimento, uscita ed esito
+
+Politica `onFail` di un nodo `condition`, `group`, `decision_table` o `subruleset` che fallisce:
+
+| Politica | Effetto | Conta come violazione |
+| --- | --- | --- |
+| `stop` | L'esecuzione termina subito con esito `invalid` (`exit.reason = "stop"`) | Sì |
+| `continue` | Prosegue sulla porta `fail` se collegata, altrimenti su `pass` | Sì |
+| `branch` | Segue la porta `fail` (obbligatoria): è solo controllo di flusso | No |
+
+Default se `onFail` manca: `branch` se la porta `fail` è collegata, altrimenti `stop` in
+`fail_fast` e `continue` in `collect_all`.
+
+Esito finale: quello dell'`end` raggiunto; un `end` dichiarato `valid` diventa `invalid` se ci sono
+violazioni o feedback con severità `error`, e `warning` se ci sono solo warning. Un errore di
+valutazione (es. confronto tra tipi incompatibili) termina con esito `error`.
+
+## Type-check alla pubblicazione
+
+Validazione e pubblicazione compilano il grafo con lo schema dell'entità e rifiutano (tutti insieme):
+riferimenti `$.input` / `$.item` / `$.outer` inesistenti nello schema, variabili né costanti né
+assegnate da un nodo `set`, nodi o chiavi `meta` inesistenti, aggregazioni su campi che non sono
+array (o non numerici per `sum`/`min`/`max`/`avg`), confronti con letterali di tipo incompatibile.
+Valgono anche per i segnaposto `{{...}}` dei messaggi. Le proprietà non dichiarate di un oggetto
+con `properties` sono considerate inesistenti, salvo `additionalProperties`.
+
+## Feedback
+
+```json
+{
+  "code": "SP_CFU_MIN",
+  "severity": "error",
+  "path": "courses",
+  "message": { "it": "Servono almeno {{vars.minCfu}} CFU", "en": "At least {{vars.minCfu}} ECTS" },
+  "data": { "actual": { "ref": "$.vars.totalCfu" } }
+}
+```
+
+Su `condition` e `group` (e sui figli dei gruppi) si definiscono `feedback.pass` e
+`feedback.fail`. I segnaposto `{{...}}` sono riferimenti senza `$.`. Lingua: quella richiesta,
+poi quella di default del rule set, poi la prima disponibile.
+
+## Espressioni
+
+Letterali JSON; liste di espressioni; `{"literal": <qualsiasi JSON>}` per oggetti letterali;
+`{"ref": "$...."}`; operatori `{"op": ..., "left": ..., "right": ...}` (oppure `"args": [...]` o
+`"arg"`); funzioni `{"fn": ..., "args": [...]}`.
+
+| Operatori | Note |
+| --- | --- |
+| `==` `!=` | `null` e campo assente sono equivalenti |
+| `<` `<=` `>` `>=` | `false` se un lato è assente; errore se i tipi non sono confrontabili |
+| `between` | `right: [min, max]`, estremi inclusi |
+| `date_before` `date_after` `date_between` | Confronto sulla parte data (ISO `YYYY-MM-DD...`) |
+| `in` `not_in` | `right` lista letterale o riferimento a una lista |
+| `contains` `starts_with` `ends_with` `regex` | `regex` richiede un pattern letterale |
+| `exists` `is_null` `is_not_null` | `exists` distingue campo assente da `null` |
+| `and` `or` `not` `if` | `if`: `args: [condizione, allora, altrimenti]` |
+| `+` `-` `*` `/` `%` | `null` se un operando è assente |
+
+| Funzioni | Note |
+| --- | --- |
+| `sum` `count` `min` `max` `avg` `any` `all` `distinct` `filter` `map` | Un argomento array; opzionali `where` (filtro) e `select` (proiezione) con `$.item` |
+| `len` `lower` `upper` `trim` `coalesce` `round` `abs` `floor` | |
+| `date` `today` `days_between` `age` | `today` e `age` usano `meta.referenceDate` (impostabile per richiesta) |
+
+## Risultato di un'esecuzione
+
+```json
+{
+  "requestId": "…",
+  "ruleset": "aurora.studyplan.emba",
+  "version": "0.1.0",
+  "outcome": "valid | invalid | warning | error",
+  "exit": { "nodeId": "endOk", "reason": "end | stop | error" },
+  "feedback": [],
+  "result": {},
+  "path": ["start", "…"],
+  "trace": null,
+  "timing": { "engineUs": 212.4 }
+}
+```
+
+`trace` è `null` con `options.trace = "none"`, la lista degli step con `summary`, e include output e
+microsecondi per nodo con `full`.

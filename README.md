@@ -8,21 +8,23 @@ l'idoneità a un finanziamento, ma qualunque oggetto JSON con uno schema può es
 > Come Minosse, re e legislatore di Creta e poi giudice delle anime, Minos giudica ogni oggetto
 > e decide da che parte farlo passare.
 
-Stato: **fase F2 (editor MVP)** della [roadmap](docs/spec.md#roadmap): motore compilato, control plane su
-PostgreSQL con versioni e alias, Execution API con hot reload, Minos Studio per costruire, testare e
-pubblicare le regole senza scrivere JSON.
+Stato: **fasi F0–F3 completate** della [roadmap](docs/spec.md#roadmap): motore compilato, control
+plane su PostgreSQL con versioni, alias e validità temporale, Execution API con hot reload, Minos
+Studio per costruire, testare e pubblicare le regole senza scrivere JSON, e un server MCP per
+farle scrivere a un assistente AI partendo da una descrizione.
 
 ## Struttura
 
 | Percorso | Contenuto |
 | --- | --- |
-| [`backend/`](backend/) | Python 3.14: motore (`minos.engine`), schemi (`minos.schema`), control plane (`minos.control`, `minos.db`), API FastAPI (`minos.api`), test, benchmark |
+| [`backend/`](backend/) | Python 3.14: motore (`minos.engine`), schemi (`minos.schema`), control plane (`minos.control`, `minos.db`), API FastAPI (`minos.api`), server MCP (`minos.mcp`), test, benchmark |
 | [`frontend/`](frontend/) | Minos Studio: React 19, Fluent UI 2, React Flow; test Vitest e Playwright |
 | [`examples/`](examples/) | Rule set di esempio di tre domini (piano di studi, ordine e-commerce, finanziamento; valori illustrativi), input e suite di test |
 | [`docs/spec.md`](docs/spec.md) | Specifiche funzionali, architettura, API e roadmap |
 | [`docs/rgd-format.md`](docs/rgd-format.md) | Riferimento del formato Rule Graph Document 1.0 |
 | [`docs/studio.md`](docs/studio.md) | Guida rapida a Minos Studio |
 | [`docs/api.md`](docs/api.md) | Riferimento delle API di esecuzione e gestione |
+| [`docs/mcp.md`](docs/mcp.md) | Server MCP: regole scritte da un assistente AI |
 | [`docs/benchmarks.md`](docs/benchmarks.md) | Misure e gate di fase |
 | [`docs/adr/`](docs/adr/) | Decisioni architetturali |
 
@@ -72,6 +74,18 @@ di `examples/rulesets` e lo Studio apre la demo (`/demo`).
 
 In un'installazione più grande Execution API e Management API girano come processi separati
 (`minos.api.app:execution_app`, `minos.api.app:management_app`).
+
+## Assistente AI (MCP)
+
+Collega un client MCP a `http://localhost:8000/mcp` (o avvia `python -m minos.mcp` via stdio) e
+descrivi le regole a parole: l'assistente crea entità e rule set come draft, li valida, li prova
+e restituisce il link allo Studio per la revisione e la pubblicazione. Per Claude Code:
+
+```bash
+claude mcp add --transport http minos http://localhost:8000/mcp
+```
+
+Dettagli, configurazione di Claude Desktop e tool in [`docs/mcp.md`](docs/mcp.md).
 
 ## Qualità
 
