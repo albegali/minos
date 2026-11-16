@@ -39,7 +39,7 @@ target-version = "py314"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PL"]
 # Compilers are long dispatch functions by nature: statement/branch counts are not useful here.
-ignore = ["PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004"]
+ignore = ["PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "PLR2004"]
 
 [tool.mypy]
 python_version = "3.14"
@@ -47,6 +47,10 @@ strict = true
 packages = ["minos"]
 mypy_path = "src"
 plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["asyncpg", "asyncpg.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

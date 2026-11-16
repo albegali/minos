@@ -1,116 +1,73 @@
-"""Execution API (F0 skeleton).
+"""Combined application for development and small installations.
 
-The hot path avoids Pydantic: the body is parsed with orjson, the compiled rule set is
-looked up in memory and the result is serialised with orjson.
+Production runs the two planes as separate processes so they scale independently:
+
+* ``minos.api.app:execution_app`` — execution API (stateless workers, in-memory rule sets);
+* ``minos.api.app:management_app`` — management API (Studio, CI, administrators).
+
+``minos.api.app:app`` serves both from one process. Configuration comes from ``MINOS_*``
+environment variables (see :mod:`minos.settings`).
 """
 
 from __future__ import annotations
 
-import os
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
 
-import orjson
-from fastapi import FastAPI, Request
-from fastapi.responses import Response
+from fastapi import FastAPI
 
 from minos import __version__
-from minos.engine import ExecuteOptions, ExecutionLimitError
+from minos.db import make_sessionmaker
+from minos.settings import Settings
 
-from .registry import RulesetRegistry
-
-_TRACE_LEVELS = {"none", "summary", "full"}
-_MAX_BODY_BYTES = 1_048_576
-
-
-def _json(body: Any, status: int = 200, headers: dict[str, str] | None = None) -> Response:
-    return Response(
-        content=orjson.dumps(body),
-        status_code=status,
-        media_type="application/json",
-        headers=headers,
-    )
+from .execution import ExecutionRuntime, create_execution_app, execution_router
+from .execution import install_problem_handler as install_execution_handlers
+from .management import create_management_app, install_error_handlers, management_router
 
 
-def _problem(status: int, title: str, detail: str) -> Response:
-    return _json({"status": status, "title": title, "detail": detail}, status)
+def create_app(settings: Settings | None = None) -> FastAPI:
+    cfg = settings or Settings.from_env()
+    if cfg.database_url is None and cfg.rulesets_dir is None:
+        default = Settings.from_env()
+        cfg = Settings(
+            database_url=None,
+            rulesets_dir=_examples_dir(),
+            require_auth=False,
+            poll_interval_s=default.poll_interval_s,
+        )
+    rt = ExecutionRuntime.from_settings(cfg)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        await rt.start()
+        try:
+            yield
+        finally:
+            await rt.stop()
+
+    app = FastAPI(title="Minos", version=__version__, lifespan=lifespan)
+    app.state.runtime = rt
+    app.include_router(execution_router(rt.registry, rt.sync, cfg.require_auth))
+    if rt.engine is not None:
+        app.include_router(management_router(make_sessionmaker(rt.engine), cfg.require_auth))
+        install_error_handlers(app)
+    else:
+        install_execution_handlers(app)
+    return app
 
 
-def _default_rulesets_dir() -> Path | None:
-    env = os.environ.get("MINOS_RULESETS_DIR")
-    if env:
-        return Path(env)
+def _examples_dir() -> Path | None:
     candidate = Path(__file__).resolve().parents[4] / "examples" / "rulesets"
     return candidate if candidate.is_dir() else None
 
 
-def create_app(rulesets_dir: Path | None = None) -> FastAPI:
-    registry = RulesetRegistry()
-    directory = rulesets_dir or _default_rulesets_dir()
-    if directory is not None:
-        registry.load_directory(directory)
-
-    app = FastAPI(title="Minos Execution API", version=__version__)
-    app.state.registry = registry
-
-    @app.get("/v1/health")
-    def health() -> Response:
-        return _json({"status": "ok", "rulesets": len(registry.all())})
-
-    @app.get("/v1/rulesets")
-    def list_rulesets() -> Response:
-        return _json(
-            [
-                {"ruleset": r.ruleset, "version": r.version, "hash": r.hash, "mode": r.mode}
-                for r in registry.all()
-            ]
-        )
-
-    @app.post("/v1/exec/{ruleset}")
-    async def execute(ruleset: str, request: Request) -> Response:
-        compiled = registry.get(ruleset)
-        if compiled is None:
-            return _problem(404, "Not Found", f"unknown ruleset {ruleset!r}")
-
-        raw = await request.body()
-        if len(raw) > _MAX_BODY_BYTES:
-            return _problem(413, "Payload Too Large", "input exceeds 1 MB")
-        try:
-            body = orjson.loads(raw)
-        except orjson.JSONDecodeError as exc:
-            return _problem(400, "Bad Request", f"invalid JSON: {exc}")
-        if not isinstance(body, dict) or "input" not in body:
-            return _problem(400, "Bad Request", "body must be an object with an 'input' member")
-
-        opts = body.get("options") or {}
-        if not isinstance(opts, dict):
-            return _problem(400, "Bad Request", "'options' must be an object")
-        trace = opts.get("trace", "none")
-        if trace not in _TRACE_LEVELS:
-            return _problem(400, "Bad Request", f"'trace' must be one of {sorted(_TRACE_LEVELS)}")
-
-        try:
-            result = compiled.execute(
-                body["input"],
-                ExecuteOptions(
-                    trace=trace,
-                    locale=opts.get("locale"),
-                    reference_date=opts.get("referenceDate"),
-                    request_id=request.headers.get("x-request-id"),
-                ),
-            )
-        except ExecutionLimitError as exc:
-            return _problem(422, "Execution Limit", str(exc))
-
-        headers = {
-            "X-Ruleset-Version": compiled.version,
-            "X-Request-Id": result["requestId"],
-            "Server-Timing": f"engine;dur={result['timing']['engineUs'] / 1000:.3f}",
-        }
-        status = 422 if result["outcome"] == "error" else 200
-        return _json(result, status, headers)
-
-    return app
-
-
-app = create_app()
+def __getattr__(name: str) -> FastAPI:
+    # Lazily built so that importing the module never needs a database or the network.
+    if name == "app":
+        return create_app()
+    if name == "execution_app":
+        return create_execution_app()
+    if name == "management_app":
+        return create_management_app()
+    raise AttributeError(name)
