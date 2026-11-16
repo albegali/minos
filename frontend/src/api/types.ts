@@ -31,11 +31,49 @@ export interface RulesetSummary {
   name: string
 }
 
+export interface ScheduleEntry {
+  version: string
+  /** ISO date, or null for the entry that applies with no start date. */
+  effectiveFrom: string | null
+}
+
 export interface RulesetInfo extends RulesetSummary {
   entity: string | null
   description: string | null
   latestVersion: string | null
+  /** Version each environment runs today. */
   aliases: Record<string, string>
+  schedule: Record<string, ScheduleEntry[]>
+}
+
+export interface Change {
+  path: string
+  kind: 'added' | 'removed' | 'changed'
+  from?: unknown
+  to?: unknown
+}
+
+export interface GraphDiff {
+  from: string
+  to: string
+  identical: boolean
+  nodes: {
+    added: { id: string; type: string; label?: string }[]
+    removed: { id: string; type: string; label?: string }[]
+    changed: { id: string; type: string; changes: Change[] }[]
+  }
+  edges: { added: string[]; removed: string[] }
+  other: Change[]
+}
+
+export interface ImportResult {
+  ruleset: string
+  created: boolean
+  entity: string
+  entityCreated: boolean
+  schemaVersion: number | null
+  tests: number
+  dependencies: { ruleset: string; version: string }[]
 }
 
 export interface Draft {

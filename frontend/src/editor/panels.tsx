@@ -1,6 +1,13 @@
 import {
   Badge,
   Button,
+  Dialog,
+  DialogActions,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
+  DialogTrigger,
   Dropdown,
   Field,
   Input,
@@ -13,13 +20,18 @@ import {
   Text,
   Textarea,
 } from '@fluentui/react-components'
+import { ArrowDownload16Regular, Delete16Regular } from '@fluentui/react-icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 
 import { ApiError, errorMessage } from '../api/client'
 import {
   addTest,
+  deleteAliasEntry,
   deleteTest,
+  downloadJson,
+  exportBundle,
+  fetchDiff,
   keys,
   publish,
   runTests,
@@ -30,7 +42,7 @@ import {
   useTests,
   useVersions,
 } from '../api/hooks'
-import type { ExecutionResult, Issue, TestRun } from '../api/types'
+import type { Change, ExecutionResult, GraphDiff, Issue, TestRun } from '../api/types'
 import { ErrorBar, FormDialog, JsonField } from '../components/forms'
 import { useEditor } from './store'
 
@@ -262,6 +274,7 @@ export function VersionsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
   const [aliasError, setAliasError] = useState<unknown>(null)
   const info = useRuleset(ws, rs)
   const aliases = info.data?.aliases ?? {}
+  const schedule = info.data?.schedule ?? {}
 
   async function refresh() {
     await Promise.all([
@@ -330,12 +343,45 @@ export function VersionsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
       )}
 
       <Text weight="semibold">Ambienti</Text>
-      <table className="field-table">
+      <Text size={200} className="muted">
+        Ogni chiamata usa la versione in vigore alla sua data di riferimento: si possono pianificare le regole di un
+        periodo (es. dal 1° agosto) mentre le attuali restano attive.
+      </Text>
+      <table className="field-table" aria-label="Versioni per ambiente">
         <tbody>
           {ENVS.map((env) => (
             <tr key={env}>
-              <td>{env}</td>
-              <td>{aliases[env] ? <Badge appearance="tint">{aliases[env]}</Badge> : <Text className="muted">—</Text>}</td>
+              <td>
+                <b>{env}</b>
+              </td>
+              <td>
+                {(schedule[env] ?? []).length === 0 && <Text className="muted">—</Text>}
+                <div className="stack-tight">
+                  {(schedule[env] ?? []).map((entry) => (
+                    <div key={entry.effectiveFrom ?? 'always'} className="inline">
+                      <Badge appearance={aliases[env] === entry.version ? 'filled' : 'tint'}>{entry.version}</Badge>
+                      <Text size={200}>
+                        {entry.effectiveFrom ? `dal ${formatDay(entry.effectiveFrom)}` : 'senza data di inizio'}
+                      </Text>
+                      <Button
+                        size="small"
+                        appearance="subtle"
+                        aria-label={`Togli ${entry.version} da ${env}`}
+                        icon={<Delete16Regular />}
+                        onClick={async () => {
+                          setAliasError(null)
+                          try {
+                            await deleteAliasEntry(ws, rs, env, entry.effectiveFrom)
+                            await refresh()
+                          } catch (e) {
+                            setAliasError(e)
+                          }
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -356,29 +402,178 @@ export function VersionsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
             </div>
             {v.notes && <Text size={200}>{v.notes}</Text>}
             <div className="inline">
-              {ENVS.map((env) => (
-                <Button
-                  key={env}
-                  size="small"
-                  disabled={aliases[env] === v.version}
-                  onClick={async () => {
-                    setAliasError(null)
-                    try {
-                      await setAlias(ws, rs, env, v.version)
-                      await refresh()
-                    } catch (e) {
-                      setAliasError(e)
-                    }
-                  }}
-                >
-                  {aliases[env] === v.version ? `in ${env}` : `Porta in ${env}`}
-                </Button>
-              ))}
+              <PromoteDialog ws={ws} rs={rs} version={v.version} onDone={refresh} />
+              <DiffDialog ws={ws} rs={rs} from={v.version} />
+              <Button
+                size="small"
+                appearance="subtle"
+                icon={<ArrowDownload16Regular />}
+                onClick={async () => downloadJson(`${rs}-${v.version}.minos.json`, await exportBundle(ws, rs, v.version))}
+              >
+                Esporta
+              </Button>
             </div>
           </li>
         ))}
       </ul>
     </div>
+  )
+}
+
+function formatDay(iso: string): string {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
+function PromoteDialog({ ws, rs, version, onDone }: { ws: string; rs: string; version: string; onDone: () => Promise<void> }) {
+  const [env, setEnv] = useState('prod')
+  const [when, setWhen] = useState<'now' | 'date'>('now')
+  const [day, setDay] = useState('')
+  return (
+    <FormDialog
+      title={`Porta ${version} in un ambiente`}
+      submitLabel="Conferma"
+      canSubmit={when === 'now' || Boolean(day)}
+      trigger={<Button size="small">Porta in…</Button>}
+      onSubmit={async () => {
+        await setAlias(ws, rs, env, version, when === 'date' ? day : null)
+        await onDone()
+      }}
+    >
+      <Field label="Ambiente">
+        <Dropdown value={env} selectedOptions={[env]} onOptionSelect={(_, d) => setEnv(d.optionValue ?? 'prod')}>
+          {ENVS.map((e) => (
+            <Option key={e} value={e}>
+              {e}
+            </Option>
+          ))}
+        </Dropdown>
+      </Field>
+      <RadioGroup value={when} onChange={(_, d) => setWhen(d.value as 'now' | 'date')} aria-label="Quando">
+        <Radio value="now" label="Da subito, senza data di inizio (sostituisce la versione attuale)" />
+        <Radio value="date" label="Da una data: le chiamate con data di riferimento successiva useranno questa versione" />
+      </RadioGroup>
+      {when === 'date' && (
+        <Field label="In vigore dal">
+          <Input type="date" value={day} onChange={(_, d) => setDay(d.value)} />
+        </Field>
+      )}
+    </FormDialog>
+  )
+}
+
+function changeText(c: Change): string {
+  const v = (x: unknown) => (x === undefined ? '' : JSON.stringify(x))
+  if (c.kind === 'added') return `${c.path}: aggiunto ${v(c.to)}`
+  if (c.kind === 'removed') return `${c.path}: rimosso (era ${v(c.from)})`
+  return `${c.path}: ${v(c.from)} → ${v(c.to)}`
+}
+
+export function DiffDialog({ ws, rs, from }: { ws: string; rs: string; from: string }) {
+  const [diff, setDiff] = useState<GraphDiff | null>(null)
+  const [error, setError] = useState<unknown>(null)
+  return (
+    <Dialog
+      onOpenChange={async (_, d) => {
+        if (!d.open) return
+        setDiff(null)
+        setError(null)
+        try {
+          setDiff(await fetchDiff(ws, rs, from))
+        } catch (e) {
+          setError(e)
+        }
+      }}
+    >
+      <DialogTrigger disableButtonEnhancement>
+        <Button size="small" appearance="subtle">
+          Confronta con il draft
+        </Button>
+      </DialogTrigger>
+      <DialogSurface className="wide-dialog">
+        <DialogBody>
+          <DialogTitle>Da {from} al draft</DialogTitle>
+          <DialogContent className="stack">
+            <ErrorBar error={error} />
+            {!diff && !error && <Spinner size="tiny" />}
+            {diff?.identical && <Text>Nessuna differenza nelle regole (le posizioni sul canvas non contano).</Text>}
+            {diff && !diff.identical && (
+              <>
+                {diff.nodes.added.length > 0 && (
+                  <section>
+                    <Text weight="semibold">Nodi aggiunti</Text>
+                    <ul className="diff-list added">
+                      {diff.nodes.added.map((n) => (
+                        <li key={n.id}>
+                          {n.label ?? n.id} <span className="muted">({n.type})</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+                {diff.nodes.removed.length > 0 && (
+                  <section>
+                    <Text weight="semibold">Nodi rimossi</Text>
+                    <ul className="diff-list removed">
+                      {diff.nodes.removed.map((n) => (
+                        <li key={n.id}>
+                          {n.label ?? n.id} <span className="muted">({n.type})</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+                {diff.nodes.changed.map((n) => (
+                  <section key={n.id}>
+                    <Text weight="semibold">Nodo {n.id} modificato</Text>
+                    <ul className="diff-list">
+                      {n.changes.map((c) => (
+                        <li key={c.path}>
+                          <code>{changeText(c)}</code>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ))}
+                {(diff.edges.added.length > 0 || diff.edges.removed.length > 0) && (
+                  <section>
+                    <Text weight="semibold">Collegamenti</Text>
+                    <ul className="diff-list">
+                      {diff.edges.added.map((e) => (
+                        <li key={`+${e}`} className="added">
+                          + {e}
+                        </li>
+                      ))}
+                      {diff.edges.removed.map((e) => (
+                        <li key={`-${e}`} className="removed">
+                          − {e}
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+                {diff.other.length > 0 && (
+                  <section>
+                    <Text weight="semibold">Impostazioni e costanti</Text>
+                    <ul className="diff-list">
+                      {diff.other.map((c) => (
+                        <li key={c.path}>
+                          <code>{changeText(c)}</code>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+              </>
+            )}
+          </DialogContent>
+          <DialogActions>
+            <DialogTrigger disableButtonEnhancement>
+              <Button>Chiudi</Button>
+            </DialogTrigger>
+          </DialogActions>
+        </DialogBody>
+      </DialogSurface>
+    </Dialog>
   )
 }
 

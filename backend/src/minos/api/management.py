@@ -6,11 +6,13 @@ database transaction (committed when the handler returns without error).
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, Literal
 
+import orjson
 from fastapi import APIRouter, FastAPI, Header, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
@@ -18,6 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from minos import __version__
 from minos.control import service as svc
+from minos.control.bundle import export_bundle, import_bundle
+from minos.control.diff import diff_graphs
 from minos.control.errors import ControlError, Invalid, Unauthorized
 from minos.db import Entity, RulesetVersion, SchemaVersion, make_engine, make_sessionmaker
 from minos.engine import ExecuteOptions
@@ -85,6 +89,8 @@ class PublishIn(BaseModel):
 
 class AliasIn(BaseModel):
     version: str
+    effectiveFrom: dt.date | None = None
+    """Start date of this entry; omitted: applies with no start date."""
 
 
 class TestIn(BaseModel):
@@ -126,6 +132,18 @@ def _version_out(v: RulesetVersion, full: bool = False) -> dict[str, Any]:
     }
     if full:
         out["graph"] = v.graph
+    return out
+
+
+def _schedule_out(entries: list[svc.AliasEntry]) -> dict[str, list[dict[str, Any]]]:
+    out: dict[str, list[dict[str, Any]]] = {}
+    for e in entries:
+        out.setdefault(e.env, []).append(
+            {
+                "version": e.version,
+                "effectiveFrom": e.effective_from.isoformat() if e.effective_from else None,
+            }
+        )
     return out
 
 
@@ -356,7 +374,8 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
                 "entity": entity.key if entity else None,
                 "description": r.description,
                 "latestVersion": latest.semver if latest else None,
-                "aliases": dict(aliases),
+                "aliases": svc.current_aliases(aliases, dt.datetime.now(dt.UTC).date()),
+                "schedule": _schedule_out(aliases),
             }
         )
 
@@ -456,7 +475,7 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
         async with sessions() as s:
             w = await workspace(s, who, ws)
             items = await svc.list_aliases(s, await svc.get_ruleset(s, w, rs))
-        return json_response(dict(items))
+        return json_response(_schedule_out(items))
 
     @router.put("/workspaces/{ws}/rulesets/{rs}/aliases/{env}")
     async def put_alias(ws: str, rs: str, env: str, body: AliasIn, request: Request) -> Response:
@@ -464,16 +483,82 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
         async with sessions.begin() as s:
             w = await workspace(s, who, ws)
             r = await svc.get_ruleset(s, w, rs)
-            await svc.set_alias(s, who.actor, w, r, env, body.version)
-        return json_response({"env": env, "version": body.version})
+            await svc.set_alias(s, who.actor, w, r, env, body.version, body.effectiveFrom)
+        return json_response(
+            {
+                "env": env,
+                "version": body.version,
+                "effectiveFrom": body.effectiveFrom.isoformat() if body.effectiveFrom else None,
+            }
+        )
 
     @router.delete("/workspaces/{ws}/rulesets/{rs}/aliases/{env}", status_code=204)
-    async def delete_alias(ws: str, rs: str, env: str, request: Request) -> Response:
+    async def delete_alias(
+        ws: str, rs: str, env: str, request: Request, effectiveFrom: str | None = None
+    ) -> Response:
+        """No ``effectiveFrom``: remove the whole environment. ``effectiveFrom=YYYY-MM-DD``:
+        remove that scheduled entry; ``effectiveFrom=always``: remove the undated entry."""
+        start: dt.date | None = None
+        if effectiveFrom not in (None, "always"):
+            try:
+                start = dt.date.fromisoformat(str(effectiveFrom))
+            except ValueError as exc:
+                raise Invalid("effectiveFrom must be YYYY-MM-DD or 'always'") from exc
         who = await principal(request)
         async with sessions.begin() as s:
             w = await workspace(s, who, ws)
-            await svc.delete_alias(s, who.actor, w, await svc.get_ruleset(s, w, rs), env)
+            await svc.delete_alias(
+                s,
+                who.actor,
+                w,
+                await svc.get_ruleset(s, w, rs),
+                env,
+                start,
+                all_entries=effectiveFrom is None,
+            )
         return Response(status_code=204)
+
+    @router.get("/workspaces/{ws}/rulesets/{rs}/diff")
+    async def diff(ws: str, rs: str, request: Request, to: str = "draft") -> Response:
+        """``?from=<version>&to=<version|draft>``: what changes from one to the other."""
+        who = await principal(request)
+        source = request.query_params.get("from")
+        if not source:
+            raise Invalid("the 'from' query parameter is required")
+        async with sessions() as s:
+            w = await workspace(s, who, ws)
+            r = await svc.get_ruleset(s, w, rs)
+
+            async def graph_of(ref: str) -> dict[str, Any]:
+                if ref == "draft":
+                    return (await svc.get_draft(s, r)).graph
+                return (await svc.get_version(s, r, ref)).graph
+
+            result = diff_graphs(await graph_of(source), await graph_of(to))
+        return json_response({"from": source, "to": to, **result})
+
+    @router.get("/workspaces/{ws}/rulesets/{rs}/export")
+    async def export(ws: str, rs: str, request: Request, version: str | None = None) -> Response:
+        who = await principal(request)
+        async with sessions() as s:
+            w = await workspace(s, who, ws)
+            bundle = await export_bundle(s, w, await svc.get_ruleset(s, w, rs), version)
+        name = f"{rs}-{version or 'draft'}.minos.json"
+        return json_response(
+            bundle, headers={"Content-Disposition": f'attachment; filename="{name}"'}
+        )
+
+    @router.post("/workspaces/{ws}/import")
+    async def import_(ws: str, request: Request) -> Response:
+        who = await principal(request)
+        try:
+            bundle = orjson.loads(await request.body())
+        except orjson.JSONDecodeError as exc:
+            raise Invalid(f"invalid JSON: {exc}") from exc
+        async with sessions.begin() as s:
+            w = await workspace(s, who, ws)
+            result = await import_bundle(s, who.actor, w, bundle)
+        return json_response(result, 201 if result["created"] else 200)
 
     # ---------------------------------------------------------------- tests
 

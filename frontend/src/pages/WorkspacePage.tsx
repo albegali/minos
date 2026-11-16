@@ -9,11 +9,12 @@ import {
   Spinner,
   Text,
 } from '@fluentui/react-components'
-import { Add20Regular, Database20Regular, Flowchart20Regular } from '@fluentui/react-icons'
-import { useState } from 'react'
+import { Add20Regular, ArrowUpload20Regular, Database20Regular, Flowchart20Regular } from '@fluentui/react-icons'
+import { useQueryClient } from '@tanstack/react-query'
+import { useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 
-import { useCreateEntity, useCreateRuleset, useEntities, useRulesets } from '../api/hooks'
+import { importBundle, keys, useCreateEntity, useCreateRuleset, useEntities, useRulesets } from '../api/hooks'
 import { ErrorBar, FormDialog, slugify } from '../components/forms'
 import { Page } from '../components/Shell'
 
@@ -101,6 +102,45 @@ function NewRuleset({ ws }: { ws: string }) {
   )
 }
 
+function ImportButton({ ws }: { ws: string }) {
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+  const input = useRef<HTMLInputElement>(null)
+  const [error, setError] = useState<unknown>(null)
+  return (
+    <>
+      <input
+        ref={input}
+        type="file"
+        accept="application/json,.json"
+        hidden
+        aria-label="File da importare"
+        onChange={async (e) => {
+          const file = e.target.files?.[0]
+          e.target.value = ''
+          if (!file) return
+          setError(null)
+          try {
+            const result = await importBundle(ws, JSON.parse(await file.text()) as unknown)
+            await Promise.all([
+              qc.invalidateQueries({ queryKey: keys.rulesets(ws) }),
+              qc.invalidateQueries({ queryKey: keys.entities(ws) }),
+              qc.invalidateQueries({ queryKey: keys.draft(ws, result.ruleset) }),
+            ])
+            navigate(`/w/${ws}/rulesets/${result.ruleset}`)
+          } catch (err) {
+            setError(err instanceof SyntaxError ? new Error('Il file non è un JSON valido') : err)
+          }
+        }}
+      />
+      <Button icon={<ArrowUpload20Regular />} onClick={() => input.current?.click()}>
+        Importa
+      </Button>
+      {error !== null && <ErrorBar error={error} />}
+    </>
+  )
+}
+
 export function WorkspacePage() {
   const ws = useParams().ws as string
   const entities = useEntities(ws)
@@ -112,6 +152,7 @@ export function WorkspacePage() {
       title={`Workspace ${ws}`}
       actions={
         <>
+          <ImportButton ws={ws} />
           <NewEntity ws={ws} />
           <NewRuleset ws={ws} />
         </>

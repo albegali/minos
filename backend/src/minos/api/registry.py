@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import datetime as dt
 import json
 import logging
 import time
@@ -31,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from minos.api.common import Principal
 from minos.control.service import resolver_for, resolver_from
 from minos.db import (
+    ALWAYS,
     NOTIFY_CHANNEL,
     ApiClient,
     Ruleset,
@@ -74,35 +76,59 @@ def build(
     return Deployment(workspace, compiled, InputValidator(schema) if schema else None)
 
 
+type Schedule = tuple[tuple[dt.date, Deployment], ...]
+"""Entries of one environment, sorted by start date (``ALWAYS`` first)."""
+
+
+def pick(schedule: Schedule, on: dt.date) -> Deployment | None:
+    """The deployment of the latest entry starting on or before ``on``."""
+    for start, deployment in reversed(schedule):
+        if start <= on:
+            return deployment
+    return None
+
+
 class RulesetRegistry:
     def __init__(self) -> None:
-        self._deployments: dict[Key, Deployment] = {}
+        self._schedules: dict[Key, Schedule] = {}
         self._versions: dict[Key, Deployment] = {}
         self.ready = False
 
     # ------------------------------------------------------------------ lookups (hot path)
 
-    def get(self, workspace: str, ruleset: str, env: str = DEFAULT_ENV) -> Deployment | None:
-        return self._deployments.get((workspace, ruleset, env))
+    def get(
+        self, workspace: str, ruleset: str, env: str = DEFAULT_ENV, on: dt.date | None = None
+    ) -> Deployment | None:
+        schedule = self._schedules.get((workspace, ruleset, env))
+        if schedule is None:
+            return None
+        return pick(schedule, on or dt.datetime.now(dt.UTC).date())
 
     def get_version(self, workspace: str, ruleset: str, semver: str) -> Deployment | None:
         return self._versions.get((workspace, ruleset, semver))
 
     # ------------------------------------------------------------------ updates
 
-    def all(self) -> list[tuple[Key, Deployment]]:
-        return sorted(self._deployments.items())
+    def all(self) -> list[tuple[Key, dt.date, Deployment]]:
+        return [
+            (key, start, dep)
+            for key, schedule in sorted(self._schedules.items())
+            for start, dep in schedule
+        ]
 
-    def put(self, key: Key, deployment: Deployment | None) -> None:
-        updated = dict(self._deployments)
-        if deployment is None:
+    def schedules(self) -> dict[Key, Schedule]:
+        return dict(self._schedules)
+
+    def put(self, key: Key, schedule: Schedule | None) -> None:
+        updated = dict(self._schedules)
+        if not schedule:
             updated.pop(key, None)
         else:
-            updated[key] = deployment
-        self._deployments = updated  # atomic swap
+            updated[key] = tuple(sorted(schedule, key=lambda e: e[0]))
+        self._schedules = updated  # atomic swap
 
-    def replace_all(self, deployments: dict[Key, Deployment]) -> None:
-        self._deployments = dict(deployments)
+    def replace_all(self, schedules: dict[Key, Schedule]) -> None:
+        self._schedules = {k: tuple(sorted(v, key=lambda e: e[0])) for k, v in schedules.items()}
 
     def put_version(self, key: Key, deployment: Deployment) -> None:
         if len(self._versions) > 1000:  # bounded: fixed-version calls are the exception
@@ -121,7 +147,7 @@ class RulesetRegistry:
             dep = build(LOCAL_WORKSPACE, graph, None, resolve)
             for warning in dep.compiled.warnings:
                 log.warning("%s: %s", file.name, warning)
-            self.put((LOCAL_WORKSPACE, dep.compiled.ruleset, DEFAULT_ENV), dep)
+            self.put((LOCAL_WORKSPACE, dep.compiled.ruleset, DEFAULT_ENV), ((ALWAYS, dep),))
             count += 1
         return count
 
@@ -155,6 +181,7 @@ _ALIAS_QUERY = (
         Workspace.slug,
         Ruleset.key,
         RulesetAlias.env,
+        RulesetAlias.effective_from,
         RulesetVersion.hash,
         RulesetVersion.graph,
         SchemaVersion.json_schema,
@@ -166,7 +193,13 @@ _ALIAS_QUERY = (
 )
 
 _HASH_QUERY = (
-    select(Workspace.slug, Ruleset.key, RulesetAlias.env, RulesetVersion.hash)
+    select(
+        Workspace.slug,
+        Ruleset.key,
+        RulesetAlias.env,
+        RulesetAlias.effective_from,
+        RulesetVersion.hash,
+    )
     .join(Ruleset, Ruleset.workspace_id == Workspace.id)
     .join(RulesetAlias, RulesetAlias.ruleset_id == Ruleset.id)
     .join(RulesetVersion, RulesetVersion.id == RulesetAlias.version_id)
@@ -213,28 +246,32 @@ class DbSync:
     async def load_all(self) -> None:
         async with self.sessions() as s:
             rows = (await s.execute(_ALIAS_QUERY)).all()
-        deployments: dict[Key, Deployment] = {}
-        for ws, rs, env, _hash, graph, schema in rows:
+        grouped: dict[Key, list[Any]] = {}
+        for row in rows:
+            grouped.setdefault((row.slug, row.key, row.env), []).append(row)
+        schedules: dict[Key, Schedule] = {}
+        for key, entries in grouped.items():
             try:
-                async with self.sessions() as s:
-                    resolve = await resolver_for(s, ws, graph)
-                deployments[(ws, rs, env)] = build(ws, graph, schema, resolve)
+                schedules[key] = await self._schedule(key[0], entries)
             except Exception:  # a broken version must not take the others down
-                log.exception("cannot load %s/%s@%s", ws, rs, env)
-        self.registry.replace_all(deployments)
+                log.exception("cannot load %s/%s@%s", *key)
+        self.registry.replace_all(schedules)
         self.reloads += 1
-        log.info("loaded %d deployments", len(deployments))
+        log.info("loaded %d deployments", len(schedules))
+
+    async def _schedule(self, ws: str, entries: list[Any]) -> Schedule:
+        out = []
+        for row in entries:
+            async with self.sessions() as s:
+                resolve = await resolver_for(s, ws, row.graph)
+            out.append((row.effective_from, build(ws, row.graph, row.json_schema, resolve)))
+        return tuple(out)
 
     async def reload_one(self, ws: str, rs: str, env: str) -> None:
         q = _ALIAS_QUERY.where(Workspace.slug == ws, Ruleset.key == rs, RulesetAlias.env == env)
         async with self.sessions() as s:
-            row = (await s.execute(q)).first()
-        if row is None:
-            self.registry.put((ws, rs, env), None)
-        else:
-            async with self.sessions() as s:
-                resolve = await resolver_for(s, ws, row.graph)
-            self.registry.put((ws, rs, env), build(ws, row.graph, row.json_schema, resolve))
+            rows = (await s.execute(q)).all()
+        self.registry.put((ws, rs, env), await self._schedule(ws, list(rows)) if rows else None)
         self.reloads += 1
 
     async def load_version(self, ws: str, rs: str, semver: str) -> Deployment | None:
@@ -308,12 +345,17 @@ class DbSync:
     # ------------------------------------------------------------------ safety net
 
     async def check_drift(self) -> int:
-        """Reload deployments whose hash differs from the database; return how many."""
+        """Reload environments whose entries differ from the database; return how many."""
         async with self.sessions() as s:
             rows = (await s.execute(_HASH_QUERY)).all()
-        wanted = {(ws, rs, env): h for ws, rs, env, h in rows}
-        current = {k: d.hash for k, d in self.registry.all()}
-        stale = [k for k, h in wanted.items() if current.get(k) != h]
+        wanted: dict[Key, list[tuple[dt.date, str]]] = {}
+        for ws, rs, env, start, digest in rows:
+            wanted.setdefault((ws, rs, env), []).append((start, digest))
+        current = {
+            key: sorted((start, dep.hash) for start, dep in schedule)
+            for key, schedule in self.registry.schedules().items()
+        }
+        stale = [k for k, v in wanted.items() if current.get(k) != sorted(v)]
         gone = [k for k in current if k not in wanted]
         for ws, rs, env in stale:
             await self.reload_one(ws, rs, env)
