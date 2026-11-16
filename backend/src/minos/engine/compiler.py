@@ -8,15 +8,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from pydantic import ValidationError
 
-from .errors import CompileError
+from .decision import DecisionTable, compile_table
+from .errors import CompileError, EvaluationError
 from .expressions import Evaluator, clean, compile_expr
 from .model import (
     ConditionNode,
+    DecisionTableNode,
     EndNode,
     FeedbackNode,
     FeedbackSpec,
@@ -27,15 +29,17 @@ from .model import (
     RuleGraph,
     SetNode,
     StartNode,
+    SubRulesetNode,
     SwitchNode,
 )
-from .refs import Scope
+from .refs import MISSING, Scope
 from .runtime import (
     FAIL,
     PASS,
     CompiledFeedback,
     CompiledNode,
     CompiledRuleset,
+    ExecuteOptions,
     ExecutionState,
     NodeFn,
     NodeOutcome,
@@ -54,13 +58,31 @@ def graph_hash(doc: Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+type Resolver = Callable[[str, str], CompiledRuleset]
+"""``(ruleset key, version) -> compiled rule set``, for sub-ruleset nodes."""
+
+
+def dependencies(doc: Mapping[str, Any]) -> list[tuple[str, str]]:
+    """Sub-rulesets referenced by a graph document, as ``(key, version)`` pairs."""
+    out = []
+    for node in doc.get("nodes", []) or []:
+        if isinstance(node, dict) and node.get("type") == "subruleset":
+            key, version = node.get("ruleset"), node.get("version")
+            if isinstance(key, str) and isinstance(version, str):
+                out.append((key, version))
+    return out
+
+
 def compile_ruleset(
-    doc: Mapping[str, Any] | RuleGraph, schema: Mapping[str, Any] | None = None
+    doc: Mapping[str, Any] | RuleGraph,
+    schema: Mapping[str, Any] | None = None,
+    resolve: Resolver | None = None,
 ) -> CompiledRuleset:
     """Validate, type-check and compile a rule graph document.
 
     ``schema`` is the entity JSON Schema; when given, ``$.input`` references are checked
-    against it. Static issues raise :class:`~minos.engine.typecheck.TypeCheckError`.
+    against it. ``resolve`` supplies the compiled rule sets used by sub-ruleset nodes.
+    Static issues raise :class:`~minos.engine.typecheck.TypeCheckError`.
     """
     if isinstance(doc, RuleGraph):
         graph = doc
@@ -75,7 +97,7 @@ def compile_ruleset(
             raise CompileError(
                 f"{first['msg']} ({exc.error_count()} error(s))", loc or None
             ) from exc
-    compiled = _Compiler(graph, graph_hash(raw)).build()
+    compiled = _Compiler(graph, graph_hash(raw), resolve).build()
     issues = typecheck(graph, dict(schema) if schema is not None else None)
     if issues:
         raise TypeCheckError(issues)
@@ -83,9 +105,10 @@ def compile_ruleset(
 
 
 class _Compiler:
-    def __init__(self, graph: RuleGraph, digest: str) -> None:
+    def __init__(self, graph: RuleGraph, digest: str, resolve: Resolver | None = None) -> None:
         self.g = graph
         self.digest = digest
+        self.resolve = resolve
         self.locale = graph.settings.locale
 
     # ------------------------------------------------------------------ structure
@@ -155,7 +178,7 @@ class _Compiler:
     @staticmethod
     def _ports(node: Node) -> set[str]:
         match node:
-            case ConditionNode() | GroupNode():
+            case ConditionNode() | GroupNode() | DecisionTableNode() | SubRulesetNode():
                 return {PASS, FAIL}
             case SwitchNode():
                 return {c.name for c in node.cases} | {DEFAULT}
@@ -167,7 +190,7 @@ class _Compiler:
     @staticmethod
     def _required_ports(node: Node) -> set[str]:
         match node:
-            case ConditionNode() | GroupNode():
+            case ConditionNode() | GroupNode() | DecisionTableNode() | SubRulesetNode():
                 return {PASS}
             case SwitchNode():
                 return {c.name for c in node.cases} | {DEFAULT}
@@ -294,6 +317,55 @@ class _Compiler:
                 fb = self._feedback(node.feedback, f"{where}.feedback")
                 when = compile_expr(node.when, f"{where}.when") if node.when is not None else None
                 return CompiledNode(nid, "feedback", _feedback_fn(nid, fb, when), "stop")
+            case DecisionTableNode():
+                table = compile_table(
+                    node.hitPolicy,
+                    [i.expr for i in node.inputs],
+                    [o.name for o in node.outputs],
+                    list(node.rules),
+                    where,
+                )
+                fb_pass, fb_fail = self._pair(node.feedback, where)
+                return CompiledNode(
+                    nid,
+                    "decision_table",
+                    _decision_fn(nid, table, node.target, fb_pass, fb_fail),
+                    self._on_fail(node.onFail, ports, where),
+                )
+            case SubRulesetNode():
+                if self.resolve is None:
+                    raise CompileError(
+                        f"sub-ruleset {node.ruleset}@{node.version} cannot be resolved here", where
+                    )
+                try:
+                    child = self.resolve(node.ruleset, node.version)
+                except CompileError as exc:
+                    raise CompileError(
+                        f"sub-ruleset {node.ruleset}@{node.version}: {exc}", where
+                    ) from exc
+                fb_pass, fb_fail = self._pair(node.feedback, where)
+                for_each = (
+                    compile_expr(node.forEach, f"{where}.forEach")
+                    if node.forEach is not None
+                    else None
+                )
+                default_input = {"ref": "$.item"} if for_each is not None else {"ref": "$.input"}
+                raw_input = node.input if "input" in node.model_fields_set else default_input
+                return CompiledNode(
+                    nid,
+                    "subruleset",
+                    _subruleset_fn(
+                        nid,
+                        child,
+                        compile_expr(raw_input, f"{where}.input"),
+                        for_each,
+                        node.passWhen,
+                        node.target,
+                        fb_pass,
+                        fb_fail,
+                    ),
+                    self._on_fail(node.onFail, ports, where),
+                )
         raise CompileError(f"unsupported node type {node.type!r}", where)  # pragma: no cover
 
     def _group_fn(self, node: GroupNode, where: str) -> NodeFn:
@@ -369,6 +441,92 @@ def _switch_fn(cases: tuple[tuple[str, Evaluator], ...]) -> NodeFn:
             if when(scope):
                 return PASS, name, name
         return PASS, DEFAULT, DEFAULT
+
+    return run
+
+
+def _decision_fn(
+    nid: str,
+    table: DecisionTable,
+    target: str,
+    fb_pass: CompiledFeedback | None,
+    fb_fail: CompiledFeedback | None,
+) -> NodeFn:
+    def run(scope: Scope, state: ExecutionState) -> tuple[NodeOutcome, str, Any]:
+        rows, result = table.evaluate(scope)
+        scope["vars"][target] = result
+        output = {"rows": [r + 1 for r in rows], "result": result}
+        if rows:
+            state.emit(fb_pass, scope, nid)
+            return PASS, PASS, output
+        state.emit(fb_fail, scope, nid)
+        return FAIL, FAIL, output
+
+    return run
+
+
+def _subruleset_fn(
+    nid: str,
+    child: CompiledRuleset,
+    input_: Evaluator,
+    for_each: Evaluator | None,
+    pass_when: str,
+    target: str | None,
+    fb_pass: CompiledFeedback | None,
+    fb_fail: CompiledFeedback | None,
+) -> NodeFn:
+    label = f"{child.ruleset}@{child.version}"
+
+    def call(scope: Scope, data: Any, index: int | None, state: ExecutionState) -> dict[str, Any]:
+        meta = scope["meta"]
+        result = child.execute(
+            data,
+            ExecuteOptions(
+                locale=state.locale,
+                reference_date=meta["referenceDate"],
+                request_id=meta["requestId"],
+            ),
+        )
+        if result["outcome"] == "error":
+            where = f" (element {index})" if index is not None else ""
+            messages = "; ".join(f["message"] for f in result["feedback"])
+            raise EvaluationError(f"sub-ruleset {label}{where} failed: {messages}")
+        for fb in result["feedback"]:
+            copied = {**fb, "nodeId": f"{nid}/{fb['nodeId']}"}
+            if index is not None:
+                copied["index"] = index
+            state.feedback.append(copied)
+        return {"outcome": result["outcome"], "result": result["result"]}
+
+    def run(scope: Scope, state: ExecutionState) -> tuple[NodeOutcome, str, Any]:
+        if for_each is None:
+            single = call(scope, input_(scope), None, state)
+            passed = single["outcome"] in ("valid", "warning")
+            output: Any = single
+        else:
+            items = for_each(scope)
+            if items is None or items is MISSING:
+                items = []
+            if not isinstance(items, list):
+                raise EvaluationError(f"sub-ruleset {label}: forEach needs a list")
+            previous = scope.get("item", MISSING)
+            runs = []
+            try:
+                for i, item in enumerate(items):
+                    scope["item"] = item
+                    runs.append(call(scope, input_(scope), i, state))
+            finally:
+                if previous is MISSING:
+                    scope.pop("item", None)
+                else:
+                    scope["item"] = previous
+            oks = [r["outcome"] in ("valid", "warning") for r in runs]
+            passed = all(oks) if pass_when == "all" else any(oks)
+            output = runs
+        if target is not None:
+            scope["vars"][target] = output
+        state.emit(fb_pass if passed else fb_fail, scope, nid)
+        return (PASS, PASS, output) if passed else (FAIL, FAIL, output)
 
     return run
 

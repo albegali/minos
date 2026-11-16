@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 from collections.abc import AsyncIterator, Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 import asyncpg
@@ -510,3 +512,68 @@ async def test_node_types_and_cors(clean_db: str, admin: dict[str, str]) -> None
     ):
         r = await e.get("/v1/health", headers={"Origin": "http://studio.example"})
         assert r.headers["access-control-allow-origin"] == "http://studio.example"
+
+
+async def test_sub_rulesets_and_decision_tables_end_to_end(
+    client: httpx.AsyncClient,
+    admin: dict[str, str],
+    valid_plan: dict[str, Any],
+    invalid_plan: dict[str, Any],
+) -> None:
+    c = client
+    examples = Path(__file__).resolve().parents[2] / "examples"
+    common = json.loads((examples / "rulesets/aurora.studyplan.common.json").read_text())
+    full = json.loads((examples / "rulesets/aurora.studyplan.full.json").read_text())
+    await c.post("/v1/workspaces", json={"slug": "aurora", "name": "Aurora"}, headers=admin)
+    await c.post(f"{WS}/entities", json={"key": "StudyPlan", "name": "Piano"}, headers=admin)
+    await c.post(
+        f"{WS}/entities/StudyPlan/schemas",
+        json={"samples": [valid_plan, invalid_plan]},
+        headers=admin,
+    )
+
+    # the parent cannot be validated before the version it pins is published
+    body = {"key": "aurora.studyplan.full", "name": "Full", "entity": "StudyPlan", "graph": full}
+    assert (await c.post(f"{WS}/rulesets", json=body, headers=admin)).status_code == 201
+    full_rs = f"{WS}/rulesets/aurora.studyplan.full"
+    v = (await c.post(f"{full_rs}/validate", headers=admin)).json()
+    assert v["valid"] is False
+    assert "not published" in v["issues"][0]["message"]
+
+    body = {
+        "key": "aurora.studyplan.common",
+        "name": "Common",
+        "entity": "StudyPlan",
+        "graph": common,
+    }
+    await c.post(f"{WS}/rulesets", json=body, headers=admin)
+    r = await c.post(f"{WS}/rulesets/aurora.studyplan.common/publish", json={}, headers=admin)
+    assert r.json()["version"] == "0.1.0"
+    assert (await c.post(f"{full_rs}/validate", headers=admin)).json()["valid"] is True
+
+    sim = await c.post(f"{full_rs}/simulate", json={"input": valid_plan}, headers=admin)
+    assert sim.json()["result"]["fees"] == {"baseFee": 38500, "discount": 20}
+    r = await c.post(f"{full_rs}/publish", json={"promoteTo": "prod"}, headers=admin)
+    assert r.status_code == 201, r.text
+
+    async def deployed() -> bool:
+        res = await c.post(
+            "/v1/exec/aurora/aurora.studyplan.full", json={"input": valid_plan}, headers=admin
+        )
+        return res.status_code == 200
+
+    await eventually(deployed)
+    res = await c.post(
+        "/v1/exec/aurora/aurora.studyplan.full", json={"input": invalid_plan}, headers=admin
+    )
+    assert res.json()["result"]["tuitionFee"] == 38500
+    fixed = await c.post(
+        "/v1/exec/aurora/aurora.studyplan.full/versions/0.1.0",
+        json={"input": valid_plan},
+        headers=admin,
+    )
+    assert fixed.json()["result"]["tuitionFee"] == 30800
+    # a restarted worker loads the parent with its pinned dependency
+    rt = c.app.state.runtime  # type: ignore[attr-defined]
+    await rt.sync.load_all()
+    assert rt.registry.get("aurora", "aurora.studyplan.full") is not None

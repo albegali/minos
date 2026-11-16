@@ -29,6 +29,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from minos.api.common import Principal
+from minos.control.service import resolver_for, resolver_from
 from minos.db import (
     NOTIFY_CHANNEL,
     ApiClient,
@@ -39,6 +40,7 @@ from minos.db import (
     Workspace,
 )
 from minos.engine import CompiledRuleset, compile_ruleset
+from minos.engine.compiler import Resolver
 from minos.schema import InputValidator
 
 log = logging.getLogger(__name__)
@@ -60,10 +62,15 @@ class Deployment:
         return self.compiled.hash
 
 
-def build(workspace: str, graph: dict[str, Any], schema: dict[str, Any] | None) -> Deployment:
+def build(
+    workspace: str,
+    graph: dict[str, Any],
+    schema: dict[str, Any] | None,
+    resolve: Resolver | None = None,
+) -> Deployment:
     # Published graphs were type-checked at publish time; recompiling with the schema keeps
     # the guarantee if a version is loaded by a newer engine.
-    compiled = compile_ruleset(graph, schema)
+    compiled = compile_ruleset(graph, schema, resolve)
     return Deployment(workspace, compiled, InputValidator(schema) if schema else None)
 
 
@@ -103,10 +110,15 @@ class RulesetRegistry:
         self._versions[key] = deployment
 
     def load_directory(self, directory: Path) -> int:
+        """Serve every RGD file of ``directory``; sub-rulesets resolve among the same files by
+        ``ruleset`` and ``version``."""
+        graphs = [orjson.loads(f.read_bytes()) for f in sorted(directory.glob("*.json"))]
+        resolve = resolver_from(
+            {(g["ruleset"], g.get("version", "0.0.0")): (g, None) for g in graphs}
+        )
         count = 0
-        for file in sorted(directory.glob("*.json")):
-            graph = orjson.loads(file.read_bytes())
-            dep = build(LOCAL_WORKSPACE, graph, None)
+        for file, graph in zip(sorted(directory.glob("*.json")), graphs, strict=True):
+            dep = build(LOCAL_WORKSPACE, graph, None, resolve)
             for warning in dep.compiled.warnings:
                 log.warning("%s: %s", file.name, warning)
             self.put((LOCAL_WORKSPACE, dep.compiled.ruleset, DEFAULT_ENV), dep)
@@ -204,7 +216,9 @@ class DbSync:
         deployments: dict[Key, Deployment] = {}
         for ws, rs, env, _hash, graph, schema in rows:
             try:
-                deployments[(ws, rs, env)] = build(ws, graph, schema)
+                async with self.sessions() as s:
+                    resolve = await resolver_for(s, ws, graph)
+                deployments[(ws, rs, env)] = build(ws, graph, schema, resolve)
             except Exception:  # a broken version must not take the others down
                 log.exception("cannot load %s/%s@%s", ws, rs, env)
         self.registry.replace_all(deployments)
@@ -218,7 +232,9 @@ class DbSync:
         if row is None:
             self.registry.put((ws, rs, env), None)
         else:
-            self.registry.put((ws, rs, env), build(ws, row.graph, row.json_schema))
+            async with self.sessions() as s:
+                resolve = await resolver_for(s, ws, row.graph)
+            self.registry.put((ws, rs, env), build(ws, row.graph, row.json_schema, resolve))
         self.reloads += 1
 
     async def load_version(self, ws: str, rs: str, semver: str) -> Deployment | None:
@@ -236,7 +252,9 @@ class DbSync:
             row = (await s.execute(q)).first()
         if row is None:
             return None
-        dep = build(ws, row.graph, row.json_schema)
+        async with self.sessions() as s:
+            resolve = await resolver_for(s, ws, row.graph)
+        dep = build(ws, row.graph, row.json_schema, resolve)
         self.registry.put_version((ws, rs, semver), dep)
         return dep
 

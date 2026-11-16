@@ -40,8 +40,20 @@ def test_node_types_cover_the_model() -> None:
     cat = catalog()
     types = {n["type"] for n in cat["nodeTypes"]}
     union = RuleGraph.model_json_schema()["$defs"]
-    assert types == {"start", "condition", "group", "set", "switch", "feedback", "end"}
-    assert {d.removesuffix("Node").lower() for d in union if d.endswith("Node")} - {""} == types
+    assert types == {
+        "start",
+        "condition",
+        "group",
+        "set",
+        "switch",
+        "feedback",
+        "end",
+        "decision_table",
+        "subruleset",
+    }
+    model_names = {d.removesuffix("Node").lower() for d in union if d.endswith("Node")} - {""}
+    assert model_names == {t.replace("_", "") for t in types}
+    assert set(cat["cellOperators"]) >= {"==", ">=", "between", "in"}
     for n in cat["nodeTypes"]:
         assert "id" not in n["params"]["properties"]
         assert "type" not in n["params"]["properties"]

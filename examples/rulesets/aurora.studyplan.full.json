@@ -1,0 +1,241 @@
+{
+  "rgdVersion": "1.0",
+  "ruleset": "aurora.studyplan.full",
+  "version": "0.1.0",
+  "schemaRef": {
+    "entity": "StudyPlan",
+    "version": 1
+  },
+  "settings": {
+    "mode": "collect_all",
+    "locale": "it"
+  },
+  "constants": {},
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start"
+    },
+    {
+      "id": "common",
+      "type": "subruleset",
+      "label": "Regole comuni",
+      "ruleset": "aurora.studyplan.common",
+      "version": "0.1.0",
+      "target": "common"
+    },
+    {
+      "id": "derive",
+      "type": "set",
+      "label": "Calcola CFU",
+      "assign": {
+        "totalCfu": {
+          "fn": "sum",
+          "args": [
+            {
+              "ref": "$.input.courses[*].cfu"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "fees",
+      "type": "decision_table",
+      "label": "Listino e sconti",
+      "hitPolicy": "first",
+      "inputs": [
+        {
+          "name": "program",
+          "label": "Programma",
+          "expr": {
+            "ref": "$.input.program.code"
+          }
+        },
+        {
+          "name": "scholarship",
+          "label": "Borsa",
+          "expr": {
+            "fn": "coalesce",
+            "args": [
+              {
+                "ref": "$.input.student.scholarship.type"
+              },
+              "NONE"
+            ]
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "baseFee",
+          "label": "Retta base"
+        },
+        {
+          "name": "discount",
+          "label": "Sconto %"
+        }
+      ],
+      "rules": [
+        {
+          "when": [
+            "EMBA",
+            "MERIT"
+          ],
+          "then": {
+            "baseFee": 38500,
+            "discount": 20
+          }
+        },
+        {
+          "when": [
+            "EMBA",
+            null
+          ],
+          "then": {
+            "baseFee": 38500,
+            "discount": 0
+          }
+        },
+        {
+          "when": [
+            "FTMBA",
+            [
+              "MERIT",
+              "NEED"
+            ]
+          ],
+          "then": {
+            "baseFee": 45000,
+            "discount": 25
+          }
+        },
+        {
+          "when": [
+            "FTMBA",
+            null
+          ],
+          "then": {
+            "baseFee": 45000,
+            "discount": 0
+          }
+        },
+        {
+          "when": [
+            null,
+            null
+          ],
+          "then": {
+            "baseFee": 30000,
+            "discount": 0
+          },
+          "description": "Altri programmi"
+        }
+      ],
+      "target": "fees"
+    },
+    {
+      "id": "price",
+      "type": "set",
+      "label": "Calcola retta",
+      "assign": {
+        "tuitionFee": {
+          "fn": "round",
+          "args": [
+            {
+              "op": "*",
+              "args": [
+                {
+                  "ref": "$.vars.fees.baseFee"
+                },
+                {
+                  "op": "-",
+                  "args": [
+                    1,
+                    {
+                      "op": "/",
+                      "args": [
+                        {
+                          "ref": "$.vars.fees.discount"
+                        },
+                        100
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "endOk",
+      "type": "end",
+      "outcome": "valid",
+      "output": {
+        "totalCfu": {
+          "ref": "$.vars.totalCfu"
+        },
+        "tuitionFee": {
+          "ref": "$.vars.tuitionFee"
+        },
+        "fees": {
+          "ref": "$.vars.fees"
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "to": "common"
+    },
+    {
+      "from": "common",
+      "to": "derive",
+      "on": "pass"
+    },
+    {
+      "from": "derive",
+      "to": "fees"
+    },
+    {
+      "from": "fees",
+      "to": "price",
+      "on": "pass"
+    },
+    {
+      "from": "price",
+      "to": "endOk"
+    }
+  ],
+  "ui": {
+    "positions": {
+      "start": [
+        0,
+        0
+      ],
+      "common": [
+        286,
+        0
+      ],
+      "derive": [
+        572,
+        0
+      ],
+      "fees": [
+        858,
+        0
+      ],
+      "price": [
+        1144,
+        0
+      ],
+      "endOk": [
+        1430,
+        0
+      ]
+    }
+  }
+}

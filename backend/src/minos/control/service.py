@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -36,6 +37,7 @@ from minos.engine import (
     TypeCheckError,
     compile_ruleset,
 )
+from minos.engine.compiler import Resolver, dependencies
 from minos.schema import SchemaError, check_schema
 
 from .errors import Conflict, Invalid, NotFound, PreconditionFailed
@@ -321,9 +323,11 @@ class Validation:
     compiled: CompiledRuleset | None
 
 
-def compile_checked(graph: dict[str, Any], schema: dict[str, Any] | None) -> Validation:
+def compile_checked(
+    graph: dict[str, Any], schema: dict[str, Any] | None, resolve: Resolver | None = None
+) -> Validation:
     try:
-        compiled = compile_ruleset(graph, schema)
+        compiled = compile_ruleset(graph, schema, resolve)
     except TypeCheckError as exc:
         return Validation(False, [i.as_dict() for i in exc.issues], [], None)
     except CompileError as exc:
@@ -331,10 +335,69 @@ def compile_checked(graph: dict[str, Any], schema: dict[str, Any] | None) -> Val
     return Validation(True, [], list(compiled.warnings), compiled)
 
 
+async def resolver_for(s: AsyncSession, workspace: str, graph: dict[str, Any]) -> Resolver:
+    """Load (recursively) the published versions a graph's sub-ruleset nodes pin, and return
+    a resolver that compiles them on demand, once each."""
+    sources: dict[tuple[str, str], tuple[dict[str, Any], dict[str, Any] | None]] = {}
+
+    async def load(doc: dict[str, Any]) -> None:
+        for key, version in dependencies(doc):
+            if (key, version) in sources:
+                continue
+            row = (
+                await s.execute(
+                    select(RulesetVersion.graph, SchemaVersion.json_schema)
+                    .join(Ruleset, Ruleset.id == RulesetVersion.ruleset_id)
+                    .join(Workspace, Workspace.id == Ruleset.workspace_id)
+                    .outerjoin(SchemaVersion, SchemaVersion.id == RulesetVersion.schema_version_id)
+                    .where(
+                        Workspace.slug == workspace,
+                        Ruleset.key == key,
+                        RulesetVersion.semver == version,
+                    )
+                )
+            ).first()
+            if row is not None:
+                sources[(key, version)] = (row.graph, row.json_schema)
+                await load(row.graph)
+
+    await load(graph)
+    return resolver_from(sources)
+
+
+def resolver_from(
+    sources: Mapping[tuple[str, str], tuple[dict[str, Any], dict[str, Any] | None]],
+) -> Resolver:
+    """Resolver over already loaded ``(key, version) -> (graph, schema)`` documents."""
+    compiled: dict[tuple[str, str], CompiledRuleset] = {}
+    resolving: set[tuple[str, str]] = set()
+
+    def resolve(key: str, version: str) -> CompiledRuleset:
+        ident = (key, version)
+        if ident in compiled:
+            return compiled[ident]
+        if ident not in sources:
+            raise CompileError(f"version {version} of {key!r} is not published in this workspace")
+        if ident in resolving:
+            raise CompileError(f"{key}@{version} includes itself")
+        resolving.add(ident)
+        try:
+            graph, schema = sources[ident]
+            compiled[ident] = compile_ruleset(graph, schema, resolve)
+        finally:
+            resolving.discard(ident)
+        return compiled[ident]
+
+    return resolve
+
+
 async def validate_draft(s: AsyncSession, rs: Ruleset) -> Validation:
     draft = await get_draft(s, rs)
     sv = await _draft_schema(s, draft)
-    return compile_checked(draft.graph, sv.json_schema if sv else None)
+    ws = await s.get(Workspace, rs.workspace_id)
+    assert ws is not None
+    resolve = await resolver_for(s, ws.slug, draft.graph)
+    return compile_checked(draft.graph, sv.json_schema if sv else None, resolve)
 
 
 async def simulate_draft(
@@ -457,7 +520,8 @@ async def publish(
     semver = "{}.{}.{}".format(*numbers)
 
     graph = dict(draft.graph, version=semver)
-    validation = compile_checked(graph, sv.json_schema if sv else None)
+    resolve = await resolver_for(s, ws.slug, graph)
+    validation = compile_checked(graph, sv.json_schema if sv else None, resolve)
     if validation.compiled is None:
         raise Invalid("the draft does not compile", {"issues": validation.issues})
     tests = run_tests(validation.compiled, await list_tests(s, rs))
