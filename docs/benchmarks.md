@@ -30,3 +30,21 @@ momento della pubblicazione.
 
 In CI le soglie sono più larghe (G0 3 ms, G1 20 ms) perché i runner condivisi sono rumorosi:
 servono a intercettare regressioni, non a certificare i gate.
+
+## G2 · editor (F2)
+
+`frontend/e2e/g2.spec.ts` (Playwright, gira in CI con PostgreSQL). Un utente con chiave
+`manage`, senza privilegi admin, dalla sola interfaccia:
+
+1. crea l'entità e ne inferisce lo schema da due esempi;
+2. crea il rule set, trascina una condizione sul canvas e la configura come "somma dei CFU dei
+   corsi ≥ 60" con un messaggio di errore, senza scrivere JSON;
+3. collega i nodi, sceglie la modalità "raccogli tutti gli errori", salva e valida;
+4. simula un piano da 40 CFU, salva la simulazione come test ed esegue i test;
+5. pubblica la versione 0.1.0 promuovendola in `test`.
+
+Il test verifica poi, con una chiave `exec`, che l'Execution API risponda `valid` per il piano
+da 60 CFU e `invalid` con `SP_CFU_MIN` per quello da 40. Durata circa 7 secondi.
+
+Il gate G2 della roadmap prevede una prova d'uso con una persona reale dell'ufficio didattica:
+questo test ne automatizza il percorso, ma non la sostituisce.

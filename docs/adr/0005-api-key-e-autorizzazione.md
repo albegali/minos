@@ -20,8 +20,9 @@ Studio e CI usano la Management API. L'autenticazione non deve aggiungere latenz
   non valide). La revoca invia una NOTIFY che svuota la voce nei worker, quindi ha effetto entro
   pochi millisecondi anche prima della scadenza.
 - La Management API verifica la chiave sul database a ogni richiesta (non è sul percorso caldo).
-- Utenti e ruoli dell'editor (OIDC con Entra ID o Google, RBAC Owner/Editor/Reviewer/Viewer)
-  arrivano in F2; le API key restano per i sistemi.
+- In F2 lo Studio usa anch'esso una API key (scope `manage`), tenuta solo in `sessionStorage`.
+  Utenti e ruoli (OIDC con Entra ID o Google, RBAC Owner/Editor/Reviewer/Viewer) sono rinviati a
+  F3: servono un identity provider reale per provarli. Le API key restano per i sistemi.
 
 ## Conseguenze
 
