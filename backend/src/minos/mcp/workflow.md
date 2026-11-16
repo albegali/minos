@@ -9,7 +9,9 @@ set is published or live, give them the Studio link to review it.
 ## Workflow
 
 1. `list_workspaces`, then `list_entities` / `list_rulesets`: reuse what exists. Create a
-   workspace only if the user asks for a new one or none fits.
+   workspace only if the user asks for a new one or none fits. Workspace `esempi`, when present,
+   holds complete published examples (study plan, e-commerce order, loan): `get_ruleset` on them
+   shows real graphs with decision tables, nested rule sets and aggregates.
 2. **Entity.** If the object to validate is not there yet, `create_entity` with one or more
    realistic example objects (`samples`): the schema is inferred from them (types, nested
    objects, lists, dates, required fields; a field missing from some samples becomes optional).
