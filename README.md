@@ -26,47 +26,39 @@ pubblicare le regole senza scrivere JSON.
 
 ## Avvio rapido
 
-Requisiti: [uv](https://docs.astral.sh/uv/), Node.js 22 o superiore (CI su Node 24 LTS) e, per
-la piattaforma completa, PostgreSQL 16 o 17.
-
-### Demo senza database
+Con Docker, un solo comando avvia PostgreSQL, API e Studio:
 
 ```bash
-cd backend && uv sync && uv run uvicorn minos.api.app:app --port 8000
+docker compose up --build
 ```
 
-```bash
-cd frontend && npm install && npm run dev
-```
+Apri http://localhost:8080 (Studio) e http://localhost:8000/v1/info (API). L'installazione è
+**aperta**: nessun login, pensata per l'uso in locale. Per richiedere le API key, imposta
+`MINOS_REQUIRE_AUTH=true` (vedi [`docs/api.md`](docs/api.md)). La
+[guida allo Studio](docs/studio.md) descrive il percorso completo, dall'entità alla pubblicazione.
 
-Senza configurazione l'API serve gli esempi di `examples/rulesets` come workspace `local`, senza
-autenticazione. Apri http://localhost:5173/demo, scegli un input e premi **Simula**.
+### Sviluppo senza Docker
 
-### Piattaforma completa
+Requisiti: [uv](https://docs.astral.sh/uv/), Node.js 22 o superiore (CI su Node 24 LTS),
+PostgreSQL 16 o 17.
 
 ```bash
 export MINOS_DATABASE_URL=postgresql+asyncpg://minos:minos@localhost:5432/minos
 ```
 
 ```bash
-cd backend && uv run python -m minos.cli migrate && uv run python -m minos.cli create-admin-key --name me
+cd backend && uv sync && uv run python -m minos.cli migrate && uv run uvicorn minos.api.app:app --port 8000
 ```
 
 ```bash
-uv run uvicorn minos.api.app:app --port 8000
+cd frontend && npm install && npm run dev
 ```
 
-```bash
-cd frontend && npm run dev
-```
+Studio su http://localhost:5173. Senza `MINOS_DATABASE_URL` l'API serve in sola lettura gli esempi
+di `examples/rulesets` e lo Studio apre la demo (`/demo`).
 
-Apri http://localhost:5173 e accedi con la chiave admin (o con una chiave `manage` del
-workspace): la [guida allo Studio](docs/studio.md) descrive il percorso completo.
-
-Con la chiave admin si creano workspace, entità, schemi e rule set, si pubblica e si promuove a
-`prod`: il flusso completo è in [`docs/api.md`](docs/api.md) e, eseguibile, in
-`backend/bench/bench_api.py` (funzione `seed`). In produzione Execution API e Management API girano
-come processi separati (`minos.api.app:execution_app`, `minos.api.app:management_app`).
+In un'installazione più grande Execution API e Management API girano come processi separati
+(`minos.api.app:execution_app`, `minos.api.app:management_app`).
 
 ## Qualità
 
@@ -81,3 +73,7 @@ cd frontend && npm run lint && npm test && npm run build
 ```bash
 cd frontend && npm run e2e   # Playwright: avvia API e Studio su un database nuovo (PostgreSQL locale)
 ```
+
+## Licenza
+
+[MIT](LICENSE).

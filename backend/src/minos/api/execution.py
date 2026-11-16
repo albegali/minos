@@ -31,9 +31,25 @@ MAX_BODY_BYTES = 1_048_576
 
 
 def execution_router(
-    registry: RulesetRegistry, sync: DbSync | None, require_auth: bool
+    registry: RulesetRegistry,
+    sync: DbSync | None,
+    require_auth: bool,
+    management: bool = False,
 ) -> APIRouter:
     router = APIRouter(prefix="/v1")
+
+    @router.get("/info")
+    def info() -> Response:
+        """Public: lets clients (Minos Studio) adapt to this installation."""
+        return json_response(
+            {
+                "name": "minos",
+                "version": __version__,
+                "authRequired": require_auth,
+                "management": management,
+                "database": sync is not None,
+            }
+        )
 
     async def authorise(request: Request, workspace: str | None) -> Response | None:
         """``workspace=None`` requires an admin key."""

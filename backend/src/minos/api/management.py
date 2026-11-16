@@ -545,6 +545,19 @@ def create_management_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Minos Management API", version=__version__, lifespan=lifespan)
     app.include_router(management_router(sessions, cfg.require_auth))
+
+    @app.get("/v1/info")
+    def info() -> Response:
+        return json_response(
+            {
+                "name": "minos",
+                "version": __version__,
+                "authRequired": cfg.require_auth,
+                "management": True,
+                "database": True,
+            }
+        )
+
     install_error_handlers(app)
     install_cors(app, cfg)
     return app

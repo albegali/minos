@@ -13,16 +13,22 @@ Configurazione da variabili d'ambiente:
 | Variabile | Default | Significato |
 | --- | --- | --- |
 | `MINOS_DATABASE_URL` | — | `postgresql+asyncpg://user:pass@host:5432/db` |
-| `MINOS_REQUIRE_AUTH` | `true` | `false` solo in sviluppo locale |
+| `MINOS_REQUIRE_AUTH` | `false` | `true` per richiedere le API key |
+| `MINOS_CORS_ORIGINS` | — | Origini ammesse da browser, separate da virgola |
 | `MINOS_RULESETS_DIR` | — | File RGD serviti come workspace `local`, ambiente `prod` |
 | `MINOS_POLL_INTERVAL_S` | `30` | Controllo periodico degli alias (rete di sicurezza per NOTIFY persi) |
 
-Senza database né directory, `minos.api.app:app` serve gli esempi del repo senza autenticazione:
-è la modalità demo usata da Minos Studio.
+Senza database né directory, `minos.api.app:app` serve gli esempi del repo: è la modalità demo
+usata da Minos Studio.
 
-## Autenticazione
+`GET /v1/info` (sempre pubblico) descrive l'installazione:
+`{"name", "version", "authRequired", "management", "database"}`. Lo Studio lo usa per decidere se
+chiedere una chiave e se aprire la demo.
 
-`Authorization: Bearer mns_...` oppure `X-Api-Key: mns_...`. Scope (ADR 0005):
+## Autenticazione (facoltativa)
+
+Di default l'installazione è **aperta**: nessuna chiave richiesta. Con `MINOS_REQUIRE_AUTH=true`
+servono `Authorization: Bearer mns_...` oppure `X-Api-Key: mns_...`, con questi scope (ADR 0005):
 
 | Scope | Ambito | Permette |
 | --- | --- | --- |

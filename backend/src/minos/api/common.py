@@ -62,7 +62,7 @@ class Principal:
 
 
 DEV_PRINCIPAL = Principal("dev", None, frozenset({"admin"}))
-"""Used when MINOS_REQUIRE_AUTH=false (local development only)."""
+"""Caller identity when API keys are not required (the default, open installation)."""
 
 
 def api_key_from(request: Request) -> str:

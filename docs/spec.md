@@ -125,7 +125,7 @@ Ogni requisito ha un codice per la tracciabilità nei ticket e nei test di accet
 ### Integrazione
 
 - **RF-60** API REST di esecuzione sincrona e batch, API di gestione, OpenAPI 3.1 generata.
-- **RF-61** Autenticazione con API key per rule set o per client, e OAuth2 client credentials (Entra ID per Dynamics).
+- **RF-61** Autenticazione facoltativa con API key a scope (spenta di default: installazione locale aperta).
 - **RF-62** Connettori di integrazione in uscita dalla v2: custom connector per Power Platform, plugin Dataverse che invoca l'API su eventi pre-operation, webhook.
 - **RF-63** Nodo *Data Fetch* (v3): arricchisce il context leggendo da un connettore, con cache e timeout, fuori dal percorso a latenza zero.
 
@@ -143,7 +143,7 @@ Il vincolo che guida l'architettura è la latenza: il motore deve valutare un ru
 | RNF-06 | Dimensione input | max 1 MB (configurabile), profondità max 32 livelli |
 | RNF-07 | Determinismo | stesso input + stessa versione + stessa data di riferimento = stesso output |
 | RNF-08 | Sicurezza | nessun `eval` di codice utente; espressioni compilate da AST con whitelist; limiti di passi e tempo per esecuzione (es. 50 ms) |
-| RNF-09 | Autenticazione e autorizzazione | OIDC per l'editor (Entra ID, Google), RBAC per workspace (Owner, Editor, Reviewer, Viewer), API key casuali a 256 bit salvate come SHA-256, con scope (ADR 0005) |
+| RNF-09 | Autenticazione e autorizzazione | Facoltativa e spenta di default (software libero per installazioni locali, senza dati sensibili); se attiva, API key a 256 bit salvate come SHA-256, con scope (ADR 0005). Nessun login utenti né ruoli in programma |
 | RNF-10 | Dati personali | trace e log con mascheramento dei campi marcati `pii` nello schema; retention configurabile (default 30 giorni); hosting UE per GDPR |
 | RNF-11 | Osservabilità | OpenTelemetry (trace, metriche, log), metriche per rule set: chiamate, esiti, latenze, nodi più frequenti come punto di uscita |
 | RNF-12 | Accessibilità editor | WCAG 2.2 AA per pannelli e form; canvas navigabile da tastiera |
@@ -379,7 +379,7 @@ Le azioni sono sotto-risorse con `POST` (es. `.../publish`). Il riferimento comp
 | Bundle (F3) | export di una versione e import di un rule set completo |
 | Catalogo nodi (F2) | `GET /v1/node-types` (manifest dei nodi e dei plugin, usato dall'editor per la palette) |
 | Connettori (F4) | `GET /v1/connectors`, `POST /v1/connections`, `POST /v1/connections/{id}/test` |
-| Accessi | `.../api-keys`, `POST /v1/admin/api-keys`, `.../audit`; membri e ruoli con OIDC in F2 |
+| Accessi | `.../api-keys`, `POST /v1/admin/api-keys`, `.../audit` (le chiavi servono solo con `MINOS_REQUIRE_AUTH=true`) |
 
 ### SDK e integrazioni
 
@@ -409,7 +409,7 @@ L'editor riprende la UX di n8n (canvas, palette, pannello del nodo con input e o
 
 - Pacchetto `@minos/editor` come componente React riusabile, con props per API base URL e token; pubblicabile su registry privato.
 - Modalità embed via iframe con postMessage, per ospitarlo in un Model-driven App di Dynamics (web resource) o in altri portali.
-- Autenticazione SSO con Entra ID per l'uso dentro l'ecosistema Microsoft.
+- Nessun login: lo Studio entra direttamente sulle installazioni aperte (default) e chiede una API key solo se l'API la richiede.
 
 ### Estensibilità a plugin (come la palette n8n)
 
@@ -512,12 +512,12 @@ Le durate presuppongono 2 sviluppatori backend, 2 frontend e un PO/QA part-time;
 | Dati personali di studenti in trace e log | GDPR | Trace `full` disattivata in prod per default, mascheramento `pii`, retention breve, hosting UE |
 | Cache disallineate tra worker | Esiti diversi per la stessa chiamata | Hash di versione nell'header di risposta, NOTIFY + polling di sicurezza, metrica di drift |
 
-### Decisioni da prendere prima della fase 1
+### Decisioni
 
-- [ ] Cloud di riferimento (Azure, coerente con Dynamics, oppure altro) e regione.
-- [ ] Licenza e modello di distribuzione: prodotto interno, SaaS multi-tenant o on-premise.
-- [ ] UI kit: Fluent UI 2 (coerenza Microsoft) o shadcn/ui.
-- [ ] Identity provider per l'editor (Entra ID, Google, entrambi).
+- [x] Hosting: installazione locale (`docker compose`), nessun cloud per ora.
+- [x] Licenza e distribuzione: software libero, licenza MIT.
+- [x] UI kit: Fluent UI 2 (ADR 0004).
+- [x] Identity provider per l'editor: nessuno, autenticazione facoltativa e spenta di default.
 - [ ] Linguaggio di espressioni testuale: sintassi propria su Lark o sottoinsieme compatibile con CEL o FEEL.
 - [ ] Volumi attesi (richieste/giorno, picchi nei periodi di iscrizione) per dimensionare worker e trace store.
 - [ ] Chi è il primo utente pilota (es. ufficio didattica Aurora) e quali rule set reali portare in fase 2.

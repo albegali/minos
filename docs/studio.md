@@ -1,7 +1,8 @@
 # Minos Studio · guida rapida
 
-Minos Studio è l'editor web delle regole. Si accede con una API key con scope `manage` del
-workspace (o `admin`). Il percorso tipico, senza scrivere JSON:
+Minos Studio è l'editor web delle regole. Su un'installazione aperta (il default, ad esempio con
+`docker compose up`) si entra direttamente; se l'API richiede le chiavi, lo Studio chiede una API
+key con scope `manage` o `admin`. Il percorso tipico, senza scrivere JSON:
 
 1. **Entità e schema.** Nel workspace, *Nuova entità*, poi incolla uno o più oggetti di esempio:
    lo schema viene inferito mentre scrivi (tipi, oggetti annidati, liste, date, campi

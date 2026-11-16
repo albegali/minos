@@ -24,6 +24,7 @@ const ws = (slug: string) => `/workspaces/${encodeURIComponent(slug)}`
 const rs = (slug: string, key: string) => `${ws(slug)}/rulesets/${encodeURIComponent(key)}`
 
 export const keys = {
+  info: ['info'] as const,
   workspaces: ['workspaces'] as const,
   catalog: ['catalog'] as const,
   entities: (w: string) => ['entities', w] as const,
@@ -34,6 +35,19 @@ export const keys = {
   draft: (w: string, r: string) => ['draft', w, r] as const,
   versions: (w: string, r: string) => ['versions', w, r] as const,
   tests: (w: string, r: string) => ['tests', w, r] as const,
+}
+
+export interface ServerInfo {
+  name: string
+  version: string
+  authRequired: boolean
+  management: boolean
+  database: boolean
+}
+
+/** Public description of the installation: does it need API keys, has it a database? */
+export function useServerInfo() {
+  return useQuery({ queryKey: keys.info, queryFn: () => api<ServerInfo>('/info'), staleTime: Infinity })
 }
 
 export function useWorkspaces() {

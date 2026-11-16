@@ -488,6 +488,8 @@ async def test_node_types_and_cors(clean_db: str, admin: dict[str, str]) -> None
         app.router.lifespan_context(app),
         httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://m") as c,
     ):
+        info = (await c.get("/v1/info")).json()
+        assert info["management"] is True and info["authRequired"] is True
         r = await c.get("/v1/node-types", headers=admin)
         assert r.status_code == 200
         assert {n["type"] for n in r.json()["nodeTypes"]} >= {"condition", "group", "end"}

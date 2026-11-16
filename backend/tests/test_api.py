@@ -117,6 +117,17 @@ def test_zero_config_serves_examples_without_auth(monkeypatch: pytest.MonkeyPatc
         monkeypatch.delenv(name, raising=False)
     with TestClient(create_app()) as client:
         assert client.post(EMBA, json={"input": {}}).status_code == 200
+        info = client.get("/v1/info").json()
+        assert info["authRequired"] is False
+        assert info["management"] is False
+        assert info["database"] is False
+
+
+def test_auth_is_off_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MINOS_REQUIRE_AUTH", raising=False)
+    assert Settings.from_env().require_auth is False
+    monkeypatch.setenv("MINOS_REQUIRE_AUTH", "true")
+    assert Settings.from_env().require_auth is True
 
 
 def test_auth_without_database_is_rejected() -> None:
