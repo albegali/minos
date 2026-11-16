@@ -21,6 +21,7 @@ function FieldTree({ schema }: { schema: JsonSchema | undefined }) {
   if (!schema) return null
   if (fields.length === 0) return <Text>Lo schema non dichiara campi.</Text>
   return (
+    <div className="table-scroll">
     <table className="field-table" aria-label="Campi dello schema">
       <thead>
         <tr>
@@ -48,6 +49,7 @@ function FieldTree({ schema }: { schema: JsonSchema | undefined }) {
         ))}
       </tbody>
     </table>
+    </div>
   )
 }
 

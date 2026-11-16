@@ -90,11 +90,11 @@ function RuleNodeView({ data, selected }: NodeProps<FlowNode>) {
 const nodeTypes = { rule: RuleNodeView }
 
 const MINIMAP_COLOR: Record<Status, string> = {
-  idle: '#adb5bd',
-  pass: '#2f9e44',
-  fail: '#e03131',
-  error: '#e03131',
-  end: '#3b5bdb',
+  idle: '#b7c2ce',
+  pass: '#01928c',
+  fail: '#d64545',
+  error: '#d64545',
+  end: '#039bb0',
 }
 
 function statusMap(): Record<string, Status> {
@@ -174,11 +174,13 @@ export function Canvas({ graph, catalog }: { graph: RuleGraph; catalog: Catalog 
 
   // When nodes are added or removed, bring the whole graph back into view so that a new
   // node (and its ports) is never left outside the visible canvas.
+  // The same when the side panel opens or closes and the canvas changes width.
   const nodeCount = graph.nodes.length
+  const panelOpen = useEditor((s) => s.panelOpen)
   useEffect(() => {
     const handle = window.setTimeout(() => void fitView({ padding: 0.15, maxZoom: 1, duration: 200 }), 50)
     return () => window.clearTimeout(handle)
-  }, [nodeCount, fitView])
+  }, [nodeCount, panelOpen, fitView])
 
   const onConnect = useCallback(
     (c: Connection) => {

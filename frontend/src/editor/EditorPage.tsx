@@ -13,14 +13,21 @@ import {
   ArrowDownload20Regular,
   ArrowRedo20Regular,
   ArrowUndo20Regular,
+  Beaker20Regular,
   Checkmark20Regular,
+  Cube20Regular,
+  Dismiss20Regular,
+  History20Regular,
   Organization20Regular,
+  PanelRightContract20Regular,
+  PanelRightExpand20Regular,
   Play20Regular,
   Save20Regular,
+  Settings20Regular,
 } from '@fluentui/react-icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { ReactFlowProvider } from '@xyflow/react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
 import { useBlocker, useParams } from 'react-router'
 
 import { ApiError, errorMessage } from '../api/client'
@@ -33,6 +40,14 @@ import { NodePanel } from './NodePanel'
 import { IssueList, NodeIO, SettingsPanel, SimulatePanel, TestsPanel, VersionsPanel } from './panels'
 import { listFields } from './schemaPaths'
 import { type PanelTab, useEditor } from './store'
+
+const PANEL_TABS: { value: PanelTab; label: string; icon: ReactElement }[] = [
+  { value: 'node', label: 'Nodo', icon: <Cube20Regular /> },
+  { value: 'simulate', label: 'Simulazione', icon: <Play20Regular /> },
+  { value: 'tests', label: 'Test', icon: <Beaker20Regular /> },
+  { value: 'versions', label: 'Versioni', icon: <History20Regular /> },
+  { value: 'settings', label: 'Impostazioni', icon: <Settings20Regular /> },
+]
 
 /** Rendered node sizes, so the layout leaves room for large nodes. */
 function measuredSizes(): Record<string, { width: number; height: number }> {
@@ -64,6 +79,8 @@ export function EditorPage() {
   const change = useEditor((s) => s.change)
   const select = useEditor((s) => s.select)
   const setTab = useEditor((s) => s.setTab)
+  const panelOpen = useEditor((s) => s.panelOpen)
+  const setPanelOpen = useEditor((s) => s.setPanelOpen)
   const canUndo = useEditor((s) => s.past.length > 0)
   const canRedo = useEditor((s) => s.future.length > 0)
 
@@ -180,8 +197,8 @@ export function EditorPage() {
     <ScopeContext.Provider value={scope}>
       <div className="editor">
         <div className="editor-toolbar">
-          <div className="inline">
-            <Text weight="semibold" size={500}>
+          <div className="inline editor-title">
+            <Text weight="bold" size={500}>
               {info.data?.name ?? rs}
             </Text>
             {info.data?.latestVersion && <Badge appearance="tint">ultima {info.data.latestVersion}</Badge>}
@@ -192,9 +209,9 @@ export function EditorPage() {
             ))}
           </div>
           <div className="inline">
-            <Text size={200} className="muted" aria-live="polite">
+            <span className={`save-state${dirty ? ' dirty' : ''}`} aria-live="polite">
               {dirty ? 'Modifiche non salvate' : `Salvato (rev. ${lockVersion})`}
-            </Text>
+            </span>
             {validated && (
               <Badge color={issues.length ? 'danger' : 'success'} appearance="filled">
                 {issues.length ? `${issues.length} problemi` : 'Valido'}
@@ -264,6 +281,16 @@ export function EditorPage() {
             <Button appearance="primary" onClick={() => setTab('versions')}>
               Pubblica
             </Button>
+            <span className="toolbar-sep" aria-hidden="true" />
+            <Tooltip content={panelOpen ? 'Chiudi il pannello' : 'Apri il pannello'} relationship="label">
+              <Button
+                appearance="subtle"
+                aria-expanded={panelOpen}
+                aria-controls="editor-panel"
+                icon={panelOpen ? <PanelRightContract20Regular /> : <PanelRightExpand20Regular />}
+                onClick={() => setPanelOpen(!panelOpen)}
+              />
+            </Tooltip>
           </div>
         </div>
 
@@ -287,40 +314,63 @@ export function EditorPage() {
           </MessageBar>
         )}
 
-        <div className="editor-body">
+        <div className={`editor-body${panelOpen ? '' : ' panel-closed'}`}>
           <Palette catalog={catalog.data} onAdd={addAtCentre} />
           <section className="editor-canvas" aria-label="Grafo delle regole">
             <ReactFlowProvider>
               <Canvas graph={graph} catalog={catalog.data} />
             </ReactFlowProvider>
           </section>
-          <aside className="editor-panel">
-            <TabList selectedValue={tab} onTabSelect={(_, d) => setTab(d.value as PanelTab)} size="small">
-              <Tab value="node">Nodo</Tab>
-              <Tab value="simulate">Simulazione</Tab>
-              <Tab value="tests">Test</Tab>
-              <Tab value="versions">Versioni</Tab>
-              <Tab value="settings">Impostazioni</Tab>
-            </TabList>
-            <div className="editor-panel-body">
-              {tab === 'node' &&
-                (node ? (
-                  <>
-                    <NodePanel key={node.id} node={node} manifest={manifest} />
-                    <NodeIO nodeId={node.id} />
-                  </>
-                ) : (
-                  <Text>
-                    Trascina un nodo dalla palette sul canvas, collega le uscite agli ingressi e seleziona un nodo per
-                    configurarlo.
-                  </Text>
-                ))}
-              {tab === 'simulate' && <SimulatePanel ws={ws} rs={rs} ensureSaved={save} />}
-              {tab === 'tests' && <TestsPanel ws={ws} rs={rs} ensureSaved={save} />}
-              {tab === 'versions' && <VersionsPanel ws={ws} rs={rs} ensureSaved={save} />}
-              {tab === 'settings' && <SettingsPanel ws={ws} entity={entity} />}
-            </div>
-          </aside>
+          {panelOpen ? (
+            <aside className="editor-panel" id="editor-panel">
+              <div className="editor-panel-head">
+                <TabList selectedValue={tab} onTabSelect={(_, d) => setTab(d.value as PanelTab)} size="small">
+                  {PANEL_TABS.map((t) => (
+                    <Tab key={t.value} value={t.value}>
+                      {t.label}
+                    </Tab>
+                  ))}
+                </TabList>
+                <Tooltip content="Chiudi il pannello" relationship="label">
+                  <Button appearance="subtle" size="small" icon={<Dismiss20Regular />} onClick={() => setPanelOpen(false)} />
+                </Tooltip>
+              </div>
+              <div className="editor-panel-body">
+                {tab === 'node' &&
+                  (node ? (
+                    <>
+                      <NodePanel key={node.id} node={node} manifest={manifest} />
+                      <NodeIO nodeId={node.id} />
+                    </>
+                  ) : (
+                    <div className="empty-hint">
+                      <Cube20Regular />
+                      <Text>
+                        Trascina un nodo dalla palette sul canvas, collega le uscite agli ingressi e seleziona un nodo
+                        per configurarlo.
+                      </Text>
+                    </div>
+                  ))}
+                {tab === 'simulate' && <SimulatePanel ws={ws} rs={rs} ensureSaved={save} />}
+                {tab === 'tests' && <TestsPanel ws={ws} rs={rs} ensureSaved={save} />}
+                {tab === 'versions' && <VersionsPanel ws={ws} rs={rs} ensureSaved={save} />}
+                {tab === 'settings' && <SettingsPanel ws={ws} entity={entity} />}
+              </div>
+            </aside>
+          ) : (
+            <nav className="editor-rail" aria-label="Pannelli">
+              {PANEL_TABS.map((t) => (
+                <Tooltip key={t.value} content={t.label} relationship="label" positioning="before">
+                  <Button
+                    appearance="subtle"
+                    icon={t.icon}
+                    className={t.value === tab ? 'rail-active' : undefined}
+                    onClick={() => setTab(t.value)}
+                  />
+                </Tooltip>
+              ))}
+            </nav>
+          )}
         </div>
 
         {validated && (issues.length > 0 || warnings.length > 0) && (

@@ -13,6 +13,7 @@ import { Link, Navigate, Outlet, useLocation, useNavigate, useParams } from 'rea
 
 import { useServerInfo } from '../api/hooks'
 import { useAuth } from '../auth/store'
+import { BrandLockup } from './Brand'
 import { ErrorBar } from './forms'
 
 /**
@@ -61,11 +62,10 @@ export function Shell() {
   return (
     <div className="shell">
       <header className="shell-header">
-        <Link to="/w" className="brand-link">
-          <Text weight="semibold" size={400}>
-            Minos Studio
-          </Text>
+        <Link to="/w" className="brand-link" aria-label="Minos Studio, torna ai workspace">
+          <BrandLockup />
         </Link>
+        <span className="shell-divider" aria-hidden="true" />
         <Crumbs />
         {info.data?.authRequired && (
           <Button appearance="subtle" icon={<SignOut20Regular />} onClick={logout}>
@@ -85,7 +85,7 @@ export function Page({ title, actions, children }: { title: string; actions?: Re
   return (
     <div className="page">
       <div className="page-head">
-        <Text as="h1" size={600} weight="semibold">
+        <Text as="h1" size={700} weight="bold">
           {title}
         </Text>
         <div className="page-actions">{actions}</div>

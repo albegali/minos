@@ -72,6 +72,7 @@ export function useSchemas(w: string, e: string) {
   return useQuery({
     queryKey: keys.schemas(w, e),
     queryFn: () => api<SchemaVersion[]>(`${ws(w)}/entities/${encodeURIComponent(e)}/schemas`),
+    enabled: Boolean(e), // the editor knows the entity only once the rule set has loaded
   })
 }
 
@@ -79,7 +80,7 @@ export function useSchema(w: string, e: string, v: number | null | undefined) {
   return useQuery({
     queryKey: keys.schema(w, e, v ?? 0),
     queryFn: () => api<SchemaVersion>(`${ws(w)}/entities/${encodeURIComponent(e)}/schemas/${v}`),
-    enabled: Boolean(v),
+    enabled: Boolean(e && v),
     staleTime: Infinity, // schema versions are immutable
   })
 }
@@ -104,7 +105,11 @@ export function useDraft(w: string, r: string) {
 }
 
 export function useVersions(w: string, r: string) {
-  return useQuery({ queryKey: keys.versions(w, r), queryFn: () => api<Version[]>(`${rs(w, r)}/versions`) })
+  return useQuery({
+    queryKey: keys.versions(w, r),
+    queryFn: () => api<Version[]>(`${rs(w, r)}/versions`),
+    enabled: Boolean(r), // a new sub-rule-set node has no rule set chosen yet
+  })
 }
 
 export function useTests(w: string, r: string) {

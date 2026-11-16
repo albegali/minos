@@ -48,6 +48,10 @@ key con scope `manage` o `admin`. Il percorso tipico, senza scrivere JSON:
     JSON; *Importa* nella pagina del workspace lo carica come draft, in un'altra installazione o
     in un altro workspace.
 
+Il pannello a destra (*Nodo*, *Simulazione*, *Test*, *Versioni*, *Impostazioni*) si chiude con
+la ✕ o con l'ultimo pulsante della toolbar: resta una barra di icone, e il grafo si allarga a tutto
+lo spazio. Selezionare un nodo, *Simula* o *Pubblica* lo riaprono sulla scheda giusta.
+
 Nell'editor, *Annulla* / *Ripristina* (`Ctrl+Z`, `Ctrl+Shift+Z`) annullano le modifiche al grafo
 (dentro un campo di testo `Ctrl+Z` resta l'annulla del testo) e *Riordina* dispone i nodi da
 sinistra a destra seguendo i collegamenti.

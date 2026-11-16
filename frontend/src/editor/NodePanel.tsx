@@ -64,22 +64,24 @@ export function KeyExprList({
     <div className="stack">
       {entries.map(([k, v]) => (
         <div key={k} className="kv-row">
-          <Field label={keyLabel}>
-            <Input
-              defaultValue={k}
-              onBlur={(e) => {
-                const next = e.target.value.trim()
-                if (next && next !== k && !(next in value)) rename(k, next)
-              }}
+          <div className="kv-head">
+            <Field label={keyLabel}>
+              <Input
+                defaultValue={k}
+                onBlur={(e) => {
+                  const next = e.target.value.trim()
+                  if (next && next !== k && !(next in value)) rename(k, next)
+                }}
+              />
+            </Field>
+            <Button
+              appearance="subtle"
+              aria-label={`Rimuovi ${k}`}
+              icon={<Delete16Regular />}
+              onClick={() => onChange(Object.fromEntries(entries.filter(([key]) => key !== k)))}
             />
-          </Field>
+          </div>
           <ExpressionEditor value={v} onChange={(x) => onChange({ ...value, [k]: x })} />
-          <Button
-            appearance="subtle"
-            aria-label={`Rimuovi ${k}`}
-            icon={<Delete16Regular />}
-            onClick={() => onChange(Object.fromEntries(entries.filter(([key]) => key !== k)))}
-          />
         </div>
       ))}
       <Button
@@ -308,7 +310,7 @@ function SwitchCases({ node }: { node: RgdNode }) {
     <div className="stack">
       {cases.map((c, i) => (
         <div key={c.name} className="rule-card">
-          <div className="inline">
+          <div className="kv-head">
             <Field label="Nome del ramo">
               <Input
                 defaultValue={c.name}
