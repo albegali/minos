@@ -14,7 +14,7 @@ from typing import Any
 
 import orjson
 from fastapi import APIRouter, FastAPI, Request
-from fastapi.responses import Response
+from fastapi.responses import HTMLResponse, Response
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from minos import __version__
@@ -25,7 +25,8 @@ from minos.engine import EvaluationError, ExecuteOptions, ExecutionLimitError
 from minos.engine.expressions import to_date
 from minos.settings import Settings
 
-from .common import api_key_from, install_cors, json_response, problem
+from .common import Principal, api_key_from, install_cors, json_response, problem
+from .exec_docs import OpenApiCache, swagger_html
 from .registry import DEFAULT_ENV, DbSync, Deployment, KeyCache, RulesetRegistry
 
 _TRACE_LEVELS = frozenset({"none", "summary", "full"})
@@ -165,6 +166,37 @@ def execution_router(
                 for (ws, rs, env), start, d in registry.all()
             ]
         )
+
+    docs = OpenApiCache(registry, require_auth)
+
+    async def caller(request: Request) -> Principal | None:
+        """The principal of the request's API key, if it has a valid one."""
+        if sync is None:
+            return None
+        try:
+            key = api_key_from(request)
+        except Unauthorized:
+            return None
+        return await sync.authenticate(key, hash_key(key))
+
+    @router.get("/exec/openapi.json", include_in_schema=False)
+    async def exec_openapi(request: Request, workspace: str | None = None) -> Response:
+        """OpenAPI document of the deployed rule sets; with API keys, only those the key can
+        execute (none without a key)."""
+        visible: frozenset[str] | None = None if workspace is None else frozenset({workspace})
+        note = None
+        if require_auth:
+            principal = await caller(request)
+            if principal is None:
+                visible, note = frozenset(), "Authorize with an API key and reload the page."
+            elif not principal.is_admin():
+                own = frozenset({principal.workspace}) if principal.workspace else frozenset()
+                visible = own if visible is None else visible & own
+        return json_response(docs.get(visible, note))
+
+    @router.get("/exec/docs", include_in_schema=False)
+    def exec_swagger() -> HTMLResponse:
+        return HTMLResponse(swagger_html())
 
     @router.post("/exec/{workspace}/{target}")
     async def execute(workspace: str, target: str, request: Request) -> Response:

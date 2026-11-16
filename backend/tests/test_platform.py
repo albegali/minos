@@ -595,3 +595,51 @@ async def test_files_and_database_together(
             "/v1/exec/local/aurora.studyplan.emba", json={"input": valid_plan}, headers=admin
         )
         assert res.status_code == 200
+
+
+async def test_exec_openapi_follows_publications(
+    client: httpx.AsyncClient,
+    admin: dict[str, str],
+    aurora_graph: dict[str, Any],
+    valid_plan: dict[str, Any],
+) -> None:
+    c = client
+    exec_key = await setup_aurora(c, admin, aurora_graph, [valid_plan])
+    spec = "/v1/exec/openapi.json"
+    path = "/v1/exec/aurora/studyplan-emba"
+
+    # nothing deployed yet; without a key nothing is listed at all
+    assert (await c.get(spec, headers=admin)).json()["paths"] == {}
+    anonymous = (await c.get(spec)).json()
+    assert anonymous["paths"] == {} and "Authorize" in anonymous["info"]["description"]
+    assert anonymous["security"] == [{"bearer": []}, {"apiKey": []}]
+
+    # a publication to prod shows up with the entity schema as the request body
+    await c.post(f"{RS}/publish", json={"promoteTo": "prod"}, headers=admin)
+
+    async def listed(p: str, version: str) -> bool:
+        doc = (await c.get(spec, headers=exec_key)).json()
+        return p in doc["paths"] and f"v{version}" in doc["paths"][p]["post"]["summary"]
+
+    await eventually(lambda: listed(path, "0.1.0"))
+    doc = (await c.get(spec, headers=exec_key)).json()
+    body = doc["paths"][path]["post"]["requestBody"]["content"]["application/json"]["schema"]
+    ref = body["properties"]["input"]["$ref"]
+    schema = doc["components"]["schemas"][ref.rsplit("/", 1)[1]]
+    assert "courses" in schema["properties"]
+    assert "SP_CFU_MIN" in doc["paths"][path]["post"]["description"]
+
+    # a new version promoted to another environment gets its own operation
+    await c.post(f"{RS}/publish", json={"bump": "minor", "promoteTo": "test"}, headers=admin)
+    await eventually(lambda: listed(f"{path}@test", "0.2.0"))
+    assert await listed(path, "0.1.0")
+
+    # keys only see their own workspace
+    await c.post("/v1/workspaces", json={"slug": "other", "name": "Other"}, headers=admin)
+    r = await c.post(
+        "/v1/workspaces/other/api-keys", json={"name": "o", "scopes": ["exec"]}, headers=admin
+    )
+    other = {"X-Api-Key": r.json()["key"]}
+    assert (await c.get(spec, headers=other)).json()["paths"] == {}
+    assert (await c.get(f"{spec}?workspace=aurora", headers=other)).json()["paths"] == {}
+    assert len((await c.get(f"{spec}?workspace=aurora", headers=admin)).json()["paths"]) == 2

@@ -74,6 +74,26 @@ Gli errori sono `application/problem+json` (`status`, `title`, `detail` più cam
 | `POST /v1/exec/{ws}/{ruleset}/versions/{semver}` | Esegue una versione fissa (caricata alla prima richiesta, poi in cache) |
 | `GET /v1/health` · `GET /v1/ready` | Probe; `ready` dopo il caricamento iniziale |
 | `GET /v1/deployments` | Alias caricati nel worker, con versione e hash (chiave admin) |
+| `GET /v1/exec/openapi.json[?workspace=<ws>]` | OpenAPI 3.1 dei rule set deployati (vedi sotto) |
+| `GET /v1/exec/docs[?workspace=<ws>]` | Swagger UI sullo stesso documento |
+
+### Swagger dei rule set
+
+`/openapi.json` e `/docs` di FastAPI descrivono la piattaforma: un solo endpoint di esecuzione con
+`input` libero. `/v1/exec/openapi.json` descrive invece quello che è deployato: un'operazione per
+rule set e ambiente (`/v1/exec/{ws}/{rs}` per `prod`, `/v1/exec/{ws}/{rs}@{env}` per gli altri),
+con lo schema dell'entità come corpo della richiesta, la versione in vigore e il calendario delle
+versioni pianificate, e i codici di feedback dichiarati dal grafo.
+
+Il documento è generato dal registry in memoria del worker, quindi si aggiorna da solo quando una
+versione viene pubblicata su un ambiente (`promoteTo`) o un alias cambia: niente passi in più. Una
+versione pubblicata ma non portata in nessun ambiente non compare (si esegue comunque da
+`/versions/{semver}`).
+
+Con `MINOS_REQUIRE_AUTH=true` il documento elenca solo i rule set che la chiave può eseguire (tutti
+per una chiave admin, quelli del suo workspace per una chiave `exec`, nessuno senza chiave). Nella
+Swagger UI: *Authorize* con la chiave, poi ricarica la pagina. La chiave resta nel browser e viene
+mandata anche nella richiesta del documento.
 
 Corpo: `{"input": {...}, "options": {"trace": "none|summary|full", "locale": "it",
 "referenceDate": "2027-09-20", "validateSchema": true}}`.
