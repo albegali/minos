@@ -3,6 +3,7 @@
 from .compiler import compile_ruleset, graph_hash
 from .errors import CompileError, EvaluationError, ExecutionLimitError, MinosError
 from .runtime import CompiledRuleset, ExecuteOptions
+from .typecheck import Issue, TypeCheckError
 
 __all__ = [
     "CompileError",
@@ -10,7 +11,9 @@ __all__ = [
     "EvaluationError",
     "ExecuteOptions",
     "ExecutionLimitError",
+    "Issue",
     "MinosError",
+    "TypeCheckError",
     "compile_ruleset",
     "graph_hash",
 ]

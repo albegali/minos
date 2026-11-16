@@ -41,6 +41,7 @@ from .runtime import (
     NodeOutcome,
 )
 from .templates import compile_template
+from .typecheck import TypeCheckError, typecheck
 
 NEXT = "next"
 DEFAULT = "default"
@@ -53,8 +54,14 @@ def graph_hash(doc: Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical.encode()).hexdigest()
 
 
-def compile_ruleset(doc: Mapping[str, Any] | RuleGraph) -> CompiledRuleset:
-    """Validate and compile a rule graph document."""
+def compile_ruleset(
+    doc: Mapping[str, Any] | RuleGraph, schema: Mapping[str, Any] | None = None
+) -> CompiledRuleset:
+    """Validate, type-check and compile a rule graph document.
+
+    ``schema`` is the entity JSON Schema; when given, ``$.input`` references are checked
+    against it. Static issues raise :class:`~minos.engine.typecheck.TypeCheckError`.
+    """
     if isinstance(doc, RuleGraph):
         graph = doc
         raw = doc.model_dump(mode="json", by_alias=True, exclude_none=True)
@@ -68,7 +75,11 @@ def compile_ruleset(doc: Mapping[str, Any] | RuleGraph) -> CompiledRuleset:
             raise CompileError(
                 f"{first['msg']} ({exc.error_count()} error(s))", loc or None
             ) from exc
-    return _Compiler(graph, graph_hash(raw)).build()
+    compiled = _Compiler(graph, graph_hash(raw)).build()
+    issues = typecheck(graph, dict(schema) if schema is not None else None)
+    if issues:
+        raise TypeCheckError(issues)
+    return compiled
 
 
 class _Compiler:
