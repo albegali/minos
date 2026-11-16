@@ -12,7 +12,7 @@ from typing import Any
 from .errors import CompileError
 from .refs import MISSING, Scope, compile_ref
 
-_PLACEHOLDER = re.compile(r"\{\{\s*([^}]+?)\s*\}\}")
+PLACEHOLDER = re.compile(r"\{\{\s*([^}]+?)\s*\}\}")
 
 type Renderer = Callable[[Scope], str]
 
@@ -31,7 +31,7 @@ def compile_template(text: str, where: str = "message") -> Renderer:
     """Compile ``text`` into a renderer ``scope -> str``."""
     parts: list[str | Callable[[Scope], Any]] = []
     pos = 0
-    for m in _PLACEHOLDER.finditer(text):
+    for m in PLACEHOLDER.finditer(text):
         if m.start() > pos:
             parts.append(text[pos : m.start()])
         try:
