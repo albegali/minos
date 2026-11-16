@@ -2,6 +2,8 @@
 
 **Minos** è un motore di regole JSON-in / JSON-out: valuta un oggetto JSON contro un grafo di regole
 versionato e restituisce esito, punto di uscita e feedback strutturati, con latenza sub-millisecondo.
+È generico: gli esempi coprono un piano di studi universitario, un ordine e-commerce e
+l'idoneità a un finanziamento, ma qualunque oggetto JSON con uno schema può essere validato.
 
 > Come Minosse, re e legislatore di Creta e poi giudice delle anime, Minos giudica ogni oggetto
 > e decide da che parte farlo passare.
@@ -16,7 +18,7 @@ pubblicare le regole senza scrivere JSON.
 | --- | --- |
 | [`backend/`](backend/) | Python 3.14: motore (`minos.engine`), schemi (`minos.schema`), control plane (`minos.control`, `minos.db`), API FastAPI (`minos.api`), test, benchmark |
 | [`frontend/`](frontend/) | Minos Studio: React 19, Fluent UI 2, React Flow; test Vitest e Playwright |
-| [`examples/`](examples/) | Rule set Aurora (regole comuni ed EMBA, valori illustrativi), input e suite di test |
+| [`examples/`](examples/) | Rule set di esempio di tre domini (piano di studi, ordine e-commerce, finanziamento; valori illustrativi), input e suite di test |
 | [`docs/spec.md`](docs/spec.md) | Specifiche funzionali, architettura, API e roadmap |
 | [`docs/rgd-format.md`](docs/rgd-format.md) | Riferimento del formato Rule Graph Document 1.0 |
 | [`docs/studio.md`](docs/studio.md) | Guida rapida a Minos Studio |

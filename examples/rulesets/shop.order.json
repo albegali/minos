@@ -1,0 +1,442 @@
+{
+  "rgdVersion": "1.0",
+  "ruleset": "shop.order",
+  "version": "0.1.0",
+  "schemaRef": {
+    "entity": "Order",
+    "version": 1
+  },
+  "settings": {
+    "mode": "collect_all",
+    "locale": "it"
+  },
+  "constants": {
+    "maxQuantity": 10,
+    "couponMinTotal": 50
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "type": "start"
+    },
+    {
+      "id": "totals",
+      "type": "set",
+      "label": "Totali",
+      "assign": {
+        "subtotal": {
+          "fn": "sum",
+          "args": [
+            {
+              "ref": "$.input.lines"
+            }
+          ],
+          "select": {
+            "op": "*",
+            "args": [
+              {
+                "ref": "$.item.unitPrice"
+              },
+              {
+                "ref": "$.item.quantity"
+              }
+            ]
+          }
+        },
+        "items": {
+          "fn": "sum",
+          "args": [
+            {
+              "ref": "$.input.lines[*].quantity"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "checks",
+      "type": "group",
+      "label": "Controlli sulle righe",
+      "operator": "and",
+      "evaluate": "all",
+      "children": [
+        {
+          "rule": {
+            "op": ">",
+            "left": {
+              "fn": "count",
+              "args": [
+                {
+                  "ref": "$.input.lines"
+                }
+              ]
+            },
+            "right": 0
+          },
+          "feedback": {
+            "fail": {
+              "code": "ORD_EMPTY",
+              "path": "lines",
+              "message": {
+                "it": "L'ordine non contiene articoli",
+                "en": "The order has no items"
+              }
+            }
+          }
+        },
+        {
+          "rule": {
+            "fn": "all",
+            "args": [
+              {
+                "ref": "$.input.lines"
+              }
+            ],
+            "select": {
+              "op": "between",
+              "left": {
+                "ref": "$.item.quantity"
+              },
+              "right": [
+                1,
+                {
+                  "ref": "$.vars.maxQuantity"
+                }
+              ]
+            }
+          },
+          "feedback": {
+            "fail": {
+              "code": "ORD_QUANTITY",
+              "path": "lines",
+              "message": {
+                "it": "Ogni articolo va ordinato in quantità da 1 a {{vars.maxQuantity}}",
+                "en": "Each item quantity must be between 1 and {{vars.maxQuantity}}"
+              },
+              "data": {
+                "lines": {
+                  "fn": "map",
+                  "args": [
+                    {
+                      "ref": "$.input.lines"
+                    }
+                  ],
+                  "where": {
+                    "op": "not",
+                    "arg": {
+                      "op": "between",
+                      "left": {
+                        "ref": "$.item.quantity"
+                      },
+                      "right": [
+                        1,
+                        {
+                          "ref": "$.vars.maxQuantity"
+                        }
+                      ]
+                    }
+                  },
+                  "select": {
+                    "ref": "$.item.sku"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "shipping",
+      "type": "decision_table",
+      "label": "Spedizione",
+      "hitPolicy": "first",
+      "target": "shipping",
+      "inputs": [
+        {
+          "name": "country",
+          "label": "Paese",
+          "expr": {
+            "ref": "$.input.customer.country"
+          }
+        },
+        {
+          "name": "subtotal",
+          "label": "Subtotale",
+          "expr": {
+            "ref": "$.vars.subtotal"
+          }
+        },
+        {
+          "name": "express",
+          "label": "Espresso",
+          "expr": {
+            "fn": "coalesce",
+            "args": [
+              {
+                "ref": "$.input.express"
+              },
+              false
+            ]
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "cost"
+        },
+        {
+          "name": "days"
+        }
+      ],
+      "rules": [
+        {
+          "when": [
+            "IT",
+            {
+              "op": ">=",
+              "value": 100
+            },
+            false
+          ],
+          "then": {
+            "cost": 0,
+            "days": 3
+          },
+          "description": "Gratis in Italia sopra i 100 €"
+        },
+        {
+          "when": [
+            "IT",
+            null,
+            false
+          ],
+          "then": {
+            "cost": 5.9,
+            "days": 3
+          }
+        },
+        {
+          "when": [
+            "IT",
+            null,
+            true
+          ],
+          "then": {
+            "cost": 12.9,
+            "days": 1
+          }
+        },
+        {
+          "when": [
+            [
+              "FR",
+              "DE",
+              "ES",
+              "AT"
+            ],
+            null,
+            null
+          ],
+          "then": {
+            "cost": 14.9,
+            "days": 5
+          }
+        },
+        {
+          "when": [
+            null,
+            null,
+            null
+          ],
+          "then": {
+            "cost": 29.9,
+            "days": 10
+          }
+        }
+      ]
+    },
+    {
+      "id": "discount",
+      "type": "set",
+      "label": "Sconto coupon",
+      "assign": {
+        "discount": {
+          "op": "if",
+          "args": [
+            {
+              "op": "and",
+              "args": [
+                {
+                  "op": "==",
+                  "left": {
+                    "ref": "$.input.coupon"
+                  },
+                  "right": "WELCOME10"
+                },
+                {
+                  "op": ">=",
+                  "left": {
+                    "ref": "$.vars.subtotal"
+                  },
+                  "right": {
+                    "ref": "$.vars.couponMinTotal"
+                  }
+                }
+              ]
+            },
+            {
+              "fn": "round",
+              "args": [
+                {
+                  "op": "*",
+                  "args": [
+                    {
+                      "ref": "$.vars.subtotal"
+                    },
+                    0.1
+                  ]
+                },
+                2
+              ]
+            },
+            0
+          ]
+        }
+      }
+    },
+    {
+      "id": "couponNote",
+      "type": "feedback",
+      "label": "Coupon non applicabile",
+      "when": {
+        "op": "and",
+        "args": [
+          {
+            "op": "exists",
+            "arg": {
+              "ref": "$.input.coupon"
+            }
+          },
+          {
+            "op": "==",
+            "left": {
+              "ref": "$.vars.discount"
+            },
+            "right": 0
+          }
+        ]
+      },
+      "feedback": {
+        "code": "ORD_COUPON_IGNORED",
+        "severity": "warning",
+        "path": "coupon",
+        "message": {
+          "it": "Coupon non applicabile: serve un subtotale di almeno {{vars.couponMinTotal}} €",
+          "en": "Coupon not applicable: the subtotal must be at least {{vars.couponMinTotal}}"
+        }
+      }
+    },
+    {
+      "id": "endOk",
+      "type": "end",
+      "outcome": "valid",
+      "output": {
+        "subtotal": {
+          "ref": "$.vars.subtotal"
+        },
+        "shipping": {
+          "ref": "$.vars.shipping"
+        },
+        "discount": {
+          "ref": "$.vars.discount"
+        },
+        "total": {
+          "fn": "round",
+          "args": [
+            {
+              "op": "-",
+              "args": [
+                {
+                  "op": "+",
+                  "args": [
+                    {
+                      "ref": "$.vars.subtotal"
+                    },
+                    {
+                      "ref": "$.vars.shipping.cost"
+                    }
+                  ]
+                },
+                {
+                  "ref": "$.vars.discount"
+                }
+              ]
+            },
+            2
+          ]
+        }
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "start",
+      "to": "totals"
+    },
+    {
+      "from": "totals",
+      "to": "checks"
+    },
+    {
+      "from": "checks",
+      "to": "shipping",
+      "on": "pass"
+    },
+    {
+      "from": "shipping",
+      "to": "discount",
+      "on": "pass"
+    },
+    {
+      "from": "discount",
+      "to": "couponNote"
+    },
+    {
+      "from": "couponNote",
+      "to": "endOk"
+    }
+  ],
+  "ui": {
+    "positions": {
+      "start": [
+        0,
+        0
+      ],
+      "totals": [
+        286,
+        0
+      ],
+      "checks": [
+        572,
+        0
+      ],
+      "shipping": [
+        858,
+        0
+      ],
+      "discount": [
+        1144,
+        0
+      ],
+      "couponNote": [
+        1430,
+        0
+      ],
+      "endOk": [
+        1716,
+        0
+      ]
+    }
+  }
+}

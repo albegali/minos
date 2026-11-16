@@ -1,0 +1,22 @@
+{
+  "orderId": "A-1001",
+  "customer": {
+    "id": "C-1",
+    "country": "IT",
+    "email": "anna@example.com"
+  },
+  "lines": [
+    {
+      "sku": "BOOK-1",
+      "quantity": 2,
+      "unitPrice": 24.5
+    },
+    {
+      "sku": "PEN-3",
+      "quantity": 4,
+      "unitPrice": 2.5
+    }
+  ],
+  "coupon": "WELCOME10",
+  "express": false
+}

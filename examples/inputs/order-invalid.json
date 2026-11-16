@@ -1,0 +1,16 @@
+{
+  "orderId": "A-1002",
+  "customer": {
+    "id": "C-2",
+    "country": "US",
+    "email": "bob@example.com"
+  },
+  "lines": [
+    {
+      "sku": "LAMP-9",
+      "quantity": 12,
+      "unitPrice": 15
+    }
+  ],
+  "express": true
+}

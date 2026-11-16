@@ -127,8 +127,13 @@ class RulesetRegistry:
             updated[key] = tuple(sorted(schedule, key=lambda e: e[0]))
         self._schedules = updated  # atomic swap
 
-    def replace_all(self, schedules: dict[Key, Schedule]) -> None:
-        self._schedules = {k: tuple(sorted(v, key=lambda e: e[0])) for k, v in schedules.items()}
+    def replace_all(
+        self, schedules: dict[Key, Schedule], keep_workspace: str | None = None
+    ) -> None:
+        """Replace every schedule, except those of ``keep_workspace`` (file-served ones)."""
+        kept = {k: v for k, v in self._schedules.items() if k[0] == keep_workspace}
+        fresh = {k: tuple(sorted(v, key=lambda e: e[0])) for k, v in schedules.items()}
+        self._schedules = {**fresh, **kept}
 
     def put_version(self, key: Key, deployment: Deployment) -> None:
         if len(self._versions) > 1000:  # bounded: fixed-version calls are the exception
@@ -255,7 +260,8 @@ class DbSync:
                 schedules[key] = await self._schedule(key[0], entries)
             except Exception:  # a broken version must not take the others down
                 log.exception("cannot load %s/%s@%s", *key)
-        self.registry.replace_all(schedules)
+        # Rule sets served from files (workspace "local") are not managed by the database.
+        self.registry.replace_all(schedules, keep_workspace=LOCAL_WORKSPACE)
         self.reloads += 1
         log.info("loaded %d deployments", len(schedules))
 
@@ -354,6 +360,7 @@ class DbSync:
         current = {
             key: sorted((start, dep.hash) for start, dep in schedule)
             for key, schedule in self.registry.schedules().items()
+            if key[0] != LOCAL_WORKSPACE
         }
         stale = [k for k, v in wanted.items() if current.get(k) != sorted(v)]
         gone = [k for k in current if k not in wanted]

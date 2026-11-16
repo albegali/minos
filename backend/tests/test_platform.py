@@ -577,3 +577,21 @@ async def test_sub_rulesets_and_decision_tables_end_to_end(
     rt = c.app.state.runtime  # type: ignore[attr-defined]
     await rt.sync.load_all()
     assert rt.registry.get("aurora", "aurora.studyplan.full") is not None
+
+
+async def test_files_and_database_together(
+    clean_db: str, admin: dict[str, str], valid_plan: dict[str, Any]
+) -> None:
+    examples = Path(__file__).resolve().parents[2] / "examples" / "rulesets"
+    app = create_app(settings(clean_db, rulesets_dir=examples))
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://m") as c,
+    ):
+        rt = app.state.runtime
+        await rt.sync.load_all()
+        assert await rt.sync.check_drift() == 0
+        res = await c.post(
+            "/v1/exec/local/aurora.studyplan.emba", json={"input": valid_plan}, headers=admin
+        )
+        assert res.status_code == 200

@@ -1,19 +1,25 @@
 import './styles.css'
 
-import { FluentProvider, webDarkTheme, webLightTheme } from '@fluentui/react-components'
+import { FluentProvider, Spinner, webDarkTheme, webLightTheme } from '@fluentui/react-components'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { StrictMode, useEffect, useState } from 'react'
+import { lazy, type ReactNode, StrictMode, Suspense, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, Navigate, RouterProvider } from 'react-router'
 
 import { ApiError } from './api/client'
 import { RequireAuth, Shell } from './components/Shell'
-import { EditorPage } from './editor/EditorPage'
-import { DemoPage } from './pages/DemoPage'
-import { EntityPage } from './pages/EntityPage'
 import { LoginPage } from './pages/LoginPage'
 import { WorkspacePage } from './pages/WorkspacePage'
 import { WorkspacesPage } from './pages/WorkspacesPage'
+
+// Heavy pages (React Flow canvas, editors) load on demand.
+const EditorPage = lazy(() => import('./editor/EditorPage').then((m) => ({ default: m.EditorPage })))
+const EntityPage = lazy(() => import('./pages/EntityPage').then((m) => ({ default: m.EntityPage })))
+const DemoPage = lazy(() => import('./pages/DemoPage').then((m) => ({ default: m.DemoPage })))
+
+const page = (element: ReactNode) => (
+  <Suspense fallback={<Spinner label="Caricamento…" className="centered" />}>{element}</Suspense>
+)
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -25,7 +31,7 @@ const queryClient = new QueryClient({
 
 const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
-  { path: '/demo', element: <DemoPage /> },
+  { path: '/demo', element: page(<DemoPage />) },
   {
     element: (
       <RequireAuth>
@@ -36,8 +42,8 @@ const router = createBrowserRouter([
       { path: '/', element: <Navigate to="/w" replace /> },
       { path: '/w', element: <WorkspacesPage /> },
       { path: '/w/:ws', element: <WorkspacePage /> },
-      { path: '/w/:ws/entities/:entity', element: <EntityPage /> },
-      { path: '/w/:ws/rulesets/:rs', element: <EditorPage /> },
+      { path: '/w/:ws/entities/:entity', element: page(<EntityPage />) },
+      { path: '/w/:ws/rulesets/:rs', element: page(<EditorPage />) },
     ],
   },
 ])

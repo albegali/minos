@@ -415,7 +415,17 @@ L'editor riprende la UX di n8n (canvas, palette, pannello del nodo con input e o
 
 Ogni tipo di nodo è descritto da un manifest JSON servito da `GET /v1/node-types`: nome, icona, porte, schema dei parametri (JSON Schema) e hint UI. L'editor genera automaticamente il form di configurazione dal manifest, quindi un nuovo nodo o connettore lato Python appare nella palette senza modifiche al frontend.
 
-## Esempio: piano di studi Aurora Business School
+## Esempi
+
+Il motore è generico: nel repository ci sono esempi completi, con suite di test, per tre domini (`examples/`):
+
+| Rule set | Dominio | Cosa mostra |
+| --- | --- | --- |
+| `aurora.studyplan.*` | Piano di studi universitario | Gruppi di regole, aggregazioni annidate, switch, rule set annidato a versione fissata, tabella di listino |
+| `shop.order` | Ordine e-commerce | Totali calcolati, controlli per riga con elenco degli articoli non conformi, tabella delle spedizioni, coupon con avviso |
+| `bank.loan.eligibility` | Idoneità a un finanziamento | Rata e rapporto rata/reddito, tabella `collect` dei motivi di rifiuto, fascia di rischio |
+
+### Esempio dettagliato: piano di studi Aurora Business School
 
 Un dispatcher legge `program.code` e instrada il piano verso il rule set del programma; ogni rule set riusa un blocco comune e aggiunge le sue regole. Tutti i numeri qui sotto (CFU, date, prezzi) sono **illustrativi** e vanno sostituiti con i regolamenti reali.
 
