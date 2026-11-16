@@ -19,6 +19,7 @@ services:
   api:
     build: ./backend
     environment:
+      MINOS_STUDIO_URL: http://localhost:8080 # links returned by the MCP server (/mcp)
       MINOS_DATABASE_URL: postgresql+asyncpg://minos:minos@db:5432/minos
       MINOS_REQUIRE_AUTH: "false"
     depends_on:

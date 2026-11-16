@@ -10,6 +10,7 @@ dependencies = [
     "asyncpg>=0.30",
     "fastapi>=0.115",
     "jsonschema-rs>=0.26",
+    "mcp>=2.3,<3",
     "orjson>=3.10",
     "pydantic>=2.10",
     "sqlalchemy[asyncio]>=2.0",

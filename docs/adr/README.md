@@ -10,3 +10,4 @@ Ogni decisione architetturale rilevante è un file `NNNN-titolo.md` con stato
 | [0003](0003-linguaggio-espressioni.md) | Espressioni come AST JSON a grammatica chiusa | Accettata (testuale: Proposta) |
 | [0004](0004-ui-kit.md) | UI kit dell'editor: Fluent UI 2 | Accettata |
 | [0005](0005-api-key-e-autorizzazione.md) | API key e autorizzazione | Accettata |
+| [0006](0006-server-mcp.md) | Server MCP sopra la Management API, solo draft | Accettata |

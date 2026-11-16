@@ -17,9 +17,11 @@ Configurazione da variabili d'ambiente:
 | `MINOS_CORS_ORIGINS` | — | Origini ammesse da browser, separate da virgola |
 | `MINOS_RULESETS_DIR` | — | File RGD serviti come workspace `local`, ambiente `prod` |
 | `MINOS_POLL_INTERVAL_S` | `30` | Controllo periodico degli alias (rete di sicurezza per NOTIFY persi) |
+| `MINOS_STUDIO_URL` | `http://localhost:8080` | Indirizzo dello Studio nei link restituiti dal server MCP |
 
 Senza database né directory, `minos.api.app:app` serve gli esempi del repo: è la modalità demo
-usata da Minos Studio.
+usata da Minos Studio. Con il database, `minos.api.app:app` espone anche il server MCP su `/mcp`
+(vedi [`mcp.md`](mcp.md)).
 
 `GET /v1/info` (sempre pubblico) descrive l'installazione:
 `{"name", "version", "authRequired", "management", "database"}`. Lo Studio lo usa per decidere se

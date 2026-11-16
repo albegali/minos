@@ -27,6 +27,8 @@ class Settings:
     """Safety net for missed NOTIFY messages: how often workers re-check alias hashes."""
     cors_origins: tuple[str, ...] = ()
     """Origins allowed to call the APIs from a browser (comma-separated MINOS_CORS_ORIGINS)."""
+    studio_url: str = "http://localhost:8080"
+    """Where Minos Studio is reachable: the MCP server links drafts there (MINOS_STUDIO_URL)."""
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -39,4 +41,5 @@ class Settings:
             cors_origins=tuple(
                 o.strip() for o in os.environ.get("MINOS_CORS_ORIGINS", "").split(",") if o.strip()
             ),
+            studio_url=os.environ.get("MINOS_STUDIO_URL") or "http://localhost:8080",
         )
