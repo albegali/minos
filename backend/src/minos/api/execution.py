@@ -6,7 +6,8 @@ deployment is looked up in memory, API keys are resolved from an in-memory cache
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import datetime as dt
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
@@ -19,8 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from minos import __version__
 from minos.control.errors import ControlError, Unauthorized
 from minos.control.keys import hash_key
-from minos.db import asyncpg_dsn, make_engine, make_sessionmaker
-from minos.engine import ExecuteOptions, ExecutionLimitError
+from minos.db import ALWAYS, asyncpg_dsn, make_engine, make_sessionmaker
+from minos.engine import EvaluationError, ExecuteOptions, ExecutionLimitError
+from minos.engine.expressions import to_date
 from minos.settings import Settings
 
 from .common import api_key_from, install_cors, json_response, problem
@@ -71,7 +73,11 @@ def execution_router(
             return problem(403, "Forbidden", "the API key cannot execute in this workspace")
         return None
 
-    async def run(request: Request, dep: Deployment) -> Response:
+    async def run(
+        request: Request,
+        choose: Callable[[dt.date | None], Deployment | None],
+        missing: str,
+    ) -> Response:
         raw = await request.body()
         if len(raw) > MAX_BODY_BYTES:
             return problem(413, "Payload Too Large", "input exceeds 1 MB")
@@ -87,6 +93,18 @@ def execution_router(
         trace = opts.get("trace", "none")
         if trace not in _TRACE_LEVELS:
             return problem(400, "Bad Request", f"'trace' must be one of {sorted(_TRACE_LEVELS)}")
+        reference = opts.get("referenceDate")
+        on: dt.date | None = None
+        if reference is not None:
+            try:
+                on = to_date(reference)
+            except EvaluationError:
+                return problem(400, "Bad Request", "'referenceDate' must be an ISO date")
+
+        # The reference date also picks the version when the environment has a schedule.
+        dep = choose(on)
+        if dep is None:
+            return problem(404, "Not Found", missing)
 
         data = body["input"]
         validator = dep.validator if opts.get("validateSchema", True) else None
@@ -121,7 +139,7 @@ def execution_router(
 
     @router.get("/health")
     def health() -> Response:
-        return json_response({"status": "ok", "deployments": len(registry.all())})
+        return json_response({"status": "ok", "deployments": len(registry.schedules())})
 
     @router.get("/ready")
     def ready() -> Response:
@@ -142,8 +160,9 @@ def execution_router(
                     "env": env,
                     "version": d.compiled.version,
                     "hash": d.hash,
+                    "effectiveFrom": None if start == ALWAYS else start.isoformat(),
                 }
-                for (ws, rs, env), d in registry.all()
+                for (ws, rs, env), start, d in registry.all()
             ]
         )
 
@@ -153,12 +172,12 @@ def execution_router(
         denied = await authorise(request, workspace)
         if denied is not None:
             return denied
-        dep = registry.get(workspace, ruleset, env or DEFAULT_ENV)
-        if dep is None:
-            return problem(
-                404, "Not Found", f"no deployment {workspace}/{ruleset}@{env or DEFAULT_ENV}"
-            )
-        return await run(request, dep)
+        name = env or DEFAULT_ENV
+        return await run(
+            request,
+            lambda on: registry.get(workspace, ruleset, name, on),
+            f"no deployment {workspace}/{ruleset}@{name} for the reference date",
+        )
 
     @router.post("/exec/{workspace}/{ruleset}/versions/{semver}")
     async def execute_version(
@@ -168,9 +187,7 @@ def execution_router(
         if denied is not None:
             return denied
         dep = await sync.load_version(workspace, ruleset, semver) if sync else None
-        if dep is None:
-            return problem(404, "Not Found", f"no version {workspace}/{ruleset}/{semver}")
-        return await run(request, dep)
+        return await run(request, lambda on: dep, f"no version {workspace}/{ruleset}/{semver}")
 
     return router
 

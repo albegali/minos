@@ -203,8 +203,8 @@ async def test_full_lifecycle(
     assert r.status_code == 200
     await eventually(lambda: deployed("0.2.0"))
     assert (await c.get(f"{RS}/aliases", headers=admin)).json() == {
-        "prod": "0.2.0",
-        "test": "0.2.0",
+        "prod": [{"version": "0.2.0", "effectiveFrom": None}],
+        "test": [{"version": "0.2.0", "effectiveFrom": None}],
     }
 
     # fixed versions stay reachable

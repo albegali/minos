@@ -9,10 +9,11 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Final
 
 from sqlalchemy import (
     BigInteger,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -21,6 +22,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -69,7 +71,7 @@ class SchemaVersion(Base):
     entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entity.id", ondelete="CASCADE"))
     version: Mapped[int] = mapped_column(Integer)
     json_schema: Mapped[dict[str, Any]]
-    source: Mapped[str] = mapped_column(String(20))  # sample | manual | connector
+    source: Mapped[str] = mapped_column(String(20))  # sample | manual | connector | import
     hash: Mapped[str] = mapped_column(String(64))
     created_by: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[dt.datetime] = _created()
@@ -129,13 +131,24 @@ class RulesetVersion(Base):
     published_at: Mapped[dt.datetime] = _created()
 
 
+ALWAYS: Final = dt.date(1, 1, 1)
+"""``effective_from`` of an alias entry that applies with no start date."""
+
+
 class RulesetAlias(Base):
+    """Which version an environment runs. An environment may hold several entries with
+    different ``effective_from`` dates: a request runs the latest entry whose date is not
+    after its reference date (e.g. new rules from the start of the academic year)."""
+
     __tablename__ = "ruleset_alias"
 
     ruleset_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("ruleset.id", ondelete="CASCADE"), primary_key=True
     )
     env: Mapped[str] = mapped_column(String(32), primary_key=True)
+    effective_from: Mapped[dt.date] = mapped_column(
+        Date, primary_key=True, default=ALWAYS, server_default=text("'0001-01-01'")
+    )
     version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("ruleset_version.id"))
     updated_by: Mapped[str] = mapped_column(String(200))
     updated_at: Mapped[dt.datetime] = mapped_column(

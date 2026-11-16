@@ -4,6 +4,7 @@ aliases, tests, API keys and audit. Every function works inside the caller's tra
 
 from __future__ import annotations
 
+import datetime as dt
 import hashlib
 import json
 import re
@@ -17,6 +18,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from minos.db import (
+    ALWAYS,
     NOTIFY_CHANNEL,
     ApiClient,
     AuditEvent,
@@ -582,17 +584,27 @@ async def get_version(s: AsyncSession, rs: Ruleset, semver: str) -> RulesetVersi
 
 
 async def set_alias(
-    s: AsyncSession, actor: str, ws: Workspace, rs: Ruleset, env: str, semver: str
+    s: AsyncSession,
+    actor: str,
+    ws: Workspace,
+    rs: Ruleset,
+    env: str,
+    semver: str,
+    effective_from: dt.date | None = None,
 ) -> RulesetAlias:
+    """Point ``env`` at ``semver`` from ``effective_from`` (``None``: with no start date)."""
     if not ENV.match(env):
         raise Invalid(f"invalid environment name {env!r}")
+    start = effective_from or ALWAYS
     version = await get_version(s, rs, semver)
     if version.status == "archived":
         raise Conflict(f"version {semver} is archived")
-    alias = await s.get(RulesetAlias, (rs.id, env), with_for_update=True)
+    alias = await s.get(RulesetAlias, (rs.id, env, start), with_for_update=True)
     previous = None
     if alias is None:
-        alias = RulesetAlias(ruleset_id=rs.id, env=env, version_id=version.id, updated_by=actor)
+        alias = RulesetAlias(
+            ruleset_id=rs.id, env=env, effective_from=start, version_id=version.id, updated_by=actor
+        )
         s.add(alias)
     else:
         previous = alias.version_id
@@ -605,49 +617,73 @@ async def set_alias(
         "alias.set",
         f"{ws.slug}/{rs.key}@{env}",
         ws.id,
-        {"version": semver, "previousVersionId": str(previous) if previous else None},
-    )
-    await notify(
-        s,
         {
-            "kind": "alias",
-            "workspace": ws.slug,
-            "ruleset": rs.key,
-            "env": env,
             "version": semver,
-            "hash": version.hash,
+            "effectiveFrom": effective_from.isoformat() if effective_from else None,
+            "previousVersionId": str(previous) if previous else None,
         },
     )
+    await notify(s, {"kind": "alias", "workspace": ws.slug, "ruleset": rs.key, "env": env})
     return alias
 
 
-async def list_aliases(s: AsyncSession, rs: Ruleset) -> list[tuple[str, str]]:
+@dataclass(frozen=True, slots=True)
+class AliasEntry:
+    env: str
+    version: str
+    effective_from: dt.date | None
+
+
+async def list_aliases(s: AsyncSession, rs: Ruleset) -> list[AliasEntry]:
     rows = await s.execute(
-        select(RulesetAlias.env, RulesetVersion.semver)
+        select(RulesetAlias.env, RulesetVersion.semver, RulesetAlias.effective_from)
         .join(RulesetVersion, RulesetVersion.id == RulesetAlias.version_id)
         .where(RulesetAlias.ruleset_id == rs.id)
-        .order_by(RulesetAlias.env)
+        .order_by(RulesetAlias.env, RulesetAlias.effective_from)
     )
-    return [(env, semver) for env, semver in rows.all()]
+    return [
+        AliasEntry(env, semver, None if start == ALWAYS else start)
+        for env, semver, start in rows.all()
+    ]
 
 
-async def delete_alias(s: AsyncSession, actor: str, ws: Workspace, rs: Ruleset, env: str) -> None:
-    alias = await s.get(RulesetAlias, (rs.id, env))
-    if alias is None:
+def current_aliases(entries: list[AliasEntry], on: dt.date) -> dict[str, str]:
+    """Version each environment runs on day ``on``."""
+    out: dict[str, str] = {}
+    for e in entries:  # ordered by env, then start date
+        if e.effective_from is None or e.effective_from <= on:
+            out[e.env] = e.version
+    return out
+
+
+async def delete_alias(
+    s: AsyncSession,
+    actor: str,
+    ws: Workspace,
+    rs: Ruleset,
+    env: str,
+    effective_from: dt.date | None = None,
+    *,
+    all_entries: bool = True,
+) -> None:
+    """Remove one scheduled entry (``effective_from``) or, by default, the whole environment."""
+    q = select(RulesetAlias).where(RulesetAlias.ruleset_id == rs.id, RulesetAlias.env == env)
+    if not all_entries:
+        q = q.where(RulesetAlias.effective_from == (effective_from or ALWAYS))
+    entries = list(await s.scalars(q))
+    if not entries:
         raise NotFound(f"alias {env!r} not found")
-    await s.delete(alias)
-    await audit(s, actor, "alias.delete", f"{ws.slug}/{rs.key}@{env}", ws.id)
-    await notify(
+    for entry in entries:
+        await s.delete(entry)
+    await audit(
         s,
-        {
-            "kind": "alias",
-            "workspace": ws.slug,
-            "ruleset": rs.key,
-            "env": env,
-            "version": None,
-            "hash": None,
-        },
+        actor,
+        "alias.delete",
+        f"{ws.slug}/{rs.key}@{env}",
+        ws.id,
+        {"effectiveFrom": None if all_entries else str(effective_from or "")},
     )
+    await notify(s, {"kind": "alias", "workspace": ws.slug, "ruleset": rs.key, "env": env})
 
 
 # --------------------------------------------------------------------------- API keys
