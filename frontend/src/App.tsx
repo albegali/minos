@@ -84,7 +84,7 @@ export function App() {
     setRunning(true)
     setError(null)
     try {
-      const res = await fetch(`/v1/exec/${graph.ruleset}`, {
+      const res = await fetch(`/v1/exec/local/${graph.ruleset}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ input: SAMPLES[sample], options: { trace: 'summary' } }),
