@@ -21,7 +21,8 @@ class Settings:
     rulesets_dir: Path | None
     """Directory of RGD files served as workspace ``local`` (development, offline use)."""
     require_auth: bool
-    """API keys are required unless explicitly disabled (local development only)."""
+    """API keys are optional: off by default (open local installation), on with
+    MINOS_REQUIRE_AUTH=true."""
     poll_interval_s: float
     """Safety net for missed NOTIFY messages: how often workers re-check alias hashes."""
     cors_origins: tuple[str, ...] = ()
@@ -33,7 +34,7 @@ class Settings:
         return cls(
             database_url=os.environ.get("MINOS_DATABASE_URL") or None,
             rulesets_dir=Path(rulesets) if rulesets else None,
-            require_auth=_bool("MINOS_REQUIRE_AUTH", True),
+            require_auth=_bool("MINOS_REQUIRE_AUTH", False),
             poll_interval_s=float(os.environ.get("MINOS_POLL_INTERVAL_S", "30")),
             cors_origins=tuple(
                 o.strip() for o in os.environ.get("MINOS_CORS_ORIGINS", "").split(",") if o.strip()

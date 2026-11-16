@@ -1,5 +1,6 @@
-// Gate G2: a business user (manage key, no admin rights) builds, tests and publishes a rule
-// set using only Minos Studio — no JSON written by hand, no developer involved.
+// Gate G2: a business user builds, tests and publishes a rule set using only Minos Studio —
+// no JSON written by hand, no developer involved. The installation is open (the default):
+// no login, as for a local deployment.
 
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -9,7 +10,6 @@ import { expect, type Locator, type Page, test } from '@playwright/test'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const examples = join(here, '..', '..', 'examples', 'inputs')
-const state = () => JSON.parse(readFileSync(join(here, '.state.json'), 'utf8')) as { manageKey: string; execKey: string }
 const validPlan = readFileSync(join(examples, 'studyplan-emba-valid.json'), 'utf8')
 const invalidPlan = readFileSync(join(examples, 'studyplan-emba-invalid.json'), 'utf8')
 
@@ -32,20 +32,16 @@ async function wire(page: Page, from: string, port: string, to: string) {
   await page.mouse.up()
 }
 
-test('login rejects an invalid key', async ({ page }) => {
-  await page.goto('/')
-  await page.getByLabel('API key').fill('mns_not-a-key')
-  await page.getByRole('button', { name: 'Accedi' }).click()
-  await expect(page.getByText('Chiave non valida o revocata.')).toBeVisible()
+test('an open installation needs no login', async ({ page }) => {
+  await page.goto('/login')
+  await expect(page).toHaveURL(/\/w$/)
+  await expect(page.getByRole('heading', { name: 'Workspace' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Esci' })).toHaveCount(0)
 })
 
 test('a business user builds, tests and publishes a rule set from the Studio', async ({ page, request }) => {
-  const { manageKey, execKey } = state()
-
-  // Sign in
+  // Open the workspace (no login on an open installation)
   await page.goto('/')
-  await page.getByLabel('API key').fill(manageKey)
-  await page.getByRole('button', { name: 'Accedi' }).click()
   await page.getByText('Aurora Business School').click()
   await expect(page).toHaveURL(/\/w\/aurora$/)
 
@@ -133,7 +129,6 @@ test('a business user builds, tests and publishes a rule set from the Studio', a
     .poll(
       async () => {
         const res = await request.post('http://127.0.0.1:8000/v1/exec/aurora/piano-emba@test', {
-          headers: { 'X-Api-Key': execKey },
           data: { input: JSON.parse(validPlan) },
         })
         return res.ok() ? (await res.json()).outcome : res.status()
@@ -142,7 +137,6 @@ test('a business user builds, tests and publishes a rule set from the Studio', a
     )
     .toBe('valid')
   const res = await request.post('http://127.0.0.1:8000/v1/exec/aurora/piano-emba@test', {
-    headers: { 'X-Api-Key': execKey },
     data: { input: JSON.parse(invalidPlan) },
   })
   const body = await res.json()

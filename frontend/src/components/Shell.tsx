@@ -4,18 +4,31 @@ import {
   BreadcrumbDivider,
   BreadcrumbItem,
   Button,
+  Spinner,
   Text,
 } from '@fluentui/react-components'
 import { SignOut20Regular } from '@fluentui/react-icons'
 import { Fragment, type ReactNode } from 'react'
 import { Link, Navigate, Outlet, useLocation, useNavigate, useParams } from 'react-router'
 
+import { useServerInfo } from '../api/hooks'
 import { useAuth } from '../auth/store'
+import { ErrorBar } from './forms'
 
+/**
+ * Gate for the Studio pages. Open installations (the default) need no key; installations
+ * without a database have no management API, so the Studio falls back to the demo.
+ */
 export function RequireAuth({ children }: { children: ReactNode }) {
   const apiKey = useAuth((s) => s.apiKey)
   const location = useLocation()
-  if (!apiKey) return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  const info = useServerInfo()
+  if (info.isLoading) return <Spinner label="Connessione all'API…" className="centered" />
+  if (info.error) return <ErrorBar error={info.error} />
+  if (info.data && !info.data.management) return <Navigate to="/demo" replace />
+  if (info.data?.authRequired && !apiKey) {
+    return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  }
   return <>{children}</>
 }
 
@@ -44,6 +57,7 @@ function Crumbs() {
 
 export function Shell() {
   const logout = useAuth((s) => s.logout)
+  const info = useServerInfo()
   return (
     <div className="shell">
       <header className="shell-header">
@@ -53,9 +67,11 @@ export function Shell() {
           </Text>
         </Link>
         <Crumbs />
-        <Button appearance="subtle" icon={<SignOut20Regular />} onClick={logout}>
-          Esci
-        </Button>
+        {info.data?.authRequired && (
+          <Button appearance="subtle" icon={<SignOut20Regular />} onClick={logout}>
+            Esci
+          </Button>
+        )}
       </header>
       <main className="shell-main">
         <Outlet />

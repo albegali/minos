@@ -1,6 +1,8 @@
 import { Button, Card, Field, Input, MessageBar, MessageBarBody, Text } from '@fluentui/react-components'
 import { type FormEvent, useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router'
+
+import { useServerInfo } from '../api/hooks'
 
 import { useAuth } from '../auth/store'
 
@@ -12,6 +14,7 @@ export function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const from = (location.state as { from?: string } | null)?.from ?? '/w'
+  const info = useServerInfo()
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -33,6 +36,8 @@ export function LoginPage() {
       setBusy(false)
     }
   }
+
+  if (info.data && !info.data.authRequired) return <Navigate to={from} replace />
 
   return (
     <div className="login">

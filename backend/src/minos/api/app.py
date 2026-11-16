@@ -49,7 +49,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Minos", version=__version__, lifespan=lifespan)
     app.state.runtime = rt
-    app.include_router(execution_router(rt.registry, rt.sync, cfg.require_auth))
+    app.include_router(
+        execution_router(rt.registry, rt.sync, cfg.require_auth, management=rt.engine is not None)
+    )
     if rt.engine is not None:
         app.include_router(management_router(make_sessionmaker(rt.engine), cfg.require_auth))
         install_error_handlers(app)

@@ -1,6 +1,6 @@
 # 0005 · API key e autorizzazione
 
-- Stato: Accettata
+- Stato: Accettata; aggiornata in F3 (autenticazione facoltativa, spenta di default)
 - Data: 2026-11-16
 
 ## Contesto
@@ -27,4 +27,8 @@ Studio e CI usano la Management API. L'autenticazione non deve aggiungere latenz
 ## Conseguenze
 
 - Una chiave compromessa si revoca da `DELETE /v1/workspaces/{ws}/api-keys/{id}`.
-- `MINOS_REQUIRE_AUTH=false` disattiva i controlli: solo per sviluppo locale.
+- **Aggiornamento F3**: Minos è software libero (MIT) pensato per installazioni locali senza
+  dati sensibili, quindi l'autenticazione è **facoltativa e spenta di default**
+  (`MINOS_REQUIRE_AUTH=false`). Lo Studio legge `GET /v1/info` ed entra senza login. Le API key
+  restano disponibili per chi espone l'API in rete.
+- Login degli utenti (OIDC) e ruoli: non pianificati.

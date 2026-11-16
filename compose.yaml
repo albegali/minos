@@ -1,0 +1,47 @@
+# Minos in locale: PostgreSQL, API e Studio.
+#   docker compose up --build
+# Studio: http://localhost:8080 · API: http://localhost:8000/v1 · nessun login (installazione aperta)
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: minos
+      POSTGRES_PASSWORD: minos
+      POSTGRES_DB: minos
+    volumes:
+      - minos-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U minos"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: ./backend
+    environment:
+      MINOS_DATABASE_URL: postgresql+asyncpg://minos:minos@db:5432/minos
+      MINOS_REQUIRE_AUTH: "false"
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/ready')"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  studio:
+    build:
+      context: ./frontend
+      additional_contexts:
+        examples: ./examples
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+
+volumes:
+  minos-data:

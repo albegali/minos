@@ -3,6 +3,7 @@ name = "minos"
 version = "0.1.0"
 description = "Minos: JSON-in / JSON-out rule engine with versioned, compiled rule graphs"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.14"
 dependencies = [
     "alembic>=1.14",

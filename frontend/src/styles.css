@@ -792,3 +792,7 @@ pre.mini {
 .expr-compact {
   flex-wrap: wrap;
 }
+
+.centered {
+  margin: 48px auto;
+}

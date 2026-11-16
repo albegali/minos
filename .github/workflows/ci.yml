@@ -116,3 +116,19 @@ jobs:
           path: |
             frontend/playwright-report
             frontend/test-results
+
+  compose:
+    # The local installation: build the images, start PostgreSQL + API + Studio, probe them.
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose up --build --detach --wait
+      - run: curl --fail --silent http://localhost:8000/v1/info
+      - run: curl --fail --silent http://localhost:8080/v1/ready
+      - run: curl --fail --silent --output /dev/null http://localhost:8080/w
+      - if: failure()
+        run: docker compose logs
+      - if: always()
+        run: docker compose down --volumes
+
