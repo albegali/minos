@@ -1,0 +1,16 @@
+{
+  "studentId": "S2027-00456",
+  "academicYear": "2027/2028",
+  "submittedAt": "2027-10-01T09:00:00Z",
+  "program": { "code": "EMBA", "edition": "2027", "track": "STRATEGY", "format": "PART_TIME" },
+  "student": { "birthDate": "1988-11-02", "country": "IT" },
+  "courses": [
+    { "code": "FIN101", "area": "FIN", "cfu": 8, "type": "CORE", "term": 1 },
+    { "code": "FIN220", "area": "FIN", "cfu": 6, "type": "ELECTIVE", "term": 2 },
+    { "code": "FIN230", "area": "FIN", "cfu": 6, "type": "ELECTIVE", "term": 2 },
+    { "code": "STR110", "area": "STR", "cfu": 8, "type": "CORE", "term": 1 },
+    { "code": "DIG210", "area": "DIG", "cfu": 6, "type": "ELECTIVE", "term": 3 },
+    { "code": "DIG220", "area": "DIG", "cfu": 6, "type": "ELECTIVE", "term": 3 }
+  ],
+  "payment": { "plan": "INSTALLMENTS", "installments": 5 }
+}

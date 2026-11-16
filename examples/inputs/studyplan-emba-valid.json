@@ -1,0 +1,18 @@
+{
+  "studentId": "S2027-00123",
+  "academicYear": "2027/2028",
+  "submittedAt": "2027-09-20T10:15:00Z",
+  "program": { "code": "EMBA", "edition": "2027", "track": "FINANCE", "format": "PART_TIME" },
+  "student": { "birthDate": "1990-04-12", "country": "IT", "scholarship": { "type": "MERIT", "percent": 20 } },
+  "courses": [
+    { "code": "FIN101", "area": "FIN", "cfu": 8, "type": "CORE", "term": 1 },
+    { "code": "FIN220", "area": "FIN", "cfu": 6, "type": "ELECTIVE", "term": 2 },
+    { "code": "STR110", "area": "STR", "cfu": 8, "type": "CORE", "term": 1 },
+    { "code": "MKT120", "area": "MKT", "cfu": 8, "type": "CORE", "term": 1 },
+    { "code": "OPS130", "area": "OPS", "cfu": 8, "type": "CORE", "term": 2 },
+    { "code": "LDR140", "area": "ORG", "cfu": 8, "type": "CORE", "term": 2 },
+    { "code": "ACC150", "area": "ACC", "cfu": 8, "type": "CORE", "term": 3 },
+    { "code": "DIG210", "area": "DIG", "cfu": 6, "type": "ELECTIVE", "term": 3 }
+  ],
+  "payment": { "plan": "INSTALLMENTS", "installments": 3 }
+}
