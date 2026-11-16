@@ -68,7 +68,7 @@ Ogni requisito ha un codice per la tracciabilità nei ticket e nei test di accet
 - **RF-02** Per ogni workspace, più entità; ogni entità ha schemi versionati.
 - **RF-03** Per ogni entità, più rule set (es. `aurora.studyplan.executive-mba`, `aurora.studyplan.master-full-time`).
 - **RF-04** Un rule set può richiamarne un altro come sotto-grafo (nodo *Sub-RuleSet*), per riusare blocchi comuni come "controlli anagrafici".
-- **RF-05** Router di primo livello: un rule set "dispatcher" sceglie il rule set da eseguire in base a un campo (es. `program.code`).
+- **RF-05** Router di primo livello: un rule set "dispatcher" sceglie il rule set da eseguire in base a un campo (es. `program.code`). Realizzato con uno `switch` e nodi `subruleset`, senza un concetto dedicato.
 
 ### Schema
 

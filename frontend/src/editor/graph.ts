@@ -2,7 +2,7 @@
 // tests cover them without a browser.
 
 import type { NodeManifest } from '../api/types'
-import type { RgdEdge, RgdNode, RuleGraph } from '../rgd'
+import { layered, type RgdEdge, type RgdNode, type RuleGraph } from '../rgd'
 import { omit } from '../util'
 import { blankComparison } from './expr'
 
@@ -14,6 +14,8 @@ export function portsOf(node: RgdNode, manifest?: NodeManifest): string[] {
   switch (node.type) {
     case 'condition':
     case 'group':
+    case 'decision_table':
+    case 'subruleset':
       return ['pass', 'fail']
     case 'end':
       return []
@@ -55,6 +57,19 @@ export function defaultNode(type: string, id: string): RgdNode {
         label: 'Nuovo messaggio',
         feedback: { code: 'MSG', severity: 'info', message: { it: '' } },
       }
+    case 'decision_table':
+      return {
+        id,
+        type,
+        label: 'Nuova tabella',
+        hitPolicy: 'first',
+        inputs: [{ name: 'input', label: 'input', expr: { ref: '' } }],
+        outputs: [{ name: 'risultato', label: 'risultato' }],
+        rules: [{ when: [null], then: { risultato: null } }],
+        target: `${id}Result`,
+      }
+    case 'subruleset':
+      return { id, type, label: 'Rule set annidato', ruleset: '', version: '', target: `${id}Result` }
     case 'end':
       return { id, type, label: 'Fine', outcome: 'valid' }
     default:
@@ -66,12 +81,20 @@ function withPositions(graph: RuleGraph, positions: Record<string, Position>): R
   return { ...graph, ui: { ...graph.ui, positions } }
 }
 
+/**
+ * Positions of every node, saved ones first and the automatic layout for the rest. Edits
+ * store them all, so nodes never jump around when edges change the automatic layout.
+ */
+export function frozenPositions(graph: RuleGraph): Record<string, Position> {
+  return { ...layered(graph), ...(graph.ui?.positions ?? {}) }
+}
+
 export function addNode(graph: RuleGraph, node: RgdNode, position: Position): RuleGraph {
   if (graph.nodes.some((n) => n.id === node.id)) throw new Error(`duplicate node id ${node.id}`)
   if (node.type === 'start' && graph.nodes.some((n) => n.type === 'start')) {
     throw new Error('il grafo ha già un nodo di inizio')
   }
-  const positions = { ...(graph.ui?.positions ?? {}), [node.id]: position }
+  const positions = { ...frozenPositions(graph), [node.id]: position }
   return withPositions({ ...graph, nodes: [...graph.nodes, node] }, positions)
 }
 
@@ -134,11 +157,14 @@ export function connect(graph: RuleGraph, from: string, port: string, to: string
   if (!check.ok) throw new Error(check.reason)
   const edges = graph.edges.filter((e) => !(e.from === from && (e.on ?? 'next') === port))
   const edge: RgdEdge = port === 'next' ? { from, to } : { from, to, on: port }
-  return { ...graph, edges: [...edges, edge] }
+  return withPositions({ ...graph, edges: [...edges, edge] }, frozenPositions(graph))
 }
 
 export function disconnect(graph: RuleGraph, id: string): RuleGraph {
-  return { ...graph, edges: graph.edges.filter((e) => edgeId(e) !== id) }
+  return withPositions(
+    { ...graph, edges: graph.edges.filter((e) => edgeId(e) !== id) },
+    frozenPositions(graph),
+  )
 }
 
 /** Rename a switch case and keep its outgoing edge. */
@@ -161,6 +187,9 @@ export function variableNames(graph: RuleGraph): string[] {
   for (const n of graph.nodes) {
     if (n.type === 'set' && n.assign && typeof n.assign === 'object') {
       Object.keys(n.assign as Record<string, unknown>).forEach((k) => names.add(k))
+    }
+    if ((n.type === 'decision_table' || n.type === 'subruleset') && typeof n.target === 'string' && n.target) {
+      names.add(n.target)
     }
   }
   return [...names].sort()

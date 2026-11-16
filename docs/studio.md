@@ -19,6 +19,13 @@ key con scope `manage` o `admin`. Il percorso tipico, senza scrivere JSON:
      elementi di una lista, con un filtro sugli elementi e un valore calcolato da ciascuno.
    - *Gruppo di regole*: più regole con un messaggio per regola; *Tutte le regole* le valuta
      tutte per raccogliere ogni errore.
+   - *Tabella decisionale*: colonne di input (campi o espressioni), colonne di output e righe da
+     compilare come un foglio di calcolo, con celle brevi: vuoto = qualsiasi, `EMBA`, `A, B`
+     (uno tra), `>= 60`, `30..59`, `2027-01-01..2027-12-31`, `!= X`, `$.vars.nome`. Si sceglie
+     quale riga vale (la prima, l'unica, la più prioritaria, tutte). Il risultato finisce in
+     `$.vars`.
+   - *Rule set annidato*: riusa un rule set già pubblicato (versione fissata), sull'oggetto in
+     input o su ogni elemento di una lista; i suoi messaggi compaiono nel risultato.
    - *Calcolo*: variabili riusabili negli altri nodi (`$.vars.nome`).
    - *Messaggi*: codice, gravità, testo in italiano e inglese con valori inseriti
      (`{{vars.totalCfu}}`), campo interessato e dati allegati.

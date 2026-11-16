@@ -16,11 +16,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useBlocker, useParams } from 'react-router'
 
 import { ApiError, errorMessage } from '../api/client'
-import { layered } from '../rgd'
 import { keys, saveDraft, useCatalog, useDraft, useRuleset, useSchema, useSchemas, validateDraft } from '../api/hooks'
 import { Canvas, Palette } from './Canvas'
 import { type FieldScope, ScopeContext } from './FieldPicker'
-import { addNode, defaultNode, issueNode, newNodeId, variableNames } from './graph'
+import { addNode, defaultNode, frozenPositions, issueNode, newNodeId, variableNames } from './graph'
 import { NodePanel } from './NodePanel'
 import { IssueList, NodeIO, SettingsPanel, SimulatePanel, TestsPanel, VersionsPanel } from './panels'
 import { listFields } from './schemaPaths'
@@ -136,7 +135,7 @@ export function EditorPage() {
     const g = useEditor.getState().graph
     if (!g) return
     const id = newNodeId(g, type)
-    const positions = Object.values({ ...layered(g), ...(g.ui?.positions ?? {}) })
+    const positions = Object.values(frozenPositions(g))
     const x = (positions.length ? Math.max(...positions.map((p) => p[0])) : 0) + 280
     const y = positions.length ? Math.min(...positions.map((p) => p[1])) : 0
     change((current) => addNode(current, defaultNode(type, id), [x, y]))
