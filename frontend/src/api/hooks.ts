@@ -9,6 +9,8 @@ import type {
   Draft,
   Entity,
   ExecutionResult,
+  GraphDiff,
+  ImportResult,
   JsonSchema,
   RulesetInfo,
   RulesetSummary,
@@ -189,8 +191,34 @@ export const publish = (
   body: { bump: 'major' | 'minor' | 'patch'; notes?: string; promoteTo?: string },
 ) => api<Version & { promotedTo?: string }>(`${rs(w, r)}/publish`, { method: 'POST', body })
 
-export const setAlias = (w: string, r: string, env: string, version: string) =>
+export const setAlias = (w: string, r: string, env: string, version: string, effectiveFrom?: string | null) =>
   api<{ env: string; version: string }>(`${rs(w, r)}/aliases/${encodeURIComponent(env)}`, {
     method: 'PUT',
-    body: { version },
+    body: effectiveFrom ? { version, effectiveFrom } : { version },
   })
+
+/** Remove one entry of an environment's schedule (`null`: the undated entry). */
+export const deleteAliasEntry = (w: string, r: string, env: string, effectiveFrom: string | null) =>
+  api<null>(
+    `${rs(w, r)}/aliases/${encodeURIComponent(env)}?effectiveFrom=${encodeURIComponent(effectiveFrom ?? 'always')}`,
+    { method: 'DELETE' },
+  )
+
+export const fetchDiff = (w: string, r: string, from: string, to = 'draft') =>
+  api<GraphDiff>(`${rs(w, r)}/diff?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+
+export const exportBundle = (w: string, r: string, version?: string) =>
+  api<Record<string, unknown>>(`${rs(w, r)}/export${version ? `?version=${encodeURIComponent(version)}` : ''}`)
+
+export const importBundle = (w: string, bundle: unknown) =>
+  api<ImportResult>(`${ws(w)}/import`, { method: 'POST', body: bundle })
+
+/** Save a JSON document as a file in the browser. */
+export function downloadJson(name: string, data: unknown) {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}

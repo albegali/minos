@@ -9,14 +9,14 @@ import {
   Text,
   Tooltip,
 } from '@fluentui/react-components'
-import { Checkmark20Regular, Play20Regular, Save20Regular } from '@fluentui/react-icons'
+import { ArrowDownload20Regular, Checkmark20Regular, Play20Regular, Save20Regular } from '@fluentui/react-icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { ReactFlowProvider } from '@xyflow/react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useBlocker, useParams } from 'react-router'
 
 import { ApiError, errorMessage } from '../api/client'
-import { keys, saveDraft, useCatalog, useDraft, useRuleset, useSchema, useSchemas, validateDraft } from '../api/hooks'
+import { downloadJson, exportBundle, keys, saveDraft, useCatalog, useDraft, useRuleset, useSchema, useSchemas, validateDraft } from '../api/hooks'
 import { Canvas, Palette } from './Canvas'
 import { type FieldScope, ScopeContext } from './FieldPicker'
 import { addNode, defaultNode, frozenPositions, issueNode, newNodeId, variableNames } from './graph'
@@ -188,6 +188,16 @@ export function EditorPage() {
             <Button icon={<Play20Regular />} onClick={() => setTab('simulate')}>
               Simula
             </Button>
+            <Tooltip content="Scarica il draft con schema e test, da importare altrove" relationship="description">
+              <Button
+                icon={<ArrowDownload20Regular />}
+                onClick={async () => {
+                  if (await save()) downloadJson(`${rs}-draft.minos.json`, await exportBundle(ws, rs))
+                }}
+              >
+                Esporta
+              </Button>
+            </Tooltip>
             <Button appearance="primary" onClick={() => setTab('versions')}>
               Pubblica
             </Button>

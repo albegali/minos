@@ -38,8 +38,15 @@ key con scope `manage` o `admin`. Il percorso tipico, senza scrivere JSON:
    trasforma in un test di regressione.
 8. **Pubblica** dalla scheda *Versioni*: correzione, modifica compatibile o importante. La
    pubblicazione fallisce se il draft non è valido o un test non passa. Si può promuovere subito
-   in `dev`, `test` o `prod`, e in seguito spostare ogni ambiente su qualunque versione (anche
+   in `dev`, `test` o `prod`, e in seguito portare ogni ambiente su qualunque versione (anche
    indietro, per un rollback immediato).
+9. **Pianifica** con *Porta in… → Da una data*: per esempio le regole del nuovo anno in `prod` dal
+   1° agosto, mentre quelle attuali restano in vigore fino ad allora. Ogni chiamata usa la
+   versione valida alla sua data di riferimento.
+10. **Confronta** una versione con il draft per vedere cosa cambierà prima di pubblicare.
+11. **Esporta / importa**: *Esporta* (toolbar o versione) scarica rule set, schema e test in un file
+    JSON; *Importa* nella pagina del workspace lo carica come draft, in un'altra installazione o
+    in un altro workspace.
 
 Se due persone modificano lo stesso draft, il secondo salvataggio viene rifiutato e lo Studio
 propone di ricaricare. Uscire con modifiche non salvate chiede conferma.
