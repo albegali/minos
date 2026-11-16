@@ -111,7 +111,7 @@ Ogni requisito ha un codice per la tracciabilità nei ticket e nei test di accet
 
 - **RF-40** Stati: `draft` (modificabile), `published` (immutabile, numerata semver), `deprecated`, `archived`.
 - **RF-41** Alias per ambiente (`dev`, `test`, `prod`) che puntano a una versione; promozione e rollback = spostare l'alias, senza deploy.
-- **RF-42** Validità temporale opzionale: una versione vale dal / al (es. regole per l'anno accademico 2027/28), selezionata con la data di riferimento della richiesta.
+- **RF-42** Validità temporale: ogni ambiente ha un calendario di versioni con data di inizio (es. regole per l'anno accademico 2027/28 dal 1° agosto); la data di riferimento della richiesta sceglie la versione.
 - **RF-43** Diff tra versioni (e con il draft); audit log di chi ha pubblicato cosa e quando.
 - **RF-44** ~~Approvazione a quattro occhi~~: non prevista finché non ci sono utenti (installazione aperta).
 - **RF-45** Import/export del rule set completo (grafo, schema, lookup, test) come bundle JSON, per Git e per migrare tra ambienti.
