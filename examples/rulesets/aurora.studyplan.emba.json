@@ -1,0 +1,235 @@
+{
+  "rgdVersion": "1.0",
+  "ruleset": "aurora.studyplan.emba",
+  "version": "0.1.0",
+  "schemaRef": { "entity": "StudyPlan", "version": 1 },
+  "settings": { "mode": "collect_all", "locale": "it" },
+  "constants": {
+    "window": { "open": "2027-09-01", "close": "2027-10-15" },
+    "minCfu": 60,
+    "maxElectiveCfu": 20,
+    "financeTrackMinCfu": 12,
+    "maxFinCoursesOtherTracks": 2,
+    "basePrice": 38500,
+    "allowedInstallments": [1, 2, 3]
+  },
+  "nodes": [
+    { "id": "start", "type": "start" },
+    {
+      "id": "derive",
+      "type": "set",
+      "label": "Calcola CFU",
+      "assign": {
+        "totalCfu": { "fn": "sum", "args": [{ "ref": "$.input.courses[*].cfu" }] },
+        "electiveCfu": {
+          "fn": "sum",
+          "args": [{ "ref": "$.input.courses" }],
+          "where": { "op": "==", "left": { "ref": "$.item.type" }, "right": "ELECTIVE" },
+          "select": { "ref": "$.item.cfu" }
+        },
+        "finCfu": {
+          "fn": "sum",
+          "args": [{ "ref": "$.input.courses" }],
+          "where": { "op": "==", "left": { "ref": "$.item.area" }, "right": "FIN" },
+          "select": { "ref": "$.item.cfu" }
+        }
+      }
+    },
+    {
+      "id": "chkWindow",
+      "type": "condition",
+      "label": "Piano presentato nella finestra",
+      "condition": {
+        "op": "date_between",
+        "left": { "ref": "$.input.submittedAt" },
+        "right": [{ "ref": "$.vars.window.open" }, { "ref": "$.vars.window.close" }]
+      },
+      "onFail": "stop",
+      "feedback": {
+        "pass": {
+          "code": "SP_WINDOW_OK",
+          "severity": "info",
+          "message": { "it": "Piano presentato nei tempi", "en": "Plan submitted on time" }
+        },
+        "fail": {
+          "code": "SP_WINDOW_CLOSED",
+          "severity": "error",
+          "path": "submittedAt",
+          "message": {
+            "it": "La finestra di presentazione va dal {{vars.window.open}} al {{vars.window.close}}",
+            "en": "The submission window runs from {{vars.window.open}} to {{vars.window.close}}"
+          }
+        }
+      }
+    },
+    {
+      "id": "grpCfu",
+      "type": "group",
+      "label": "Vincoli sui CFU",
+      "operator": "and",
+      "evaluate": "all",
+      "children": [
+        {
+          "rule": { "op": ">=", "left": { "ref": "$.vars.totalCfu" }, "right": { "ref": "$.vars.minCfu" } },
+          "feedback": {
+            "fail": {
+              "code": "SP_CFU_MIN",
+              "path": "courses",
+              "message": {
+                "it": "Servono almeno {{vars.minCfu}} CFU, ne risultano {{vars.totalCfu}}",
+                "en": "At least {{vars.minCfu}} ECTS required, found {{vars.totalCfu}}"
+              },
+              "data": { "actual": { "ref": "$.vars.totalCfu" }, "required": { "ref": "$.vars.minCfu" } }
+            }
+          }
+        },
+        {
+          "rule": { "op": "<=", "left": { "ref": "$.vars.electiveCfu" }, "right": { "ref": "$.vars.maxElectiveCfu" } },
+          "feedback": {
+            "fail": {
+              "code": "SP_ELECTIVE_MAX",
+              "path": "courses",
+              "message": {
+                "it": "Al massimo {{vars.maxElectiveCfu}} CFU di elettivi, ne risultano {{vars.electiveCfu}}",
+                "en": "At most {{vars.maxElectiveCfu}} elective ECTS, found {{vars.electiveCfu}}"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "swTrack",
+      "type": "switch",
+      "label": "Track del programma",
+      "cases": [
+        { "name": "finance", "when": { "op": "==", "left": { "ref": "$.input.program.track" }, "right": "FINANCE" } }
+      ]
+    },
+    {
+      "id": "chkFinTrack",
+      "type": "condition",
+      "label": "Track Finance: CFU minimi in area FIN",
+      "condition": { "op": ">=", "left": { "ref": "$.vars.finCfu" }, "right": { "ref": "$.vars.financeTrackMinCfu" } },
+      "feedback": {
+        "fail": {
+          "code": "SP_FIN_TRACK_MIN",
+          "path": "courses",
+          "message": {
+            "it": "Il track Finance richiede almeno {{vars.financeTrackMinCfu}} CFU in area FIN, ne risultano {{vars.finCfu}}",
+            "en": "The Finance track requires at least {{vars.financeTrackMinCfu}} ECTS in FIN, found {{vars.finCfu}}"
+          }
+        }
+      }
+    },
+    {
+      "id": "chkFinLimit",
+      "type": "condition",
+      "label": "Altri track: massimo corsi FIN",
+      "condition": {
+        "op": "<=",
+        "left": {
+          "fn": "count",
+          "args": [{ "ref": "$.input.courses" }],
+          "where": { "op": "==", "left": { "ref": "$.item.area" }, "right": "FIN" }
+        },
+        "right": { "ref": "$.vars.maxFinCoursesOtherTracks" }
+      },
+      "feedback": {
+        "fail": {
+          "code": "SP_FIN_LIMIT",
+          "path": "courses",
+          "message": {
+            "it": "Fuori dal track Finance sono ammessi al massimo {{vars.maxFinCoursesOtherTracks}} corsi in area FIN",
+            "en": "Outside the Finance track at most {{vars.maxFinCoursesOtherTracks}} FIN courses are allowed"
+          }
+        }
+      }
+    },
+    {
+      "id": "price",
+      "type": "set",
+      "label": "Calcola retta",
+      "assign": {
+        "tuitionFee": {
+          "fn": "round",
+          "args": [
+            {
+              "op": "*",
+              "args": [
+                { "ref": "$.vars.basePrice" },
+                {
+                  "op": "-",
+                  "args": [
+                    1,
+                    {
+                      "op": "/",
+                      "args": [{ "fn": "coalesce", "args": [{ "ref": "$.input.student.scholarship.percent" }, 0] }, 100]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "chkInstallments",
+      "type": "condition",
+      "label": "Numero di rate ammesso",
+      "condition": {
+        "op": "in",
+        "left": { "fn": "coalesce", "args": [{ "ref": "$.input.payment.installments" }, 1] },
+        "right": { "ref": "$.vars.allowedInstallments" }
+      },
+      "feedback": {
+        "fail": {
+          "code": "SP_INSTALLMENTS",
+          "severity": "warning",
+          "path": "payment.installments",
+          "message": {
+            "it": "Numero di rate non previsto: verrà applicato il pagamento in un'unica soluzione",
+            "en": "Unsupported number of installments: a single payment will be applied"
+          }
+        }
+      }
+    },
+    {
+      "id": "endOk",
+      "type": "end",
+      "outcome": "valid",
+      "output": {
+        "totalCfu": { "ref": "$.vars.totalCfu" },
+        "electiveCfu": { "ref": "$.vars.electiveCfu" },
+        "tuitionFee": { "ref": "$.vars.tuitionFee" }
+      }
+    }
+  ],
+  "edges": [
+    { "from": "start", "to": "derive" },
+    { "from": "derive", "to": "chkWindow" },
+    { "from": "chkWindow", "to": "grpCfu", "on": "pass" },
+    { "from": "grpCfu", "to": "swTrack", "on": "pass" },
+    { "from": "swTrack", "to": "chkFinTrack", "on": "finance" },
+    { "from": "swTrack", "to": "chkFinLimit", "on": "default" },
+    { "from": "chkFinTrack", "to": "price", "on": "pass" },
+    { "from": "chkFinLimit", "to": "price", "on": "pass" },
+    { "from": "price", "to": "chkInstallments" },
+    { "from": "chkInstallments", "to": "endOk", "on": "pass" }
+  ],
+  "ui": {
+    "positions": {
+      "start": [0, 0],
+      "derive": [286, 0],
+      "chkWindow": [572, 0],
+      "grpCfu": [858, 0],
+      "swTrack": [1144, 0],
+      "chkFinTrack": [1430, -120],
+      "chkFinLimit": [1430, 120],
+      "price": [1716, 0],
+      "chkInstallments": [2002, 0],
+      "endOk": [2288, 0]
+    }
+  }
+}
