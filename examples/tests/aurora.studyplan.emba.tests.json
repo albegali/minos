@@ -1,0 +1,261 @@
+[
+  {
+    "name": "piano valido",
+    "input": {
+      "studentId": "S2027-00123",
+      "academicYear": "2027/2028",
+      "submittedAt": "2027-09-20T10:15:00Z",
+      "program": {
+        "code": "EMBA",
+        "edition": "2027",
+        "track": "FINANCE",
+        "format": "PART_TIME"
+      },
+      "student": {
+        "birthDate": "1990-04-12",
+        "country": "IT",
+        "scholarship": {
+          "type": "MERIT",
+          "percent": 20
+        }
+      },
+      "courses": [
+        {
+          "code": "FIN101",
+          "area": "FIN",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "FIN220",
+          "area": "FIN",
+          "cfu": 6,
+          "type": "ELECTIVE",
+          "term": 2
+        },
+        {
+          "code": "STR110",
+          "area": "STR",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "MKT120",
+          "area": "MKT",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "OPS130",
+          "area": "OPS",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 2
+        },
+        {
+          "code": "LDR140",
+          "area": "ORG",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 2
+        },
+        {
+          "code": "ACC150",
+          "area": "ACC",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 3
+        },
+        {
+          "code": "DIG210",
+          "area": "DIG",
+          "cfu": 6,
+          "type": "ELECTIVE",
+          "term": 3
+        }
+      ],
+      "payment": {
+        "plan": "INSTALLMENTS",
+        "installments": 3
+      }
+    },
+    "expected": {
+      "outcome": "valid",
+      "result": {
+        "totalCfu": 60,
+        "electiveCfu": 12,
+        "tuitionFee": 30800
+      }
+    }
+  },
+  {
+    "name": "piano non valido",
+    "input": {
+      "studentId": "S2027-00456",
+      "academicYear": "2027/2028",
+      "submittedAt": "2027-10-01T09:00:00Z",
+      "program": {
+        "code": "EMBA",
+        "edition": "2027",
+        "track": "STRATEGY",
+        "format": "PART_TIME"
+      },
+      "student": {
+        "birthDate": "1988-11-02",
+        "country": "IT"
+      },
+      "courses": [
+        {
+          "code": "FIN101",
+          "area": "FIN",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "FIN220",
+          "area": "FIN",
+          "cfu": 6,
+          "type": "ELECTIVE",
+          "term": 2
+        },
+        {
+          "code": "FIN230",
+          "area": "FIN",
+          "cfu": 6,
+          "type": "ELECTIVE",
+          "term": 2
+        },
+        {
+          "code": "STR110",
+          "area": "STR",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "DIG210",
+          "area": "DIG",
+          "cfu": 6,
+          "type": "ELECTIVE",
+          "term": 3
+        },
+        {
+          "code": "DIG220",
+          "area": "DIG",
+          "cfu": 6,
+          "type": "ELECTIVE",
+          "term": 3
+        }
+      ],
+      "payment": {
+        "plan": "INSTALLMENTS",
+        "installments": 5
+      }
+    },
+    "expected": {
+      "outcome": "invalid",
+      "feedbackCodes": [
+        "SP_WINDOW_OK",
+        "SP_CFU_MIN",
+        "SP_ELECTIVE_MAX",
+        "SP_FIN_LIMIT",
+        "SP_INSTALLMENTS"
+      ]
+    }
+  },
+  {
+    "name": "finestra chiusa",
+    "input": {
+      "studentId": "S2027-00123",
+      "academicYear": "2027/2028",
+      "submittedAt": "2027-11-02T08:00:00Z",
+      "program": {
+        "code": "EMBA",
+        "edition": "2027",
+        "track": "FINANCE",
+        "format": "PART_TIME"
+      },
+      "student": {
+        "birthDate": "1990-04-12",
+        "country": "IT",
+        "scholarship": {
+          "type": "MERIT",
+          "percent": 20
+        }
+      },
+      "courses": [
+        {
+          "code": "FIN101",
+          "area": "FIN",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "FIN220",
+          "area": "FIN",
+          "cfu": 6,
+          "type": "ELECTIVE",
+          "term": 2
+        },
+        {
+          "code": "STR110",
+          "area": "STR",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "MKT120",
+          "area": "MKT",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "OPS130",
+          "area": "OPS",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 2
+        },
+        {
+          "code": "LDR140",
+          "area": "ORG",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 2
+        },
+        {
+          "code": "ACC150",
+          "area": "ACC",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 3
+        },
+        {
+          "code": "DIG210",
+          "area": "DIG",
+          "cfu": 6,
+          "type": "ELECTIVE",
+          "term": 3
+        }
+      ],
+      "payment": {
+        "plan": "INSTALLMENTS",
+        "installments": 3
+      }
+    },
+    "expected": {
+      "outcome": "invalid",
+      "exitNodeId": "chkWindow",
+      "feedbackCodes": [
+        "SP_WINDOW_CLOSED"
+      ]
+    }
+  }
+]

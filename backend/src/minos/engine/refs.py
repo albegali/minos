@@ -42,7 +42,7 @@ MISSING: Final = _Missing()
 type Scope = dict[str, Any]
 type Accessor = Callable[[Scope], Any]
 
-ROOTS: Final = frozenset({"input", "vars", "nodes", "meta", "item"})
+ROOTS: Final = frozenset({"input", "vars", "nodes", "meta", "item", "outer"})
 
 _TOKEN = re.compile(
     r"""
@@ -54,7 +54,8 @@ _TOKEN = re.compile(
     re.VERBOSE,
 )
 
-_STAR: Final = object()
+STAR: Final = object()
+"""Wildcard segment ``[*]`` in a parsed path."""
 
 type Segment = str | int | object
 
@@ -76,7 +77,7 @@ def parse_path(path: str) -> tuple[str, tuple[Segment, ...]]:
         elif m.group("index") is not None:
             segments.append(int(m.group("index")))
         else:
-            segments.append(_STAR)
+            segments.append(STAR)
         pos = m.end()
     if not segments or not isinstance(segments[0], str) or segments[0] not in ROOTS:
         raise CompileError(f"reference root must be one of {sorted(ROOTS)}: {path!r}")
@@ -104,7 +105,7 @@ def compile_ref(path: str) -> Accessor:
     """Return a function ``scope -> value`` for ``path``; absent paths yield ``MISSING``."""
     root, segments = parse_path(path)
 
-    if _STAR not in segments:
+    if STAR not in segments:
         keys = segments
         if not keys:
             return lambda scope: scope.get(root, MISSING)
@@ -131,7 +132,7 @@ def compile_ref(path: str) -> Accessor:
         current: list[Any] = [scope.get(root, MISSING)]
         for seg in segments:
             nxt: list[Any] = []
-            if seg is _STAR:
+            if seg is STAR:
                 for v in current:
                     if isinstance(v, list):
                         nxt.extend(v)

@@ -246,3 +246,20 @@ def test_evaluation_errors(expr: Any) -> None:
 def test_to_date_accepts_dates() -> None:
     assert to_date(dt.date(2027, 1, 2)) == dt.date(2027, 1, 2)
     assert to_date(dt.datetime(2027, 1, 2, 3, 4)) == dt.date(2027, 1, 2)
+
+
+def test_outer_binds_the_enclosing_element() -> None:
+    # for each area, the CFU of the courses in that area
+    expr = {
+        "fn": "map",
+        "args": [["FIN", "STR"]],
+        "select": {
+            "fn": "sum",
+            "args": [ref("$.input.courses")],
+            "where": {"op": "==", "left": ref("$.item.area"), "right": ref("$.outer")},
+            "select": ref("$.item.cfu"),
+        },
+    }
+    scope = dict(SCOPE)
+    assert compile_expr(expr)(scope) == [10, 8]
+    assert "outer" not in scope and "item" not in scope

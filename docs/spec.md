@@ -143,7 +143,7 @@ Il vincolo che guida l'architettura è la latenza: il motore deve valutare un ru
 | RNF-06 | Dimensione input | max 1 MB (configurabile), profondità max 32 livelli |
 | RNF-07 | Determinismo | stesso input + stessa versione + stessa data di riferimento = stesso output |
 | RNF-08 | Sicurezza | nessun `eval` di codice utente; espressioni compilate da AST con whitelist; limiti di passi e tempo per esecuzione (es. 50 ms) |
-| RNF-09 | Autenticazione e autorizzazione | OIDC per l'editor (Entra ID, Google), RBAC per workspace (Owner, Editor, Reviewer, Viewer), API key con hash Argon2 e scope |
+| RNF-09 | Autenticazione e autorizzazione | OIDC per l'editor (Entra ID, Google), RBAC per workspace (Owner, Editor, Reviewer, Viewer), API key casuali a 256 bit salvate come SHA-256, con scope (ADR 0005) |
 | RNF-10 | Dati personali | trace e log con mascheramento dei campi marcati `pii` nello schema; retention configurabile (default 30 giorni); hosting UE per GDPR |
 | RNF-11 | Osservabilità | OpenTelemetry (trace, metriche, log), metriche per rule set: chiamate, esiti, latenze, nodi più frequenti come punto di uscita |
 | RNF-12 | Accessibilità editor | WCAG 2.2 AA per pannelli e form; canvas navigabile da tastiera |
@@ -345,8 +345,8 @@ Due superfici separate: l'API di esecuzione (pubblica verso i sistemi terzi, ott
 | `POST /v1/exec/{workspace}/{ruleset}` | Esegue l'alias `prod` (default) |
 | `POST /v1/exec/{workspace}/{ruleset}@{env}` | Esegue un alias (`test`, `dev`) |
 | `POST /v1/exec/{workspace}/{ruleset}/versions/{semver}` | Esegue una versione fissa (riproducibilità, audit) |
-| `POST /v1/exec/{workspace}/{ruleset}:batch` | Fino a 1.000 oggetti per chiamata, risposta in array |
-| `POST /v1/exec/{workspace}/{entity}:dispatch` | Sceglie il rule set con il dispatcher dell'entità |
+| `POST /v1/exec/{workspace}/{ruleset}/batch` (F4) | Fino a 1.000 oggetti per chiamata, risposta in array |
+| `POST /v1/exec/{workspace}/{entity}/dispatch` (F3) | Sceglie il rule set con il dispatcher dell'entità |
 | `GET /v1/health`, `GET /v1/ready` | Probe; `ready` solo dopo il caricamento degli artefatti |
 
 Richiesta:
@@ -367,16 +367,19 @@ Regole di risposta:
 
 ### Gestione (estratto)
 
+Le azioni sono sotto-risorse con `POST` (es. `.../publish`). Il riferimento completo di ciò che
+è implementato è in [`docs/api.md`](api.md).
+
 | Risorsa | Endpoint principali |
 | --- | --- |
-| Entità e schemi | `GET/POST /v1/entities`, `POST /v1/entities/{id}/schemas` (manuale), `POST /v1/schemas:infer` (da esempi), `POST /v1/schemas:import` (da connettore), `GET /v1/schemas/{id}/diff/{otherId}` |
-| Rule set | `GET/POST /v1/rulesets`, `GET/PUT /v1/rulesets/{id}/draft` (con `If-Match`) |
-| Ciclo di vita | `POST /v1/rulesets/{id}:validate`, `:simulate`, `:publish` (bump semver), `PUT /v1/rulesets/{id}/aliases/{env}` |
-| Test | `GET/POST /v1/rulesets/{id}/tests`, `POST /v1/rulesets/{id}/tests:run` |
-| Bundle | `GET /v1/rulesets/{id}/versions/{v}:export`, `POST /v1/rulesets:import` |
-| Catalogo nodi | `GET /v1/node-types` (manifest dei nodi e dei plugin, usato dall'editor per la palette) |
-| Connettori | `GET /v1/connectors`, `POST /v1/connections`, `POST /v1/connections/{id}:test` |
-| Accessi | `/v1/api-clients`, `/v1/members`, `/v1/audit` |
+| Entità e schemi | `GET/POST /v1/workspaces/{ws}/entities`, `POST .../entities/{entity}/schemas` (manuale o da esempi), `POST /v1/schemas/infer`; in seguito import da connettore e diff tra versioni |
+| Rule set | `GET/POST /v1/workspaces/{ws}/rulesets`, `GET/PUT .../rulesets/{rs}/draft` (con `If-Match`) |
+| Ciclo di vita | `POST .../rulesets/{rs}/validate`, `/simulate`, `/publish` (bump semver), `PUT/DELETE .../aliases/{env}` |
+| Test | `GET/POST .../rulesets/{rs}/tests`, `DELETE .../tests/{name}`, `POST .../tests/run` |
+| Bundle (F3) | export di una versione e import di un rule set completo |
+| Catalogo nodi (F2) | `GET /v1/node-types` (manifest dei nodi e dei plugin, usato dall'editor per la palette) |
+| Connettori (F4) | `GET /v1/connectors`, `POST /v1/connections`, `POST /v1/connections/{id}/test` |
+| Accessi | `.../api-keys`, `POST /v1/admin/api-keys`, `.../audit`; membri e ruoli con OIDC in F2 |
 
 ### SDK e integrazioni
 

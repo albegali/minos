@@ -9,7 +9,8 @@ An expression is one of:
 * ``{"fn": "<function>", "args": [e, ...], "where": e?, "select": e?}``.
 
 Everything is compiled once, when a rule set version is published; evaluation never
-parses anything. Inside ``where`` / ``select`` the current array element is ``$.item``.
+parses anything. Inside ``where`` / ``select`` the current array element is ``$.item``;
+in a nested aggregate the enclosing element is ``$.outer``.
 """
 
 from __future__ import annotations
@@ -350,7 +351,11 @@ def _compile_fn(e: dict[str, Any], where: str) -> Evaluator:
                 return seq
             # Bind $.item in place (no scope copy per element) and restore it afterwards,
             # so nested aggregates see their own element.
+            # The enclosing aggregate's element (if any) becomes $.outer.
             previous = s.get("item", MISSING)
+            previous_outer = s.get("outer", MISSING)
+            if previous is not MISSING:
+                s["outer"] = previous
             out: list[Any] = []
             try:
                 for x in seq:
@@ -359,10 +364,11 @@ def _compile_fn(e: dict[str, Any], where: str) -> Evaluator:
                         continue
                     out.append(select(s) if select is not None else x)
             finally:
-                if previous is MISSING:
-                    s.pop("item", None)
-                else:
-                    s["item"] = previous
+                for key, value in (("item", previous), ("outer", previous_outer)):
+                    if value is MISSING:
+                        s.pop(key, None)
+                    else:
+                        s[key] = value
             return out
 
         if name == "count":

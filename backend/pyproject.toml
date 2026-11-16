@@ -5,9 +5,13 @@ description = "Minos: JSON-in / JSON-out rule engine with versioned, compiled ru
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "alembic>=1.14",
+    "asyncpg>=0.30",
     "fastapi>=0.115",
+    "jsonschema-rs>=0.26",
     "orjson>=3.10",
     "pydantic>=2.10",
+    "sqlalchemy[asyncio]>=2.0",
     "uvicorn>=0.32",
 ]
 
@@ -16,6 +20,7 @@ dev = [
     "httpx>=0.28",
     "mypy>=1.13",
     "pytest>=8.3",
+    "pytest-asyncio>=0.25",
     "pytest-cov>=6.0",
     "ruff>=0.8",
 ]
@@ -34,7 +39,7 @@ target-version = "py314"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "PL"]
 # Compilers are long dispatch functions by nature: statement/branch counts are not useful here.
-ignore = ["PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004"]
+ignore = ["PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR0917", "PLR2004"]
 
 [tool.mypy]
 python_version = "3.14"
@@ -43,6 +48,13 @@ packages = ["minos"]
 mypy_path = "src"
 plugins = ["pydantic.mypy"]
 
+[[tool.mypy.overrides]]
+module = ["asyncpg", "asyncpg.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q --cov=minos --cov-report=term-missing --cov-fail-under=85"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"

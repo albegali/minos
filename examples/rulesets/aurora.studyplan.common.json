@@ -1,0 +1,154 @@
+{
+  "rgdVersion": "1.0",
+  "ruleset": "aurora.studyplan.common",
+  "version": "0.1.0",
+  "schemaRef": { "entity": "StudyPlan", "version": 1 },
+  "settings": { "mode": "collect_all", "locale": "it" },
+  "constants": {
+    "programs": ["EMBA", "FTMBA", "IMBA", "MSC"],
+    "minAge": 21,
+    "catalog": ["FIN101", "FIN220", "FIN230", "STR110", "MKT120", "OPS130", "LDR140", "ACC150", "DIG210", "DIG220"],
+    "coreCodes": ["FIN101", "STR110"],
+    "maxCfuPerTerm": 24,
+    "terms": [1, 2, 3, 4]
+  },
+  "nodes": [
+    { "id": "start", "type": "start" },
+    {
+      "id": "chkProgram",
+      "type": "condition",
+      "label": "Programma esistente",
+      "condition": { "op": "in", "left": { "ref": "$.input.program.code" }, "right": { "ref": "$.vars.programs" } },
+      "onFail": "stop",
+      "feedback": {
+        "fail": {
+          "code": "SP_PROGRAM_UNKNOWN",
+          "path": "program.code",
+          "message": { "it": "Programma {{input.program.code}} non previsto", "en": "Unknown programme {{input.program.code}}" }
+        }
+      }
+    },
+    {
+      "id": "chkAge",
+      "type": "condition",
+      "label": "Età minima",
+      "condition": {
+        "op": ">=",
+        "left": { "fn": "age", "args": [{ "ref": "$.input.student.birthDate" }] },
+        "right": { "ref": "$.vars.minAge" }
+      },
+      "feedback": {
+        "fail": {
+          "code": "SP_AGE_MIN",
+          "path": "student.birthDate",
+          "message": { "it": "Età minima {{vars.minAge}} anni alla data di riferimento", "en": "Minimum age {{vars.minAge}} at the reference date" }
+        }
+      }
+    },
+    {
+      "id": "grpCourses",
+      "type": "group",
+      "label": "Coerenza dei corsi",
+      "operator": "and",
+      "evaluate": "all",
+      "children": [
+        {
+          "rule": { "op": ">", "left": { "fn": "count", "args": [{ "ref": "$.input.courses" }] }, "right": 0 },
+          "feedback": { "fail": { "code": "SP_NO_COURSES", "path": "courses", "message": { "it": "Il piano non contiene corsi", "en": "The plan has no courses" } } }
+        },
+        {
+          "rule": {
+            "fn": "all",
+            "args": [{ "ref": "$.input.courses" }],
+            "select": { "op": "in", "left": { "ref": "$.item.code" }, "right": { "ref": "$.vars.catalog" } }
+          },
+          "feedback": {
+            "fail": {
+              "code": "SP_COURSE_UNKNOWN",
+              "path": "courses",
+              "message": { "it": "Alcuni corsi non sono nel catalogo dell'anno", "en": "Some courses are not in this year's catalogue" },
+              "data": {
+                "unknown": {
+                  "fn": "map",
+                  "args": [{ "ref": "$.input.courses" }],
+                  "where": { "op": "not_in", "left": { "ref": "$.item.code" }, "right": { "ref": "$.vars.catalog" } },
+                  "select": { "ref": "$.item.code" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "rule": {
+            "op": "==",
+            "left": { "fn": "count", "args": [{ "fn": "distinct", "args": [{ "ref": "$.input.courses[*].code" }] }] },
+            "right": { "fn": "count", "args": [{ "ref": "$.input.courses" }] }
+          },
+          "feedback": { "fail": { "code": "SP_COURSE_DUPLICATE", "path": "courses", "message": { "it": "Lo stesso corso compare più volte", "en": "A course appears more than once" } } }
+        },
+        {
+          "rule": {
+            "fn": "all",
+            "args": [{ "ref": "$.vars.coreCodes" }],
+            "select": { "op": "in", "left": { "ref": "$.item" }, "right": { "ref": "$.input.courses[*].code" } }
+          },
+          "feedback": {
+            "fail": {
+              "code": "SP_CORE_MISSING",
+              "path": "courses",
+              "message": { "it": "Mancano corsi obbligatori", "en": "Mandatory courses are missing" },
+              "data": {
+                "missing": {
+                  "fn": "filter",
+                  "args": [{ "ref": "$.vars.coreCodes" }],
+                  "where": { "op": "not_in", "left": { "ref": "$.item" }, "right": { "ref": "$.input.courses[*].code" } }
+                }
+              }
+            }
+          }
+        },
+        {
+          "rule": {
+            "fn": "all",
+            "args": [{ "ref": "$.vars.terms" }],
+            "select": {
+              "op": "<=",
+              "left": {
+                "fn": "sum",
+                "args": [{ "ref": "$.input.courses" }],
+                "where": { "op": "==", "left": { "ref": "$.item.term" }, "right": { "ref": "$.outer" } },
+                "select": { "ref": "$.item.cfu" }
+              },
+              "right": { "ref": "$.vars.maxCfuPerTerm" }
+            }
+          },
+          "feedback": { "fail": { "code": "SP_TERM_OVERLOAD", "path": "courses", "message": { "it": "Un periodo supera {{vars.maxCfuPerTerm}} CFU", "en": "A term exceeds {{vars.maxCfuPerTerm}} ECTS" } } }
+        }
+      ]
+    },
+    {
+      "id": "endOk",
+      "type": "end",
+      "outcome": "valid",
+      "output": {
+        "courses": { "fn": "count", "args": [{ "ref": "$.input.courses" }] },
+        "age": { "fn": "age", "args": [{ "ref": "$.input.student.birthDate" }] }
+      }
+    }
+  ],
+  "edges": [
+    { "from": "start", "to": "chkProgram" },
+    { "from": "chkProgram", "to": "chkAge", "on": "pass" },
+    { "from": "chkAge", "to": "grpCourses", "on": "pass" },
+    { "from": "grpCourses", "to": "endOk", "on": "pass" }
+  ],
+  "ui": {
+    "positions": {
+      "start": [0, 0],
+      "chkProgram": [286, 0],
+      "chkAge": [572, 0],
+      "grpCourses": [858, 0],
+      "endOk": [1144, 0]
+    }
+  }
+}

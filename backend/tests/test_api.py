@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -7,25 +8,38 @@ import orjson
 import pytest
 from fastapi.testclient import TestClient
 
+import minos.api.app as module
 from minos.api.app import create_app
+from minos.settings import Settings
 
 from .conftest import EXAMPLES, graph
 
+EMBA = "/v1/exec/local/aurora.studyplan.emba"
+
+
+def files(directory: Path) -> Settings:
+    return Settings(
+        database_url=None, rulesets_dir=directory, require_auth=False, poll_interval_s=30
+    )
+
 
 @pytest.fixture
-def client() -> TestClient:
-    return TestClient(create_app(EXAMPLES / "rulesets"))
+def client() -> Iterator[TestClient]:
+    with TestClient(create_app(files(EXAMPLES / "rulesets"))) as c:
+        yield c
 
 
 def test_health_and_listing(client: TestClient) -> None:
-    assert client.get("/v1/health").json() == {"status": "ok", "rulesets": 1}
-    listing = client.get("/v1/rulesets").json()
-    assert listing[0]["ruleset"] == "aurora.studyplan.emba"
+    assert client.get("/v1/health").json() == {"status": "ok", "deployments": 2}
+    assert client.get("/v1/ready").json() == {"status": "ready"}
+    listing = client.get("/v1/deployments").json()
+    assert [d["ruleset"] for d in listing] == ["aurora.studyplan.common", "aurora.studyplan.emba"]
+    assert {d["workspace"] for d in listing} == {"local"}
 
 
 def test_execute(client: TestClient, invalid_plan: dict[str, Any]) -> None:
     res = client.post(
-        "/v1/exec/aurora.studyplan.emba",
+        EMBA,
         json={
             "input": invalid_plan,
             "options": {"trace": "summary", "referenceDate": "2027-09-20"},
@@ -44,12 +58,13 @@ def test_execute(client: TestClient, invalid_plan: dict[str, Any]) -> None:
 @pytest.mark.parametrize(
     ("path", "payload", "status"),
     [
-        ("/v1/exec/nope", b'{"input": {}}', 404),
-        ("/v1/exec/aurora.studyplan.emba", b"{not json", 400),
-        ("/v1/exec/aurora.studyplan.emba", b"[]", 400),
-        ("/v1/exec/aurora.studyplan.emba", b'{"input": {}, "options": 3}', 400),
-        ("/v1/exec/aurora.studyplan.emba", b'{"input": {}, "options": {"trace": "all"}}', 400),
-        ("/v1/exec/aurora.studyplan.emba", b'{"input": "' + b"x" * 1_100_000 + b'"}', 413),
+        ("/v1/exec/local/nope", b'{"input": {}}', 404),
+        ("/v1/exec/local/aurora.studyplan.emba/versions/1.0.0", b'{"input": {}}', 404),
+        (EMBA, b"{not json", 400),
+        (EMBA, b"[]", 400),
+        (EMBA, b'{"input": {}, "options": 3}', 400),
+        (EMBA, b'{"input": {}, "options": {"trace": "all"}}', 400),
+        (EMBA, b'{"input": "' + b"x" * 1_100_000 + b'"}', 413),
     ],
 )
 def test_errors(client: TestClient, path: str, payload: bytes, status: int) -> None:
@@ -80,15 +95,45 @@ def test_error_outcome_and_limits(tmp_path: Path) -> None:
     )
     for doc in (bad, limited, orphan):
         (tmp_path / f"{doc['ruleset']}.json").write_bytes(orjson.dumps(doc))
-    client = TestClient(create_app(tmp_path))
-    assert client.post("/v1/exec/t.bad", json={"input": {}}).status_code == 422
-    res = client.post("/v1/exec/t.limited", json={"input": {}})
-    assert res.status_code == 422
-    assert res.json()["title"] == "Execution Limit"
-    assert client.post("/v1/exec/t.orphan", json={"input": {}}).json()["outcome"] == "valid"
+    with TestClient(create_app(files(tmp_path))) as client:
+        assert client.post("/v1/exec/local/t.bad", json={"input": {}}).status_code == 422
+        res = client.post("/v1/exec/local/t.limited", json={"input": {}})
+        assert res.status_code == 422
+        assert res.json()["title"] == "Execution Limit"
+        res = client.post("/v1/exec/local/t.orphan", json={"input": {}})
+        assert res.json()["outcome"] == "valid"
 
 
 def test_rulesets_dir_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MINOS_RULESETS_DIR", str(EXAMPLES / "rulesets"))
-    client = TestClient(create_app())
-    assert client.get("/v1/health").json()["rulesets"] == 1
+    monkeypatch.setenv("MINOS_REQUIRE_AUTH", "false")
+    monkeypatch.delenv("MINOS_DATABASE_URL", raising=False)
+    with TestClient(create_app()) as client:
+        assert client.get("/v1/health").json()["deployments"] == 2
+
+
+def test_zero_config_serves_examples_without_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("MINOS_RULESETS_DIR", "MINOS_DATABASE_URL", "MINOS_REQUIRE_AUTH"):
+        monkeypatch.delenv(name, raising=False)
+    with TestClient(create_app()) as client:
+        assert client.post(EMBA, json={"input": {}}).status_code == 200
+
+
+def test_auth_without_database_is_rejected() -> None:
+    settings = Settings(
+        database_url=None, rulesets_dir=EXAMPLES / "rulesets", require_auth=True, poll_interval_s=30
+    )
+    with TestClient(create_app(settings)) as client:
+        assert client.post(EMBA, json={"input": {}}).status_code == 401
+        res = client.post(EMBA, json={"input": {}}, headers={"X-Api-Key": "k"})
+        assert res.status_code == 401
+
+
+def test_module_level_apps(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("MINOS_DATABASE_URL", raising=False)
+    assert module.app.title == "Minos"
+    assert module.execution_app.title == "Minos Execution API"
+    with pytest.raises(RuntimeError):
+        _ = module.management_app
+    with pytest.raises(AttributeError):
+        _ = module.nope
