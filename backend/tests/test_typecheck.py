@@ -219,3 +219,28 @@ def test_every_location_is_checked() -> None:
     assert "(+" in str(info.value)
     assert info.value.issues[0].as_dict().keys() == {"where", "message"}
     json.dumps([i.as_dict() for i in info.value.issues])
+
+
+def test_outer_scope() -> None:
+    nested = {
+        "fn": "all",
+        "args": [ref("$.input.courses")],
+        "select": {
+            "op": ">=",
+            "left": {
+                "fn": "count",
+                "args": [ref("$.input.courses")],
+                "where": {"op": "==", "left": ref("$.item.area"), "right": ref("$.outer.area")},
+            },
+            "right": 1,
+        },
+    }
+    assert issues(one(nested)) == []
+    typo = json.loads(json.dumps(nested).replace("$.outer.area", "$.outer.aera"))
+    assert any("aera" in m for m in issues(one(typo)))
+    flat = {
+        "fn": "count",
+        "args": [ref("$.input.courses")],
+        "where": {"op": "==", "left": ref("$.outer.area"), "right": "FIN"},
+    }
+    assert any("nested aggregate" in m for m in issues(one(flat)))

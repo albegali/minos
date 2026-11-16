@@ -1,0 +1,488 @@
+[
+  {
+    "name": "piano valido",
+    "input": {
+      "studentId": "S2027-00123",
+      "academicYear": "2027/2028",
+      "submittedAt": "2027-09-20T10:15:00Z",
+      "program": {
+        "code": "EMBA",
+        "edition": "2027",
+        "track": "FINANCE",
+        "format": "PART_TIME"
+      },
+      "student": {
+        "birthDate": "1990-04-12",
+        "country": "IT",
+        "scholarship": {
+          "type": "MERIT",
+          "percent": 20
+        }
+      },
+      "courses": [
+        {
+          "code": "FIN101",
+          "area": "FIN",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "FIN220",
+          "area": "FIN",
+          "cfu": 6,
+          "type": "ELECTIVE",
+          "term": 2
+        },
+        {
+          "code": "STR110",
+          "area": "STR",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "MKT120",
+          "area": "MKT",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "OPS130",
+          "area": "OPS",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 2
+        },
+        {
+          "code": "LDR140",
+          "area": "ORG",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 2
+        },
+        {
+          "code": "ACC150",
+          "area": "ACC",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 3
+        },
+        {
+          "code": "DIG210",
+          "area": "DIG",
+          "cfu": 6,
+          "type": "ELECTIVE",
+          "term": 3
+        }
+      ],
+      "payment": {
+        "plan": "INSTALLMENTS",
+        "installments": 3
+      }
+    },
+    "referenceDate": "2027-09-20",
+    "expected": {
+      "outcome": "valid",
+      "feedbackCodes": [],
+      "result": {
+        "courses": 8,
+        "age": 37
+      }
+    }
+  },
+  {
+    "name": "programma sconosciuto",
+    "input": {
+      "studentId": "S2027-00123",
+      "academicYear": "2027/2028",
+      "submittedAt": "2027-09-20T10:15:00Z",
+      "program": {
+        "code": "XYZ",
+        "edition": "2027",
+        "track": "FINANCE",
+        "format": "PART_TIME"
+      },
+      "student": {
+        "birthDate": "1990-04-12",
+        "country": "IT",
+        "scholarship": {
+          "type": "MERIT",
+          "percent": 20
+        }
+      },
+      "courses": [
+        {
+          "code": "FIN101",
+          "area": "FIN",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "FIN220",
+          "area": "FIN",
+          "cfu": 6,
+          "type": "ELECTIVE",
+          "term": 2
+        },
+        {
+          "code": "STR110",
+          "area": "STR",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "MKT120",
+          "area": "MKT",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "OPS130",
+          "area": "OPS",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 2
+        },
+        {
+          "code": "LDR140",
+          "area": "ORG",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 2
+        },
+        {
+          "code": "ACC150",
+          "area": "ACC",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 3
+        },
+        {
+          "code": "DIG210",
+          "area": "DIG",
+          "cfu": 6,
+          "type": "ELECTIVE",
+          "term": 3
+        }
+      ],
+      "payment": {
+        "plan": "INSTALLMENTS",
+        "installments": 3
+      }
+    },
+    "expected": {
+      "outcome": "invalid",
+      "exitNodeId": "chkProgram",
+      "feedbackCodes": [
+        "SP_PROGRAM_UNKNOWN"
+      ]
+    }
+  },
+  {
+    "name": "studente troppo giovane",
+    "input": {
+      "studentId": "S2027-00123",
+      "academicYear": "2027/2028",
+      "submittedAt": "2027-09-20T10:15:00Z",
+      "program": {
+        "code": "EMBA",
+        "edition": "2027",
+        "track": "FINANCE",
+        "format": "PART_TIME"
+      },
+      "student": {
+        "birthDate": "2010-01-01",
+        "country": "IT",
+        "scholarship": {
+          "type": "MERIT",
+          "percent": 20
+        }
+      },
+      "courses": [
+        {
+          "code": "FIN101",
+          "area": "FIN",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "FIN220",
+          "area": "FIN",
+          "cfu": 6,
+          "type": "ELECTIVE",
+          "term": 2
+        },
+        {
+          "code": "STR110",
+          "area": "STR",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "MKT120",
+          "area": "MKT",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "OPS130",
+          "area": "OPS",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 2
+        },
+        {
+          "code": "LDR140",
+          "area": "ORG",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 2
+        },
+        {
+          "code": "ACC150",
+          "area": "ACC",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 3
+        },
+        {
+          "code": "DIG210",
+          "area": "DIG",
+          "cfu": 6,
+          "type": "ELECTIVE",
+          "term": 3
+        }
+      ],
+      "payment": {
+        "plan": "INSTALLMENTS",
+        "installments": 3
+      }
+    },
+    "referenceDate": "2027-09-20",
+    "expected": {
+      "outcome": "invalid",
+      "feedbackCodes": [
+        "SP_AGE_MIN"
+      ]
+    }
+  },
+  {
+    "name": "nessun corso",
+    "input": {
+      "studentId": "S2027-00123",
+      "academicYear": "2027/2028",
+      "submittedAt": "2027-09-20T10:15:00Z",
+      "program": {
+        "code": "EMBA",
+        "edition": "2027",
+        "track": "FINANCE",
+        "format": "PART_TIME"
+      },
+      "student": {
+        "birthDate": "1990-04-12",
+        "country": "IT",
+        "scholarship": {
+          "type": "MERIT",
+          "percent": 20
+        }
+      },
+      "courses": [],
+      "payment": {
+        "plan": "INSTALLMENTS",
+        "installments": 3
+      }
+    },
+    "referenceDate": "2027-09-20",
+    "expected": {
+      "outcome": "invalid",
+      "feedbackCodes": [
+        "SP_NO_COURSES",
+        "SP_CORE_MISSING"
+      ]
+    }
+  },
+  {
+    "name": "corso fuori catalogo e duplicato",
+    "input": {
+      "studentId": "S2027-00123",
+      "academicYear": "2027/2028",
+      "submittedAt": "2027-09-20T10:15:00Z",
+      "program": {
+        "code": "EMBA",
+        "edition": "2027",
+        "track": "FINANCE",
+        "format": "PART_TIME"
+      },
+      "student": {
+        "birthDate": "1990-04-12",
+        "country": "IT",
+        "scholarship": {
+          "type": "MERIT",
+          "percent": 20
+        }
+      },
+      "courses": [
+        {
+          "code": "FIN101",
+          "area": "FIN",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "STR110",
+          "area": "FIN",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 2
+        },
+        {
+          "code": "XXX999",
+          "area": "FIN",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 3
+        },
+        {
+          "code": "FIN101",
+          "area": "FIN",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 4
+        }
+      ],
+      "payment": {
+        "plan": "INSTALLMENTS",
+        "installments": 3
+      }
+    },
+    "referenceDate": "2027-09-20",
+    "expected": {
+      "outcome": "invalid",
+      "feedbackCodes": [
+        "SP_COURSE_UNKNOWN",
+        "SP_COURSE_DUPLICATE"
+      ]
+    }
+  },
+  {
+    "name": "corso obbligatorio mancante",
+    "input": {
+      "studentId": "S2027-00123",
+      "academicYear": "2027/2028",
+      "submittedAt": "2027-09-20T10:15:00Z",
+      "program": {
+        "code": "EMBA",
+        "edition": "2027",
+        "track": "FINANCE",
+        "format": "PART_TIME"
+      },
+      "student": {
+        "birthDate": "1990-04-12",
+        "country": "IT",
+        "scholarship": {
+          "type": "MERIT",
+          "percent": 20
+        }
+      },
+      "courses": [
+        {
+          "code": "FIN101",
+          "area": "FIN",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "MKT120",
+          "area": "FIN",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 2
+        }
+      ],
+      "payment": {
+        "plan": "INSTALLMENTS",
+        "installments": 3
+      }
+    },
+    "referenceDate": "2027-09-20",
+    "expected": {
+      "outcome": "invalid",
+      "feedbackCodes": [
+        "SP_CORE_MISSING"
+      ]
+    }
+  },
+  {
+    "name": "periodo sovraccarico",
+    "input": {
+      "studentId": "S2027-00123",
+      "academicYear": "2027/2028",
+      "submittedAt": "2027-09-20T10:15:00Z",
+      "program": {
+        "code": "EMBA",
+        "edition": "2027",
+        "track": "FINANCE",
+        "format": "PART_TIME"
+      },
+      "student": {
+        "birthDate": "1990-04-12",
+        "country": "IT",
+        "scholarship": {
+          "type": "MERIT",
+          "percent": 20
+        }
+      },
+      "courses": [
+        {
+          "code": "FIN101",
+          "area": "FIN",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "STR110",
+          "area": "FIN",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "MKT120",
+          "area": "FIN",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        },
+        {
+          "code": "OPS130",
+          "area": "FIN",
+          "cfu": 8,
+          "type": "CORE",
+          "term": 1
+        }
+      ],
+      "payment": {
+        "plan": "INSTALLMENTS",
+        "installments": 3
+      }
+    },
+    "referenceDate": "2027-09-20",
+    "expected": {
+      "outcome": "invalid",
+      "feedbackCodes": [
+        "SP_TERM_OVERLOAD"
+      ]
+    }
+  }
+]

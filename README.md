@@ -6,22 +6,28 @@ versionato e restituisce esito, punto di uscita e feedback strutturati, con late
 > Come Minosse, re e legislatore di Creta e poi giudice delle anime, Minos giudica ogni oggetto
 > e decide da che parte farlo passare.
 
-Stato: **fase F0 (fondamenta)** della [roadmap](docs/spec.md#roadmap).
+Stato: **fase F1 (motore e API)** della [roadmap](docs/spec.md#roadmap): motore compilato, type-check
+sullo schema, control plane su PostgreSQL con versioni e alias, Execution API con hot reload.
 
 ## Struttura
 
 | Percorso | Contenuto |
 | --- | --- |
-| [`backend/`](backend/) | Python 3.14: motore (`minos.engine`), Execution API FastAPI (`minos.api`), test, benchmark |
+| [`backend/`](backend/) | Python 3.14: motore (`minos.engine`), schemi (`minos.schema`), control plane (`minos.control`, `minos.db`), API FastAPI (`minos.api`), test, benchmark |
 | [`frontend/`](frontend/) | Minos Studio: React 19 + React Flow, anteprima del canvas e simulatore |
-| [`examples/`](examples/) | Rule set dimostrativo (piano di studi EMBA, valori illustrativi) e input di esempio |
+| [`examples/`](examples/) | Rule set GSoM (regole comuni ed EMBA, valori illustrativi), input e suite di test |
 | [`docs/spec.md`](docs/spec.md) | Specifiche funzionali, architettura, API e roadmap |
 | [`docs/rgd-format.md`](docs/rgd-format.md) | Riferimento del formato Rule Graph Document 1.0 |
+| [`docs/api.md`](docs/api.md) | Riferimento delle API di esecuzione e gestione |
+| [`docs/benchmarks.md`](docs/benchmarks.md) | Misure e gate di fase |
 | [`docs/adr/`](docs/adr/) | Decisioni architetturali |
 
 ## Avvio rapido
 
-Requisiti: [uv](https://docs.astral.sh/uv/) e Node.js 22 o superiore (CI su Node 24 LTS).
+Requisiti: [uv](https://docs.astral.sh/uv/), Node.js 22 o superiore (CI su Node 24 LTS) e, per
+la piattaforma completa, PostgreSQL 16 o 17.
+
+### Demo senza database
 
 ```bash
 cd backend && uv sync && uv run uvicorn minos.api.app:app --port 8000
@@ -31,21 +37,32 @@ cd backend && uv sync && uv run uvicorn minos.api.app:app --port 8000
 cd frontend && npm install && npm run dev
 ```
 
-Apri http://localhost:5173, scegli un input e premi **Simula**: lo Studio chiama l'API, evidenzia il
-percorso eseguito e mostra feedback e output.
+Senza configurazione l'API serve gli esempi di `examples/rulesets` come workspace `local`, senza
+autenticazione. Apri http://localhost:5173, scegli un input e premi **Simula**.
 
-Chiamata diretta all'API:
+### Piattaforma completa
 
 ```bash
-curl -s localhost:8000/v1/exec/gsom.studyplan.emba \
-  -H 'content-type: application/json' \
-  -d "{\"input\": $(cat examples/inputs/studyplan-emba-invalid.json), \"options\": {\"trace\": \"summary\"}}"
+export MINOS_DATABASE_URL=postgresql+asyncpg://minos:minos@localhost:5432/minos
 ```
+
+```bash
+cd backend && uv run python -m minos.cli migrate && uv run python -m minos.cli create-admin-key --name me
+```
+
+```bash
+uv run uvicorn minos.api.app:app --port 8000
+```
+
+Con la chiave admin si creano workspace, entità, schemi e rule set, si pubblica e si promuove a
+`prod`: il flusso completo è in [`docs/api.md`](docs/api.md) e, eseguibile, in
+`backend/bench/bench_api.py` (funzione `seed`). In produzione Execution API e Management API girano
+come processi separati (`minos.api.app:execution_app`, `minos.api.app:management_app`).
 
 ## Qualità
 
 ```bash
-cd backend && uv run ruff check . && uv run mypy && uv run pytest && uv run python bench/bench_engine.py
+cd backend && uv run ruff check . && uv run mypy && uv run pytest && uv run python bench/bench_engine.py && uv run python bench/bench_api.py
 ```
 
 ```bash

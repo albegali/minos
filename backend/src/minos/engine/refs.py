@@ -42,7 +42,7 @@ MISSING: Final = _Missing()
 type Scope = dict[str, Any]
 type Accessor = Callable[[Scope], Any]
 
-ROOTS: Final = frozenset({"input", "vars", "nodes", "meta", "item"})
+ROOTS: Final = frozenset({"input", "vars", "nodes", "meta", "item", "outer"})
 
 _TOKEN = re.compile(
     r"""

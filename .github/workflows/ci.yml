@@ -15,6 +15,22 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: minos
+          POSTGRES_PASSWORD: minos
+          POSTGRES_DB: minos
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U minos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MINOS_TEST_DATABASE_URL: postgresql+asyncpg://minos:minos@localhost:5432/minos_test
+      MINOS_BENCH_DATABASE_URL: postgresql+asyncpg://minos:minos@localhost:5432/minos_bench
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -34,6 +50,10 @@ jobs:
         env:
           MINOS_BENCH_P99_MS: "3.0"
         run: uv run python bench/bench_engine.py --iterations 10000
+      - name: API load test (regression guard)
+        env:
+          MINOS_BENCH_API_P99_MS: "20"
+        run: uv run python bench/bench_api.py --seconds 10
 
   frontend:
     runs-on: ubuntu-latest
