@@ -11,6 +11,7 @@ import {
 import { useEffect, useState } from 'react'
 
 import { edgesOnPath, type NodeStatus, type RuleGraph, toFlow } from '../rgd'
+import { BrandLockup } from '../components/Brand'
 import { RuleNode } from '../RuleNode'
 
 // Every example of the repository, bundled at build time. Inputs belong to the entity of
@@ -31,11 +32,11 @@ function samplesFor(graph: RuleGraph): Record<string, unknown> {
 
 const nodeTypes = { rule: RuleNode }
 const STATUS_COLOR: Record<NodeStatus, string> = {
-  idle: '#adb5bd',
-  pass: '#2f9e44',
-  fail: '#e03131',
-  error: '#e03131',
-  end: '#3b5bdb',
+  idle: '#b7c2ce',
+  pass: '#01928c',
+  fail: '#d64545',
+  error: '#d64545',
+  end: '#039bb0',
 }
 const minimapColor = (node: { data: Record<string, unknown> }) =>
   STATUS_COLOR[(node.data.status as NodeStatus | undefined) ?? 'idle']
@@ -124,7 +125,7 @@ function DemoView({ graph, onRuleset }: { graph: RuleGraph; onRuleset: (key: str
     <div className="app">
       <header className="toolbar">
         <div className="brand">
-          <strong>Minos Studio</strong>
+          <BrandLockup tagline="Demo" />
           <span className="muted">
             {graph.ruleset} · v{graph.version} · {graph.settings?.mode}
           </span>

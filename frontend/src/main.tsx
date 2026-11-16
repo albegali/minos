@@ -1,6 +1,6 @@
 import './styles.css'
 
-import { FluentProvider, Spinner, webDarkTheme, webLightTheme } from '@fluentui/react-components'
+import { FluentProvider, Spinner } from '@fluentui/react-components'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { lazy, type ReactNode, StrictMode, Suspense, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -11,6 +11,7 @@ import { RequireAuth, Shell } from './components/Shell'
 import { LoginPage } from './pages/LoginPage'
 import { WorkspacePage } from './pages/WorkspacePage'
 import { WorkspacesPage } from './pages/WorkspacesPage'
+import { minosDark, minosLight } from './theme'
 
 // Heavy pages (React Flow canvas, editors) load on demand.
 const EditorPage = lazy(() => import('./editor/EditorPage').then((m) => ({ default: m.EditorPage })))
@@ -64,7 +65,7 @@ function usePrefersDark(): boolean {
 function Root() {
   const dark = usePrefersDark()
   return (
-    <FluentProvider theme={dark ? webDarkTheme : webLightTheme}>
+    <FluentProvider theme={dark ? minosDark : minosLight}>
       {/* Not on FluentProvider itself: Fluent copies its className onto portal hosts
           (dialogs, menus), and a full-page background there would cover them. */}
       <div className="fluent-root">

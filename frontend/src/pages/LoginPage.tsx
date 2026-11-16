@@ -5,6 +5,7 @@ import { Link, Navigate, useLocation, useNavigate } from 'react-router'
 import { useServerInfo } from '../api/hooks'
 
 import { useAuth } from '../auth/store'
+import { BrandLockup } from '../components/Brand'
 
 export function LoginPage() {
   const [key, setKey] = useState('')
@@ -42,9 +43,9 @@ export function LoginPage() {
   return (
     <div className="login">
       <Card className="login-card">
-        <Text as="h1" size={600} weight="semibold">
-          Minos Studio
-        </Text>
+        <h1 className="login-brand">
+          <BrandLockup size={44} />
+        </h1>
         <Text>Accedi con una API key con scope <code>manage</code> o <code>admin</code>.</Text>
         <form onSubmit={submit} className="stack">
           <Field label="API key" required>

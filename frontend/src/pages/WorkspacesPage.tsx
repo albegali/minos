@@ -1,5 +1,5 @@
 import { Button, Card, CardHeader, Field, Input, Spinner, Text } from '@fluentui/react-components'
-import { Add20Regular } from '@fluentui/react-icons'
+import { Add20Regular, Folder20Regular } from '@fluentui/react-icons'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 
@@ -49,7 +49,7 @@ export function WorkspacesPage() {
       <div className="card-grid">
         {data?.map((w) => (
           <Card key={w.slug} onClick={() => navigate(`/w/${w.slug}`)} className="clickable">
-            <CardHeader header={<Text weight="semibold">{w.name}</Text>} description={w.slug} />
+            <CardHeader image={<Folder20Regular />} header={<Text weight="semibold">{w.name}</Text>} description={w.slug} />
           </Card>
         ))}
       </div>

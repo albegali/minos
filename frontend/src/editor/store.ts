@@ -22,6 +22,8 @@ interface EditorState {
   dirty: boolean
   selected: string | null
   tab: PanelTab
+  /** Whether the side panel is expanded; collapsed it leaves a slim rail of tab icons. */
+  panelOpen: boolean
   issues: Issue[]
   warnings: string[]
   validated: boolean
@@ -34,6 +36,7 @@ interface EditorState {
   saved: (lockVersion: number) => void
   select: (id: string | null) => void
   setTab: (tab: PanelTab) => void
+  setPanelOpen: (open: boolean) => void
   setValidation: (issues: Issue[], warnings: string[]) => void
   setSimulation: (result: ExecutionResult | null) => void
 }
@@ -48,6 +51,7 @@ export const useEditor = create<EditorState>((set) => ({
   dirty: false,
   selected: null,
   tab: 'node',
+  panelOpen: true,
   issues: [],
   warnings: [],
   validated: false,
@@ -105,8 +109,9 @@ export const useEditor = create<EditorState>((set) => ({
     }),
   setSchemaVersion: (version) => set({ schemaVersion: version, dirty: true, validated: false }),
   saved: (lockVersion) => set({ lockVersion, dirty: false }),
-  select: (id) => set((s) => ({ selected: id, tab: id ? 'node' : s.tab })),
-  setTab: (tab) => set({ tab }),
+  select: (id) => set((s) => (id ? { selected: id, tab: 'node', panelOpen: true } : { selected: null, tab: s.tab })),
+  setTab: (tab) => set({ tab, panelOpen: true }),
+  setPanelOpen: (panelOpen) => set({ panelOpen }),
   setValidation: (issues, warnings) => set({ issues, warnings, validated: true }),
   setSimulation: (simulation) => set({ simulation }),
 }))
