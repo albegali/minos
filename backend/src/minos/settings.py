@@ -24,6 +24,8 @@ class Settings:
     """API keys are required unless explicitly disabled (local development only)."""
     poll_interval_s: float
     """Safety net for missed NOTIFY messages: how often workers re-check alias hashes."""
+    cors_origins: tuple[str, ...] = ()
+    """Origins allowed to call the APIs from a browser (comma-separated MINOS_CORS_ORIGINS)."""
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -33,4 +35,7 @@ class Settings:
             rulesets_dir=Path(rulesets) if rulesets else None,
             require_auth=_bool("MINOS_REQUIRE_AUTH", True),
             poll_interval_s=float(os.environ.get("MINOS_POLL_INTERVAL_S", "30")),
+            cors_origins=tuple(
+                o.strip() for o in os.environ.get("MINOS_CORS_ORIGINS", "").split(",") if o.strip()
+            ),
         )

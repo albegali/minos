@@ -21,10 +21,18 @@ from minos.control import service as svc
 from minos.control.errors import ControlError, Invalid, Unauthorized
 from minos.db import RulesetVersion, SchemaVersion, make_engine, make_sessionmaker
 from minos.engine import ExecuteOptions
+from minos.engine.catalog import catalog
 from minos.schema import infer_schema
 from minos.settings import Settings
 
-from .common import DEV_PRINCIPAL, Principal, api_key_from, json_response, problem
+from .common import (
+    DEV_PRINCIPAL,
+    Principal,
+    api_key_from,
+    install_cors,
+    json_response,
+    problem,
+)
 
 # --------------------------------------------------------------------------- request bodies
 
@@ -239,6 +247,11 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
                 for e in events
             ]
         )
+
+    @router.get("/node-types")
+    async def node_types(request: Request) -> Response:
+        await principal(request)
+        return json_response(catalog(), headers={"Cache-Control": "private, max-age=300"})
 
     # ---------------------------------------------------------------- entities & schemas
 
@@ -531,4 +544,5 @@ def create_management_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Minos Management API", version=__version__, lifespan=lifespan)
     app.include_router(management_router(sessions, cfg.require_auth))
     install_error_handlers(app)
+    install_cors(app, cfg)
     return app

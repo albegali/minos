@@ -23,7 +23,7 @@ from minos.db import asyncpg_dsn, make_engine, make_sessionmaker
 from minos.engine import ExecuteOptions, ExecutionLimitError
 from minos.settings import Settings
 
-from .common import api_key_from, json_response, problem
+from .common import api_key_from, install_cors, json_response, problem
 from .registry import DEFAULT_ENV, DbSync, Deployment, KeyCache, RulesetRegistry
 
 _TRACE_LEVELS = frozenset({"none", "summary", "full"})
@@ -211,6 +211,7 @@ def create_execution_app(settings: Settings | None = None) -> FastAPI:
     app.state.runtime = rt
     app.include_router(execution_router(rt.registry, rt.sync, rt.settings.require_auth))
     install_problem_handler(app)
+    install_cors(app, rt.settings)
     return app
 
 

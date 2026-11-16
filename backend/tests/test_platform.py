@@ -479,3 +479,31 @@ async def test_split_apps(clean_db: str) -> None:
         assert r.status_code == 404
     with pytest.raises(RuntimeError):
         create_management_app(settings(None))  # type: ignore[arg-type]
+
+
+async def test_node_types_and_cors(clean_db: str, admin: dict[str, str]) -> None:
+    app = create_app(settings(clean_db, cors_origins=("http://studio.example",)))
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://m") as c,
+    ):
+        r = await c.get("/v1/node-types", headers=admin)
+        assert r.status_code == 200
+        assert {n["type"] for n in r.json()["nodeTypes"]} >= {"condition", "group", "end"}
+        assert (await c.get("/v1/node-types")).status_code == 401
+        pre = await c.options(
+            "/v1/exec/x/y",
+            headers={"Origin": "http://studio.example", "Access-Control-Request-Method": "POST"},
+        )
+        assert pre.headers["access-control-allow-origin"] == "http://studio.example"
+    exe = create_execution_app(
+        settings(
+            None, rulesets_dir=None, require_auth=False, cors_origins=("http://studio.example",)
+        )
+    )
+    async with (
+        exe.router.lifespan_context(exe),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=exe), base_url="http://e") as e,
+    ):
+        r = await e.get("/v1/health", headers={"Origin": "http://studio.example"})
+        assert r.headers["access-control-allow-origin"] == "http://studio.example"
