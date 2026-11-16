@@ -1,0 +1,80 @@
+import {
+  Breadcrumb,
+  BreadcrumbButton,
+  BreadcrumbDivider,
+  BreadcrumbItem,
+  Button,
+  Text,
+} from '@fluentui/react-components'
+import { SignOut20Regular } from '@fluentui/react-icons'
+import { Fragment, type ReactNode } from 'react'
+import { Link, Navigate, Outlet, useLocation, useNavigate, useParams } from 'react-router'
+
+import { useAuth } from '../auth/store'
+
+export function RequireAuth({ children }: { children: ReactNode }) {
+  const apiKey = useAuth((s) => s.apiKey)
+  const location = useLocation()
+  if (!apiKey) return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  return <>{children}</>
+}
+
+function Crumbs() {
+  const { ws, entity, rs } = useParams()
+  const navigate = useNavigate()
+  const items: { label: string; to: string }[] = [{ label: 'Workspace', to: '/w' }]
+  if (ws) items.push({ label: ws, to: `/w/${ws}` })
+  if (ws && entity) items.push({ label: `Entità ${entity}`, to: `/w/${ws}/entities/${entity}` })
+  if (ws && rs) items.push({ label: `Rule set ${rs}`, to: `/w/${ws}/rulesets/${rs}` })
+  return (
+    <Breadcrumb aria-label="Percorso">
+      {items.map((item, i) => (
+        <Fragment key={item.to}>
+          <BreadcrumbItem>
+            <BreadcrumbButton current={i === items.length - 1} onClick={() => navigate(item.to)}>
+              {item.label}
+            </BreadcrumbButton>
+          </BreadcrumbItem>
+          {i < items.length - 1 && <BreadcrumbDivider />}
+        </Fragment>
+      ))}
+    </Breadcrumb>
+  )
+}
+
+export function Shell() {
+  const logout = useAuth((s) => s.logout)
+  return (
+    <div className="shell">
+      <header className="shell-header">
+        <Link to="/w" className="brand-link">
+          <Text weight="semibold" size={400}>
+            Minos Studio
+          </Text>
+        </Link>
+        <Crumbs />
+        <Button appearance="subtle" icon={<SignOut20Regular />} onClick={logout}>
+          Esci
+        </Button>
+      </header>
+      <main className="shell-main">
+        <Outlet />
+      </main>
+    </div>
+  )
+}
+
+/** A centred, readable column for list and form pages. */
+export function Page({ title, actions, children }: { title: string; actions?: ReactNode; children: ReactNode }) {
+  return (
+    <div className="page">
+      <div className="page-head">
+        <Text as="h1" size={600} weight="semibold">
+          {title}
+        </Text>
+        <div className="page-actions">{actions}</div>
+      </div>
+      {children}
+    </div>
+  )
+}

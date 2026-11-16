@@ -69,4 +69,50 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - run: npm test
       - run: npm run build
+
+  e2e:
+    # Gate G2: a business user builds, tests and publishes a rule set from the Studio.
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: minos
+          POSTGRES_PASSWORD: minos
+          POSTGRES_DB: minos
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U minos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MINOS_E2E_DATABASE_URL: postgresql+asyncpg://minos:minos@localhost:5432/minos_e2e
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --locked --python 3.14
+        working-directory: backend
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm run e2e
+        working-directory: frontend
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/test-results

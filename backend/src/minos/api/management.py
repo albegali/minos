@@ -19,12 +19,20 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from minos import __version__
 from minos.control import service as svc
 from minos.control.errors import ControlError, Invalid, Unauthorized
-from minos.db import RulesetVersion, SchemaVersion, make_engine, make_sessionmaker
+from minos.db import Entity, RulesetVersion, SchemaVersion, make_engine, make_sessionmaker
 from minos.engine import ExecuteOptions
+from minos.engine.catalog import catalog
 from minos.schema import infer_schema
 from minos.settings import Settings
 
-from .common import DEV_PRINCIPAL, Principal, api_key_from, json_response, problem
+from .common import (
+    DEV_PRINCIPAL,
+    Principal,
+    api_key_from,
+    install_cors,
+    json_response,
+    problem,
+)
 
 # --------------------------------------------------------------------------- request bodies
 
@@ -240,6 +248,11 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
             ]
         )
 
+    @router.get("/node-types")
+    async def node_types(request: Request) -> Response:
+        await principal(request)
+        return json_response(catalog(), headers={"Cache-Control": "private, max-age=300"})
+
     # ---------------------------------------------------------------- entities & schemas
 
     @router.post("/schemas/infer")
@@ -335,10 +348,12 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
             r = await svc.get_ruleset(s, w, rs)
             latest = await svc.latest_version(s, r)
             aliases = await svc.list_aliases(s, r)
+            entity = await s.get(Entity, r.entity_id)
         return json_response(
             {
                 "key": r.key,
                 "name": r.name,
+                "entity": entity.key if entity else None,
                 "description": r.description,
                 "latestVersion": latest.semver if latest else None,
                 "aliases": dict(aliases),
@@ -531,4 +546,5 @@ def create_management_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Minos Management API", version=__version__, lifespan=lifespan)
     app.include_router(management_router(sessions, cfg.require_auth))
     install_error_handlers(app)
+    install_cors(app, cfg)
     return app

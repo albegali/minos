@@ -10,11 +10,11 @@ import {
 } from '@xyflow/react'
 import { useEffect, useState } from 'react'
 
-import invalidPlan from '../../examples/inputs/studyplan-emba-invalid.json'
-import validPlan from '../../examples/inputs/studyplan-emba-valid.json'
-import exampleGraph from '../../examples/rulesets/aurora.studyplan.emba.json'
-import { edgesOnPath, type NodeStatus, type RuleGraph, toFlow } from './rgd'
-import { RuleNode } from './RuleNode'
+import invalidPlan from '../../../examples/inputs/studyplan-emba-invalid.json'
+import validPlan from '../../../examples/inputs/studyplan-emba-valid.json'
+import exampleGraph from '../../../examples/rulesets/aurora.studyplan.emba.json'
+import { edgesOnPath, type NodeStatus, type RuleGraph, toFlow } from '../rgd'
+import { RuleNode } from '../RuleNode'
 
 // JSON imports are typed structurally (tuples widen to number[]): cast via unknown.
 const graph = exampleGraph as unknown as RuleGraph
@@ -52,7 +52,7 @@ interface ExecutionResult {
   timing: { engineUs: number }
 }
 
-export function App() {
+export function DemoPage() {
   const [selected, setSelected] = useState<string | null>(null)
   const [sample, setSample] = useState<string>('Piano non valido')
   const [result, setResult] = useState<ExecutionResult | null>(null)

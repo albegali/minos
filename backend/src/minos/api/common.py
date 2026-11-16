@@ -7,10 +7,12 @@ from dataclasses import dataclass
 from typing import Any
 
 import orjson
-from fastapi import Request
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
 from minos.control.errors import Forbidden, Unauthorized
+from minos.settings import Settings
 
 
 def json_response(body: Any, status: int = 200, headers: dict[str, str] | None = None) -> Response:
@@ -71,3 +73,27 @@ def api_key_from(request: Request) -> str:
     if key:
         return key.strip()
     raise Unauthorized("missing API key: send 'Authorization: Bearer <key>' or 'X-Api-Key'")
+
+
+def install_cors(app: FastAPI, cfg: Settings) -> None:
+    """Allow a separately hosted Studio (e.g. a Dynamics web resource) to call the API."""
+    if cfg.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=list(cfg.cors_origins),
+            allow_methods=["GET", "POST", "PUT", "DELETE"],
+            allow_headers=[
+                "Authorization",
+                "X-Api-Key",
+                "Content-Type",
+                "If-Match",
+                "X-Request-Id",
+            ],
+            expose_headers=[
+                "ETag",
+                "X-Ruleset-Version",
+                "X-Ruleset-Hash",
+                "X-Request-Id",
+                "Server-Timing",
+            ],
+        )
