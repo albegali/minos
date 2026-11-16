@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from minos import __version__
 from minos.control import service as svc
 from minos.control.errors import ControlError, Invalid, Unauthorized
-from minos.db import RulesetVersion, SchemaVersion, make_engine, make_sessionmaker
+from minos.db import Entity, RulesetVersion, SchemaVersion, make_engine, make_sessionmaker
 from minos.engine import ExecuteOptions
 from minos.engine.catalog import catalog
 from minos.schema import infer_schema
@@ -348,10 +348,12 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
             r = await svc.get_ruleset(s, w, rs)
             latest = await svc.latest_version(s, r)
             aliases = await svc.list_aliases(s, r)
+            entity = await s.get(Entity, r.entity_id)
         return json_response(
             {
                 "key": r.key,
                 "name": r.name,
+                "entity": entity.key if entity else None,
                 "description": r.description,
                 "latestVersion": latest.semver if latest else None,
                 "aliases": dict(aliases),

@@ -214,6 +214,7 @@ async def test_full_lifecycle(
     # metadata
     info = (await c.get(RS, headers=admin)).json()
     assert info["latestVersion"] == "0.2.0"
+    assert info["entity"] == "StudyPlan"
     versions = (await c.get(f"{RS}/versions", headers=admin)).json()
     assert [v["version"] for v in versions] == ["0.2.0", "0.1.0"]
     full = (await c.get(f"{RS}/versions/0.1.0", headers=admin)).json()

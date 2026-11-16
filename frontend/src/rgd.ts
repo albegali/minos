@@ -25,10 +25,12 @@ export interface RuleGraph {
   rgdVersion: '1.0'
   ruleset: string
   version?: string
-  settings?: { mode?: 'fail_fast' | 'collect_all'; locale?: string }
+  schemaRef?: { entity: string; version: number }
+  settings?: { mode?: 'fail_fast' | 'collect_all'; locale?: string; maxSteps?: number }
+  constants?: Record<string, unknown>
   nodes: RgdNode[]
   edges: RgdEdge[]
-  ui?: { positions?: Record<string, [number, number]> }
+  ui?: { positions?: Record<string, [number, number]>; [key: string]: unknown }
 }
 
 export type NodeStatus = 'idle' | 'pass' | 'fail' | 'error' | 'end'
@@ -57,7 +59,7 @@ export function portsOf(node: RgdNode): string[] {
 }
 
 /** Fallback layout when the document has no `ui.positions`: columns by depth from start. */
-function layered(graph: RuleGraph): Record<string, [number, number]> {
+export function layered(graph: RuleGraph): Record<string, [number, number]> {
   const depth = new Map<string, number>()
   const start = graph.nodes.find((n) => n.type === 'start')
   const queue: string[] = start ? [start.id] : []
