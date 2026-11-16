@@ -47,6 +47,10 @@ function summary(n: RgdNode): string | null {
       return Object.keys((n.assign as object | undefined) ?? {}).join(', ')
     case 'feedback':
       return String((n.feedback as { code?: string } | undefined)?.code ?? '')
+    case 'decision_table':
+      return `${(n.rules as unknown[] | undefined)?.length ?? 0} righe → $.vars.${String(n.target ?? '')}`
+    case 'subruleset':
+      return `${String(n.ruleset || '?')}@${String(n.version || '?')}${n.forEach ? ' per ogni elemento' : ''}`
     case 'end':
       return n.outcome ?? 'valid'
     default:
@@ -107,7 +111,7 @@ export function Canvas({ graph, catalog }: { graph: RuleGraph; catalog: Catalog 
   const selected = useEditor((s) => s.selected)
   const issues = useEditor((s) => s.issues)
   const simulation = useEditor((s) => s.simulation)
-  const { screenToFlowPosition } = useReactFlow()
+  const { screenToFlowPosition, fitView } = useReactFlow()
   const manifests = useMemo(() => new Map(catalog.nodeTypes.map((m) => [m.type, m])), [catalog])
 
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([])
@@ -167,6 +171,14 @@ export function Canvas({ graph, catalog }: { graph: RuleGraph; catalog: Catalog 
       })
     })
   }, [graph, issues, simulation, selected, manifests, setNodes, setEdges])
+
+  // When nodes are added or removed, bring the whole graph back into view so that a new
+  // node (and its ports) is never left outside the visible canvas.
+  const nodeCount = graph.nodes.length
+  useEffect(() => {
+    const handle = window.setTimeout(() => void fitView({ padding: 0.15, maxZoom: 1, duration: 200 }), 50)
+    return () => window.clearTimeout(handle)
+  }, [nodeCount, fitView])
 
   const onConnect = useCallback(
     (c: Connection) => {

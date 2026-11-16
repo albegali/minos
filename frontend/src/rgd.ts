@@ -3,7 +3,16 @@
 
 import type { Edge, Node } from '@xyflow/react'
 
-export type NodeType = 'start' | 'condition' | 'group' | 'set' | 'switch' | 'feedback' | 'end'
+export type NodeType =
+  | 'start'
+  | 'condition'
+  | 'group'
+  | 'set'
+  | 'switch'
+  | 'feedback'
+  | 'decision_table'
+  | 'subruleset'
+  | 'end'
 
 export interface RgdNode {
   id: string
@@ -48,6 +57,8 @@ export function portsOf(node: RgdNode): string[] {
   switch (node.type) {
     case 'condition':
     case 'group':
+    case 'decision_table':
+    case 'subruleset':
       return ['pass', 'fail']
     case 'switch':
       return [...(node.cases ?? []).map((c) => c.name), 'default']

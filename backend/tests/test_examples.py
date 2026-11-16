@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from minos.control.service import resolver_from
 from minos.control.testing import compare
 from minos.engine import ExecuteOptions, compile_ruleset
 from minos.schema import infer_schema
@@ -29,10 +30,13 @@ def cases() -> list[Any]:
     return out
 
 
+GRAPHS = {p.stem: json.loads(p.read_text()) for p in sorted((EXAMPLES / "rulesets").glob("*.json"))}
+RESOLVE = resolver_from({(g["ruleset"], g["version"]): (g, SCHEMA) for g in GRAPHS.values()})
+
+
 @pytest.mark.parametrize(("ruleset", "case"), cases())
 def test_example_suites(ruleset: str, case: dict[str, Any]) -> None:
-    graph = json.loads((EXAMPLES / "rulesets" / f"{ruleset}.json").read_text())
-    compiled = compile_ruleset(graph, SCHEMA)
+    compiled = compile_ruleset(GRAPHS[ruleset], SCHEMA, RESOLVE)
     result = compiled.execute(
         case["input"], ExecuteOptions(reference_date=case.get("referenceDate"))
     )

@@ -98,7 +98,7 @@ test('a business user builds, tests and publishes a rule set from the Studio', a
 
   // Save and validate (type-checked against the schema on the server)
   await page.getByRole('button', { name: 'Valida' }).click()
-  await expect(page.getByText('Valido', { exact: true })).toBeVisible()
+  await expect(page.locator('.editor-toolbar').getByText('Valido', { exact: true })).toBeVisible()
   await expect(page.getByText(/Salvato \(rev\. \d+\)/)).toBeVisible()
 
   // Simulate the invalid plan: 40 CFU

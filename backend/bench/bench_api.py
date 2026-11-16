@@ -68,7 +68,12 @@ async def seed(base: str, admin_key: str) -> str:
         await post("/v1/workspaces", {"slug": "aurora", "name": "Aurora Business School"})
         await post(f"{ws}/entities", {"key": "StudyPlan", "name": "Piano di studi"})
         await post(f"{ws}/entities/StudyPlan/schemas", {"samples": samples})
-        for ruleset in ("aurora.studyplan.common", "aurora.studyplan.emba"):
+        # Order matters: aurora.studyplan.full pins aurora.studyplan.common@0.1.0.
+        for ruleset in (
+            "aurora.studyplan.common",
+            "aurora.studyplan.emba",
+            "aurora.studyplan.full",
+        ):
             graph = load(f"rulesets/{ruleset}.json")
             await post(
                 f"{ws}/rulesets",
@@ -77,7 +82,7 @@ async def seed(base: str, admin_key: str) -> str:
             for case in load(f"tests/{ruleset}.tests.json"):
                 await post(f"{ws}/rulesets/{ruleset}/tests", case)
             published = await post(
-                f"{ws}/rulesets/{ruleset}/publish", {"bump": "major", "promoteTo": "prod"}
+                f"{ws}/rulesets/{ruleset}/publish", {"bump": "minor", "promoteTo": "prod"}
             )
             print(
                 f"published {ruleset} {published['version']} "

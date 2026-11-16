@@ -21,7 +21,17 @@ from typing import Any, Final
 from minos.schema.paths import SchemaNode, resolve_path
 
 from .errors import CompileError
-from .model import ConditionNode, EndNode, FeedbackNode, GroupNode, RuleGraph, SetNode, SwitchNode
+from .model import (
+    ConditionNode,
+    DecisionTableNode,
+    EndNode,
+    FeedbackNode,
+    GroupNode,
+    RuleGraph,
+    SetNode,
+    SubRulesetNode,
+    SwitchNode,
+)
 from .refs import parse_path
 from .templates import PLACEHOLDER
 
@@ -67,6 +77,8 @@ class _Checker:
         for n in graph.nodes:
             if isinstance(n, SetNode):
                 self.var_names.update(n.assign)
+            elif isinstance(n, (DecisionTableNode, SubRulesetNode)) and n.target:
+                self.var_names.add(n.target)
         self.issues: list[Issue] = []
 
     def issue(self, where: str, message: str) -> None:
@@ -232,6 +244,34 @@ class _Checker:
                 case FeedbackNode():
                     self.expr(n.when, f"{w}.when")
                     self._spec_data(n.feedback.data, f"{w}.feedback", n.feedback.message)
+                case DecisionTableNode():
+                    for i, col in enumerate(n.inputs):
+                        self.expr(col.expr, f"{w}.inputs[{i}].expr")
+                    for r, rule in enumerate(n.rules):
+                        for ci, cell in enumerate(rule.when):
+                            cw = f"{w}.rules[{r}].when[{ci}]"
+                            if isinstance(cell, dict) and "value" in cell:
+                                self.expr(cell["value"], f"{cw}.value")
+                            else:
+                                self.expr(cell, cw)
+                        for k, v in rule.then.items():
+                            self.expr(v, f"{w}.rules[{r}].then.{k}")
+                    self._feedback(n.feedback, w)
+                case SubRulesetNode():
+                    item: Ctx = NO_ITEM
+                    if n.forEach is not None:
+                        self.expr(n.forEach, f"{w}.forEach")
+                        element: SchemaNode | object = _UNKNOWN
+                        if isinstance(n.forEach, dict) and "ref" in n.forEach:
+                            node = self.ref(n.forEach["ref"], f"{w}.forEach", NO_ITEM)
+                            if node is not None:
+                                element = node.element() or _UNKNOWN
+                            # errors on the forEach ref were reported by the expr() call
+                            self.issues = _dedupe(self.issues)
+                        item = (element, None)
+                    if "input" in n.model_fields_set:
+                        self.expr(n.input, f"{w}.input", item)
+                    self._feedback(n.feedback, w)
                 case EndNode():
                     for k, v in (n.output or {}).items():
                         self.expr(v, f"{w}.output.{k}")
@@ -261,6 +301,16 @@ class _Checker:
                 w = f"{where}.message" + (f".{loc}" if loc else "")
                 for m in PLACEHOLDER.finditer(text):
                     self.ref("$." + m.group(1), w, NO_ITEM)
+
+
+def _dedupe(issues: list[Issue]) -> list[Issue]:
+    seen: set[Issue] = set()
+    out = []
+    for i in issues:
+        if i not in seen:
+            seen.add(i)
+            out.append(i)
+    return out
 
 
 def _step(node: SchemaNode, seg: Any) -> SchemaNode | None:

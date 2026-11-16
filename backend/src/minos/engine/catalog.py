@@ -9,7 +9,18 @@ from __future__ import annotations
 
 from typing import Any, Final
 
-from .model import ConditionNode, EndNode, FeedbackNode, GroupNode, SetNode, StartNode, SwitchNode
+from .decision import CELL_OPS
+from .model import (
+    ConditionNode,
+    DecisionTableNode,
+    EndNode,
+    FeedbackNode,
+    GroupNode,
+    SetNode,
+    StartNode,
+    SubRulesetNode,
+    SwitchNode,
+)
 
 type Manifest = dict[str, Any]
 
@@ -74,6 +85,43 @@ _NODES: Final[list[tuple[type[Any], Manifest]]] = [
             "ports": ["default"],
             "dynamicPorts": "cases",
             "requiredPorts": ["default"],
+        },
+    ),
+    (
+        DecisionTableNode,
+        {
+            "type": "decision_table",
+            "category": "logic",
+            "icon": "table",
+            "label": {"it": "Tabella decisionale", "en": "Decision table"},
+            "description": {
+                "it": "Righe di condizioni e risultati: tariffe, soglie, cataloghi",
+                "en": "Rows of conditions and results: rates, thresholds, catalogues",
+            },
+            "ports": ["pass", "fail"],
+            "requiredPorts": ["pass"],
+            "hitPolicies": [
+                {"key": "first", "label": {"it": "Prima riga valida", "en": "First match"}},
+                {"key": "unique", "label": {"it": "Una sola riga può valere", "en": "Unique"}},
+                {"key": "priority", "label": {"it": "Priorità più alta", "en": "Highest priority"}},
+                {"key": "any", "label": {"it": "Righe valide concordi", "en": "Any (must agree)"}},
+                {"key": "collect", "label": {"it": "Tutte le righe valide", "en": "Collect all"}},
+            ],
+        },
+    ),
+    (
+        SubRulesetNode,
+        {
+            "type": "subruleset",
+            "category": "logic",
+            "icon": "stack",
+            "label": {"it": "Rule set annidato", "en": "Sub rule set"},
+            "description": {
+                "it": "Esegue un altro rule set pubblicato, anche su ogni elemento di una lista",
+                "en": "Runs another published rule set, also for each element of a list",
+            },
+            "ports": ["pass", "fail"],
+            "requiredPorts": ["pass"],
         },
     ),
     (
@@ -354,4 +402,5 @@ def catalog() -> dict[str, Any]:
         "functions": FUNCTIONS,
         "roots": ["input", "vars", "nodes", "meta", "item", "outer"],
         "metaKeys": ["ruleset", "version", "referenceDate", "requestId", "locale"],
+        "cellOperators": sorted(CELL_OPS),
     }

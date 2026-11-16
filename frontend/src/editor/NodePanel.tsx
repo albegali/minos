@@ -18,6 +18,7 @@ import { ConditionBuilder } from './ConditionBuilder'
 import { blankComparison, describe, type Expr } from './expr'
 import { ExpressionEditor } from './ExpressionEditor'
 import { pruneEdges, removeNode, renamePort, updateNode } from './graph'
+import { DecisionTableEditor, SubRulesetEditor } from './nodeEditors'
 import { omit } from '../util'
 import { useEditor } from './store'
 
@@ -423,6 +424,38 @@ export function NodePanel({ node, manifest }: { node: RgdNode; manifest?: NodeMa
             value={node.feedback as PairValue | undefined}
             onChange={(feedback) => {
               const next = { ...node, feedback }
+              if (!feedback) delete next.feedback
+              set(next)
+            }}
+          />
+        </>
+      )}
+
+      {node.type === 'decision_table' && (
+        <>
+          <DecisionTableEditor node={node} set={set} />
+          <OnFail node={node} set={set} />
+          <Divider />
+          <FeedbackPair
+            value={node.feedback as PairValue | undefined}
+            onChange={(feedback) => {
+              const next: RgdNode = { ...node, feedback }
+              if (!feedback) delete next.feedback
+              set(next)
+            }}
+          />
+        </>
+      )}
+
+      {node.type === 'subruleset' && (
+        <>
+          <SubRulesetEditor node={node} set={set} />
+          <OnFail node={node} set={set} />
+          <Divider />
+          <FeedbackPair
+            value={node.feedback as PairValue | undefined}
+            onChange={(feedback) => {
+              const next: RgdNode = { ...node, feedback }
               if (!feedback) delete next.feedback
               set(next)
             }}

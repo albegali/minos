@@ -30,10 +30,14 @@ def client() -> Iterator[TestClient]:
 
 
 def test_health_and_listing(client: TestClient) -> None:
-    assert client.get("/v1/health").json() == {"status": "ok", "deployments": 2}
+    assert client.get("/v1/health").json() == {"status": "ok", "deployments": 3}
     assert client.get("/v1/ready").json() == {"status": "ready"}
     listing = client.get("/v1/deployments").json()
-    assert [d["ruleset"] for d in listing] == ["aurora.studyplan.common", "aurora.studyplan.emba"]
+    assert [d["ruleset"] for d in listing] == [
+        "aurora.studyplan.common",
+        "aurora.studyplan.emba",
+        "aurora.studyplan.full",
+    ]
     assert {d["workspace"] for d in listing} == {"local"}
 
 
@@ -109,7 +113,7 @@ def test_rulesets_dir_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MINOS_REQUIRE_AUTH", "false")
     monkeypatch.delenv("MINOS_DATABASE_URL", raising=False)
     with TestClient(create_app()) as client:
-        assert client.get("/v1/health").json()["deployments"] == 2
+        assert client.get("/v1/health").json()["deployments"] == 3
 
 
 def test_zero_config_serves_examples_without_auth(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -148,3 +152,9 @@ def test_module_level_apps(monkeypatch: pytest.MonkeyPatch) -> None:
         _ = module.management_app
     with pytest.raises(AttributeError):
         _ = module.nope
+
+
+def test_file_mode_resolves_sub_rulesets(client: TestClient, valid_plan: dict[str, Any]) -> None:
+    res = client.post("/v1/exec/local/aurora.studyplan.full", json={"input": valid_plan})
+    assert res.status_code == 200
+    assert res.json()["result"]["tuitionFee"] == 30800

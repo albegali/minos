@@ -97,8 +97,69 @@ class EndNode(_Node):
     output: dict[str, Expr] | None = None
 
 
+_IDENT = r"^[A-Za-z_][A-Za-z0-9_]*$"
+
+type HitPolicy = Literal["first", "unique", "priority", "any", "collect"]
+
+
+class DecisionColumn(_Strict):
+    name: str = Field(pattern=_IDENT)
+    label: str | None = None
+
+
+class DecisionInput(DecisionColumn):
+    expr: Expr
+    """Value tested by the cells of this column, e.g. ``{"ref": "$.input.program.code"}``."""
+
+
+class DecisionRule(_Strict):
+    when: list[Any]
+    """One cell per input: ``null`` (any), a value, a list (any of), or
+    ``{"op": "<op>", "value": <value or expression>}``."""
+    then: dict[str, Expr]
+    """Output column -> value (literal or expression)."""
+    priority: float = 0
+    description: str | None = None
+
+
+class DecisionTableNode(_Node):
+    type: Literal["decision_table"]
+    hitPolicy: HitPolicy = "first"
+    inputs: list[DecisionInput] = Field(min_length=1)
+    outputs: list[DecisionColumn] = Field(min_length=1)
+    rules: list[DecisionRule] = Field(min_length=1)
+    target: str = Field(pattern=_IDENT)
+    """Variable receiving the result: an object, or a list of objects with ``collect``."""
+    onFail: OnFail | None = None
+    feedback: NodeFeedback | None = None
+
+
+class SubRulesetNode(_Node):
+    type: Literal["subruleset"]
+    ruleset: str = Field(pattern=r"^[a-z0-9][a-z0-9_.\-]*$")
+    version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
+    """Published version, pinned: the parent stays reproducible."""
+    input: Expr = Field(default_factory=lambda: {"ref": "$.input"})
+    forEach: Expr | None = None
+    """When set, the rule set runs once per element (``$.item``); ``input`` defaults to it."""
+    passWhen: Literal["all", "any"] = "all"
+    """With ``forEach``: pass when every run, or at least one run, is valid."""
+    target: str | None = Field(default=None, pattern=_IDENT)
+    """Variable receiving the child result (a list of results with ``forEach``)."""
+    onFail: OnFail | None = None
+    feedback: NodeFeedback | None = None
+
+
 type Node = Annotated[
-    StartNode | ConditionNode | GroupNode | SetNode | SwitchNode | FeedbackNode | EndNode,
+    StartNode
+    | ConditionNode
+    | GroupNode
+    | SetNode
+    | SwitchNode
+    | FeedbackNode
+    | DecisionTableNode
+    | SubRulesetNode
+    | EndNode,
     Field(discriminator="type"),
 ]
 

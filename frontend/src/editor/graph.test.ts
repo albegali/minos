@@ -47,6 +47,14 @@ describe('graph operations', () => {
     expect(defaultNode(type, 'x').type).toBe(type)
   })
 
+  it('freezes automatic positions on structural edits', () => {
+    const g = connect(addNode(base(), defaultNode('condition', 'c'), [600, 0]), 'start', 'next', 'c')
+    expect(Object.keys(g.ui?.positions ?? {}).sort()).toEqual(['c', 'end', 'start'])
+    const before = g.ui?.positions?.end
+    const after = connect(g, 'c', 'pass', 'end').ui?.positions?.end
+    expect(after).toEqual(before)
+  })
+
   it('connects ports, replacing the previous edge of the same port', () => {
     let g = addNode(base(), defaultNode('condition', 'c'), [0, 0])
     g = connect(g, 'start', 'next', 'c')

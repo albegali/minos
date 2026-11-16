@@ -53,6 +53,8 @@ Sintassi dei riferimenti: `.chiave`, `["chiave con spazi"]`, `[n]` (anche negati
 | `set` | `assign: { nome: espressione }` scrive in `$.vars` | `next` |
 | `switch` | `cases: [{ name, when }]`, il primo vero vince | ogni `name` + `default` (tutte obbligatorie) |
 | `feedback` | `feedback`, `when?` | `next` |
+| `decision_table` | `hitPolicy`, `inputs`, `outputs`, `rules`, `target`, `onFail?`, `feedback?` | `pass` (una riga vale, obbligatoria), `fail` |
+| `subruleset` | `ruleset`, `version` (fissata), `input?`, `forEach?`, `passWhen?`, `target?`, `onFail?`, `feedback?` | `pass` (obbligatoria), `fail` |
 | `end` | `outcome` (`valid`/`invalid`/`warning`), `output?: { chiave: espressione }` | nessuna |
 
 Gli archi sono `{ "from": id, "to": id, "on": porta }` (`on` di default `next`). Il compiler
@@ -64,9 +66,63 @@ I figli di un `group` sono espressioni oppure regole con feedback proprio:
 `{ "rule": <espressione>, "feedback": { "fail": {...} } }`. Con `evaluate: "all"` ogni figlio
 viene valutato (utile per raccogliere tutti gli errori); `not` vale NOT(AND(figli)).
 
+### Tabella decisionale
+
+```json
+{
+  "id": "fees", "type": "decision_table", "hitPolicy": "first", "target": "fees",
+  "inputs": [
+    { "name": "program", "expr": { "ref": "$.input.program.code" } },
+    { "name": "cfu", "expr": { "ref": "$.vars.totalCfu" } }
+  ],
+  "outputs": [{ "name": "baseFee" }, { "name": "discount" }],
+  "rules": [
+    { "when": ["EMBA", { "op": ">=", "value": 60 }], "then": { "baseFee": 38500, "discount": 0 } },
+    { "when": [["MSC", "MBA"], null], "then": { "baseFee": 30000, "discount": 10 } },
+    { "when": [null, null], "then": { "baseFee": 25000, "discount": 0 } }
+  ]
+}
+```
+
+Una cella per colonna di input: `null` (qualsiasi), un valore (uguaglianza), una lista (uno tra),
+`{"op": ..., "value": ...}` con `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `not_in`, `between`,
+`date_before`, `date_after`, `date_between`, `contains`, `starts_with` (il valore può essere
+un'espressione), oppure un'espressione (uguaglianza con il suo valore). Gli output sono valori o
+espressioni.
+
+| Hit policy | Risultato in `$.vars.<target>` |
+| --- | --- |
+| `first` | la prima riga che vale |
+| `unique` | l'unica riga che vale; più righe → errore di esecuzione |
+| `priority` | la riga con `priority` più alta (a parità, la prima) |
+| `any` | le righe che valgono devono concordare; altrimenti errore |
+| `collect` | la lista delle righe che valgono |
+
+Se nessuna riga vale, il nodo fallisce (porta `fail`, con le stesse regole `onFail` delle
+condizioni). Nello Studio le celle si scrivono in forma breve: vuoto o `-`, `EMBA`, `A, B`,
+`>= 60`, `30..59`, `2027-01-01..2027-12-31`, `!= X`, `$.vars.nome`.
+
+### Rule set annidato
+
+Esegue un altro rule set dello stesso workspace a **versione fissata** (`version` è obbligatoria:
+la versione pubblicata è immutabile, quindi il risultato resta riproducibile). La versione deve
+essere pubblicata prima di validare o pubblicare il rule set che la usa.
+
+- `input` (default `$.input`): l'oggetto passato al rule set annidato.
+- `forEach`: una lista; il rule set gira una volta per elemento (`$.item`, che è anche l'`input`
+  di default). `passWhen` = `all` (default) o `any`.
+- Esito: il nodo passa se il rule set annidato è `valid` o `warning` (con `forEach`, secondo
+  `passWhen`); un `error` interrompe l'esecuzione con esito `error`.
+- `target`: `{ "outcome", "result" }`, o la lista di questi con `forEach`, in `$.vars`.
+- I messaggi del rule set annidato confluiscono nel risultato con `nodeId` = `<nodo>/<nodo
+  annidato>` e, con `forEach`, `index` dell'elemento.
+
+Un "dispatcher" (scegliere il rule set in base a un campo) è un normale rule set con uno `switch`
+seguito da nodi `subruleset`.
+
 ## Fallimento, uscita ed esito
 
-Politica `onFail` di un nodo `condition`/`group` che fallisce:
+Politica `onFail` di un nodo `condition`, `group`, `decision_table` o `subruleset` che fallisce:
 
 | Politica | Effetto | Conta come violazione |
 | --- | --- | --- |
