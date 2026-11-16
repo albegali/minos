@@ -8,8 +8,13 @@ COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --locked --no-dev --no-install-project
 COPY src ./src
 RUN uv sync --locked --no-dev
+# The repository examples, from the "examples" build context (see compose.yaml).
+COPY --from=examples . ./examples
 
-ENV PATH="/app/.venv/bin:$PATH" MINOS_RULESETS_DIR=""
+# The examples are served read-only in workspace "local" (the Studio /demo page) and, on the
+# first start, loaded into workspace "esempi" to open and change in the Studio.
+ENV PATH="/app/.venv/bin:$PATH" MINOS_RULESETS_DIR=/app/examples/rulesets \
+    MINOS_EXAMPLES_DIR=/app/examples MINOS_SEED_EXAMPLES=true
 EXPOSE 8000
-# Apply migrations, then serve both planes from one process (fine for local use).
-CMD ["sh", "-c", "python -m minos.cli migrate && exec uvicorn minos.api.app:app --host 0.0.0.0 --port 8000"]
+# Apply migrations, load the examples once, then serve both planes from one process.
+CMD ["sh", "-c", "python -m minos.cli migrate && if [ \"$MINOS_SEED_EXAMPLES\" = true ]; then python -m minos.cli seed-examples; fi && exec uvicorn minos.api.app:app --host 0.0.0.0 --port 8000"]

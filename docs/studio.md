@@ -55,5 +55,8 @@ sinistra a destra seguendo i collegamenti.
 Se due persone modificano lo stesso draft, il secondo salvataggio viene rifiutato e lo Studio
 propone di ricaricare. Uscire con modifiche non salvate chiede conferma.
 
-Senza database, `/demo` mostra in sola lettura tutti gli esempi del repository (piano di studi,
-ordine e-commerce, finanziamento) con i loro input e il simulatore.
+Per partire da qualcosa di concreto apri il workspace **Esempi**: con `docker compose up` (o
+dopo `python -m minos.cli seed-examples`) contiene tutti gli esempi del repository (piano di
+studi, ordine e-commerce, finanziamento) già pubblicati in `prod`, con i loro test, da modificare
+liberamente. `/demo` li mostra invece in sola lettura con i loro input e il simulatore, anche
+senza database.

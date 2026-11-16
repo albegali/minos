@@ -127,6 +127,13 @@ jobs:
       - run: curl --fail --silent http://localhost:8000/v1/info
       - run: curl --fail --silent http://localhost:8080/v1/ready
       - run: curl --fail --silent --output /dev/null http://localhost:8080/w
+      - name: Examples are published in workspace "esempi" and served to /demo
+        run: |
+          body='{"input": '"$(cat examples/inputs/order-valid.json)"'}'
+          curl --fail --silent -H 'Content-Type: application/json' -d "$body" \
+            http://localhost:8080/v1/exec/esempi/shop.order | grep '"outcome"'
+          curl --fail --silent -H 'Content-Type: application/json' -d "$body" \
+            http://localhost:8080/v1/exec/local/shop.order | grep '"outcome"'
       - if: failure()
         run: docker compose logs
       - if: always()

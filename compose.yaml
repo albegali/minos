@@ -1,6 +1,8 @@
 # Minos in locale: PostgreSQL, API e Studio.
 #   docker compose up --build
 # Studio: http://localhost:8080 · API: http://localhost:8000/v1 · nessun login (installazione aperta)
+# Al primo avvio gli esempi vengono pubblicati nel workspace "esempi" (MINOS_SEED_EXAMPLES=false
+# per partire vuoti); /demo li mostra in sola lettura con il simulatore.
 services:
   db:
     image: postgres:17-alpine
@@ -17,11 +19,15 @@ services:
       retries: 20
 
   api:
-    build: ./backend
+    build:
+      context: ./backend
+      additional_contexts:
+        examples: ./examples
     environment:
       MINOS_STUDIO_URL: http://localhost:8080 # links returned by the MCP server (/mcp)
       MINOS_DATABASE_URL: postgresql+asyncpg://minos:minos@db:5432/minos
       MINOS_REQUIRE_AUTH: "false"
+      MINOS_SEED_EXAMPLES: "true"
     depends_on:
       db:
         condition: service_healthy

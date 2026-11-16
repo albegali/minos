@@ -37,7 +37,18 @@ docker compose up --build
 ```
 
 Apri http://localhost:8080 (Studio) e http://localhost:8000/v1/info (API). L'installazione è
-**aperta**: nessun login, pensata per l'uso in locale. Per richiedere le API key, imposta
+**aperta**: nessun login, pensata per l'uso in locale.
+
+Al primo avvio il workspace **Esempi** contiene già tutti gli esempi del repo (piano di studi,
+ordine e-commerce, finanziamento), pubblicati in `prod` con i loro test: aprili nello Studio,
+simula, modifica e ripubblica. Per esempio:
+
+```bash
+curl -s -H 'Content-Type: application/json' -d "{\"input\": $(cat examples/inputs/order-valid.json)}" http://localhost:8000/v1/exec/esempi/shop.order
+```
+
+Per partire con un database vuoto imposta `MINOS_SEED_EXAMPLES: "false"` in `compose.yaml`;
+`docker compose down -v` cancella i dati e al riavvio ricarica gli esempi. Per richiedere le API key, imposta
 `MINOS_REQUIRE_AUTH=true` (vedi [`docs/api.md`](docs/api.md)). La
 [guida allo Studio](docs/studio.md) descrive il percorso completo, dall'entità alla pubblicazione.
 
@@ -51,7 +62,7 @@ export MINOS_DATABASE_URL=postgresql+asyncpg://minos:minos@localhost:5432/minos
 ```
 
 ```bash
-cd backend && uv sync && uv run python -m minos.cli migrate && uv run uvicorn minos.api.app:app --port 8000
+cd backend && uv sync && uv run python -m minos.cli migrate && uv run python -m minos.cli seed-examples && uv run uvicorn minos.api.app:app --port 8000
 ```
 
 ```bash
