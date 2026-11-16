@@ -26,6 +26,8 @@ Le API di esecuzione devono rispondere in tempo reale (p99 lato server sotto 10 
 
 ## Conseguenze
 
-- In F0 il registry si popola da file (`examples/rulesets`); in F1 da PostgreSQL, con la stessa API.
+- Implementato in F1 (`minos.api.registry.DbSync`): caricamento iniziale, `LISTEN` sul canale
+  `minos_changes`, ricarica del solo alias cambiato, polling che confronta gli hash. In sviluppo
+  il registry può ancora caricare file (workspace `local`).
 - L'Execution API continua a servire anche se il database è irraggiungibile.
 - Va misurato il drift tra worker (hash di versione nell'header `X-Ruleset-Version`).

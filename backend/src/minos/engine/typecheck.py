@@ -54,6 +54,10 @@ class TypeCheckError(CompileError):
 
 _UNKNOWN = object()  # "no schema information" for $.item outside a typed aggregate
 
+type Ctx = tuple[SchemaNode | object | None, SchemaNode | object | None]
+"""Schemas bound to ``$.item`` and ``$.outer`` (``None``: not inside an aggregate)."""
+NO_ITEM: Ctx = (None, None)
+
 
 class _Checker:
     def __init__(self, graph: RuleGraph, schema: dict[str, Any] | None) -> None:
@@ -70,7 +74,7 @@ class _Checker:
 
     # ------------------------------------------------------------------ references
 
-    def ref(self, path: Any, where: str, item: SchemaNode | object | None) -> SchemaNode | None:
+    def ref(self, path: Any, where: str, item: Ctx) -> SchemaNode | None:
         """Check a reference; return its schema node when known."""
         try:
             root, segments = parse_path(path)
@@ -84,13 +88,15 @@ class _Checker:
             if node is None:
                 self.issue(where, f"{path} does not exist in the entity schema")
             return node
-        if root == "item":
-            if item is None:
-                self.issue(where, "$.item can only be used inside 'where' or 'select'")
+        if root in ("item", "outer"):
+            scope = item[0] if root == "item" else item[1]
+            if scope is None:
+                where_ok = "'where' or 'select'" if root == "item" else "a nested aggregate"
+                self.issue(where, f"$.{root} can only be used inside {where_ok}")
                 return None
-            if not isinstance(item, SchemaNode):
+            if not isinstance(scope, SchemaNode):
                 return None
-            node = item
+            node = scope
             for seg in segments:
                 sub = _step(node, seg)
                 if sub is None:
@@ -110,7 +116,7 @@ class _Checker:
 
     # ------------------------------------------------------------------ expressions
 
-    def expr(self, e: Any, where: str, item: SchemaNode | object | None = None) -> None:
+    def expr(self, e: Any, where: str, item: Ctx = NO_ITEM) -> None:
         if isinstance(e, list):
             for i, x in enumerate(e):
                 self.expr(x, f"{where}[{i}]", item)
@@ -124,7 +130,7 @@ class _Checker:
         elif "op" in e:
             self.op(e, where, item)
 
-    def fn(self, e: dict[str, Any], where: str, item: SchemaNode | object | None) -> None:
+    def fn(self, e: dict[str, Any], where: str, item: Ctx) -> None:
         name = e["fn"]
         args = e.get("args", [])
         if not isinstance(args, list):
@@ -149,10 +155,11 @@ class _Checker:
         else:
             self.expr(source, f"{where}.args[0]", item)
         self.expr(args[1:], f"{where}.args", item)
+        inner: Ctx = (element, item[0])
         if "where" in e:
-            self.expr(e["where"], f"{where}.where", element)
+            self.expr(e["where"], f"{where}.where", inner)
         if "select" in e:
-            self.expr(e["select"], f"{where}.select", element)
+            self.expr(e["select"], f"{where}.select", inner)
         elif (
             name in _NUMERIC_AGGREGATES
             and isinstance(element, SchemaNode)
@@ -161,7 +168,7 @@ class _Checker:
         ):
             self.issue(where, f"{name}() needs numbers, the elements are {_describe(element)}")
 
-    def op(self, e: dict[str, Any], where: str, item: SchemaNode | object | None) -> None:
+    def op(self, e: dict[str, Any], where: str, item: Ctx) -> None:
         op = e["op"]
         operands = (
             e["args"]
@@ -253,7 +260,7 @@ class _Checker:
             if isinstance(text, str):
                 w = f"{where}.message" + (f".{loc}" if loc else "")
                 for m in PLACEHOLDER.finditer(text):
-                    self.ref("$." + m.group(1), w, None)
+                    self.ref("$." + m.group(1), w, NO_ITEM)
 
 
 def _step(node: SchemaNode, seg: Any) -> SchemaNode | None:

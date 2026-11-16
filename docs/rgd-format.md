@@ -38,6 +38,7 @@ Ogni espressione legge da uno scope JSON:
 | `$.nodes.<id>` | `{ "outcome": "pass" \| "fail", "output": ... }` dei nodi già eseguiti |
 | `$.meta` | `ruleset`, `version`, `referenceDate`, `requestId`, `locale` |
 | `$.item` | L'elemento corrente dentro `where` / `select` |
+| `$.outer` | In un'aggregazione annidata, l'elemento dell'aggregazione esterna |
 
 Sintassi dei riferimenti: `.chiave`, `["chiave con spazi"]`, `[n]` (anche negativo), `[*]`
 (espande un array: il risultato è una lista).
@@ -79,6 +80,15 @@ Default se `onFail` manca: `branch` se la porta `fail` è collegata, altrimenti 
 Esito finale: quello dell'`end` raggiunto; un `end` dichiarato `valid` diventa `invalid` se ci sono
 violazioni o feedback con severità `error`, e `warning` se ci sono solo warning. Un errore di
 valutazione (es. confronto tra tipi incompatibili) termina con esito `error`.
+
+## Type-check alla pubblicazione
+
+Validazione e pubblicazione compilano il grafo con lo schema dell'entità e rifiutano (tutti insieme):
+riferimenti `$.input` / `$.item` / `$.outer` inesistenti nello schema, variabili né costanti né
+assegnate da un nodo `set`, nodi o chiavi `meta` inesistenti, aggregazioni su campi che non sono
+array (o non numerici per `sum`/`min`/`max`/`avg`), confronti con letterali di tipo incompatibile.
+Valgono anche per i segnaposto `{{...}}` dei messaggi. Le proprietà non dichiarate di un oggetto
+con `properties` sono considerate inesistenti, salvo `additionalProperties`.
 
 ## Feedback
 
