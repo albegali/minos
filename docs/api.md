@@ -17,6 +17,8 @@ Configurazione da variabili d'ambiente:
 | `MINOS_CORS_ORIGINS` | — | Origini ammesse da browser, separate da virgola |
 | `MINOS_RULESETS_DIR` | — | File RGD serviti come workspace `local`, ambiente `prod` |
 | `MINOS_POLL_INTERVAL_S` | `30` | Controllo periodico degli alias (rete di sicurezza per NOTIFY persi) |
+| `MINOS_EXAMPLES_DIR` | `examples/` del repo | Esempi caricati da `minos.cli seed-examples` |
+| `MINOS_SEED_EXAMPLES` | `true` solo nell'immagine Docker | Carica gli esempi al primo avvio del container |
 
 Senza database né directory, `minos.api.app:app` serve gli esempi del repo: è la modalità demo
 usata da Minos Studio.
@@ -45,6 +47,19 @@ MINOS_DATABASE_URL=... uv run python -m minos.cli migrate
 ```bash
 MINOS_DATABASE_URL=... uv run python -m minos.cli create-admin-key --name ops
 ```
+
+## Esempi pronti
+
+```bash
+MINOS_DATABASE_URL=... uv run python -m minos.cli seed-examples
+```
+
+Crea il workspace `esempi` con tutti gli esempi del repo (piano di studi Aurora, ordine
+e-commerce, finanziamento): entità con lo schema ricavato dagli input di esempio, rule set con i
+loro test, versione `0.1.0` pubblicata (i test fanno da gate) e portata in `prod`. Se il workspace
+esiste già non tocca nulla, quindi le modifiche fatte nello Studio restano. `--workspace` sceglie
+un altro nome, `--dir` un'altra cartella (`rulesets/`, `inputs/`, `tests/`). L'immagine Docker lo
+esegue a ogni avvio (`MINOS_SEED_EXAMPLES=false` per partire vuoti).
 
 Gli errori sono `application/problem+json` (`status`, `title`, `detail` più campi specifici).
 
