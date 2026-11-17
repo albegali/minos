@@ -13,8 +13,10 @@ import { Link, Navigate, Outlet, useLocation, useNavigate, useParams } from 'rea
 
 import { useServerInfo } from '../api/hooks'
 import { useAuth } from '../auth/store'
+import { useI18n } from '../i18n'
 import { BrandLockup } from './Brand'
 import { ErrorBar } from './forms'
+import { LanguageSwitch } from './LanguageSwitch'
 
 /**
  * Gate for the Studio pages. Open installations (the default) need no key; installations
@@ -24,7 +26,8 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   const apiKey = useAuth((s) => s.apiKey)
   const location = useLocation()
   const info = useServerInfo()
-  if (info.isLoading) return <Spinner label="Connessione all'API…" className="centered" />
+  const { t } = useI18n()
+  if (info.isLoading) return <Spinner label={t('shell.connecting')} className="centered" />
   if (info.error) return <ErrorBar error={info.error} />
   if (info.data && !info.data.management) return <Navigate to="/demo" replace />
   if (info.data?.authRequired && !apiKey) {
@@ -36,12 +39,13 @@ export function RequireAuth({ children }: { children: ReactNode }) {
 function Crumbs() {
   const { ws, entity, rs } = useParams()
   const navigate = useNavigate()
-  const items: { label: string; to: string }[] = [{ label: 'Workspace', to: '/w' }]
+  const { t } = useI18n()
+  const items: { label: string; to: string }[] = [{ label: t('shell.workspaces'), to: '/w' }]
   if (ws) items.push({ label: ws, to: `/w/${ws}` })
-  if (ws && entity) items.push({ label: `Entità ${entity}`, to: `/w/${ws}/entities/${entity}` })
-  if (ws && rs) items.push({ label: `Rule set ${rs}`, to: `/w/${ws}/rulesets/${rs}` })
+  if (ws && entity) items.push({ label: t('shell.entityCrumb', { key: entity }), to: `/w/${ws}/entities/${entity}` })
+  if (ws && rs) items.push({ label: t('shell.rulesetCrumb', { key: rs }), to: `/w/${ws}/rulesets/${rs}` })
   return (
-    <Breadcrumb aria-label="Percorso">
+    <Breadcrumb aria-label={t('shell.breadcrumb')}>
       {items.map((item, i) => (
         <Fragment key={item.to}>
           <BreadcrumbItem>
@@ -59,17 +63,19 @@ function Crumbs() {
 export function Shell() {
   const logout = useAuth((s) => s.logout)
   const info = useServerInfo()
+  const { t } = useI18n()
   return (
     <div className="shell">
       <header className="shell-header">
-        <Link to="/w" className="brand-link" aria-label="Minos Studio, torna ai workspace">
+        <Link to="/w" className="brand-link" aria-label={t('shell.home')}>
           <BrandLockup />
         </Link>
         <span className="shell-divider" aria-hidden="true" />
         <Crumbs />
+        <LanguageSwitch />
         {info.data?.authRequired && (
           <Button appearance="subtle" icon={<SignOut20Regular />} onClick={logout}>
-            Esci
+            {t('shell.signOut')}
           </Button>
         )}
       </header>

@@ -1,21 +1,13 @@
 import { Handle, type NodeProps, Position } from '@xyflow/react'
 
+import { type Key, useI18n } from './i18n'
 import type { RuleFlowNode } from './rgd'
 
-const TYPE_LABEL: Record<string, string> = {
-  start: 'Start',
-  condition: 'Condizione',
-  group: 'Gruppo',
-  set: 'Calcolo',
-  switch: 'Switch',
-  feedback: 'Messaggio',
-  decision_table: 'Tabella decisionale',
-  subruleset: 'Rule set annidato',
-  end: 'Fine',
-}
+const TYPES = new Set(['start', 'condition', 'group', 'set', 'switch', 'feedback', 'decision_table', 'subruleset', 'end'])
 
 export function RuleNode({ data, selected }: NodeProps<RuleFlowNode>) {
   const { rgd, ports, status } = data
+  const { t } = useI18n()
   const subtitle =
     rgd.type === 'group'
       ? rgd.operator?.toUpperCase()
@@ -27,7 +19,7 @@ export function RuleNode({ data, selected }: NodeProps<RuleFlowNode>) {
     <div className={`rule-node type-${rgd.type} status-${status}${selected ? ' selected' : ''}`}>
       {rgd.type !== 'start' && <Handle type="target" position={Position.Left} />}
       <div className="rule-node-type">
-        {TYPE_LABEL[rgd.type] ?? rgd.type}
+        {TYPES.has(rgd.type) ? t(`nodeType.${rgd.type}` as Key) : rgd.type}
         {subtitle && <span className="rule-node-sub"> · {subtitle}</span>}
       </div>
       <div className="rule-node-label">{rgd.label ?? rgd.id}</div>

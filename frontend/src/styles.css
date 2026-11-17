@@ -650,6 +650,16 @@ html .react-flow {
   box-shadow: var(--shadow-lg);
 }
 
+.login .login-card {
+  position: relative;
+}
+
+.login-lang {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+
 .login-brand {
   justify-self: start;
   margin: 0 0 8px;

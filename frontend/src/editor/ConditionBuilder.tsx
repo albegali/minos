@@ -2,6 +2,7 @@ import { Button, Dropdown, Option, ToggleButton } from '@fluentui/react-componen
 import { Add16Regular, Delete16Regular } from '@fluentui/react-icons'
 
 import type { OperatorSpec } from '../api/types'
+import { useI18n } from '../i18n'
 import {
   blankComparison,
   type Expr,
@@ -46,6 +47,7 @@ function Comparison({ value, onChange }: { value: OpExpr; onChange: (e: Expr) =>
   const hint = useLeftHint(left)
   const ops = scope.catalog.operators.filter((o) => operatorFits(o, hint) || o.op === value.op)
   const spec = scope.catalog.operators.find((o) => o.op === value.op)
+  const { t, loc } = useI18n()
 
   function setOp(op: string) {
     const next = scope.catalog.operators.find((o) => o.op === op)
@@ -66,7 +68,7 @@ function Comparison({ value, onChange }: { value: OpExpr; onChange: (e: Expr) =>
       <div className="inline">
         <ExpressionEditor value={lo} hint={hint} modes={['value', 'field', 'calc']} compact
           onChange={(v) => onChange({ op: value.op, left, right: [v, hi] })} />
-        <span className="muted">e</span>
+        <span className="muted">{t('condition.rangeAnd')}</span>
         <ExpressionEditor value={hi} hint={hint} modes={['value', 'field', 'calc']} compact
           onChange={(v) => onChange({ op: value.op, left, right: [lo, v] })} />
       </div>
@@ -85,15 +87,15 @@ function Comparison({ value, onChange }: { value: OpExpr; onChange: (e: Expr) =>
     <div className="comparison">
       <ExpressionEditor value={left} onChange={setLeft} modes={['field', 'aggregate', 'function', 'calc', 'json']} compact />
       <Dropdown
-        aria-label="Operatore"
+        aria-label={t('condition.operator')}
         className="op-select"
-        value={spec?.label.it ?? value.op}
+        value={spec ? loc(spec.label) : value.op}
         selectedOptions={[value.op]}
         onOptionSelect={(_, d) => d.optionValue && setOp(d.optionValue)}
       >
         {ops.map((o) => (
           <Option key={o.op} value={o.op}>
-            {o.label.it ?? o.op}
+            {loc(o.label) || o.op}
           </Option>
         ))}
       </Dropdown>
@@ -104,18 +106,19 @@ function Comparison({ value, onChange }: { value: OpExpr; onChange: (e: Expr) =>
 
 /** Values for `in` / `not in`: a comma-separated list or a field holding a list. */
 function ListValue({ value, onChange, hint }: { value: Expr; onChange: (e: Expr) => void; hint: ValueHint }) {
+  const { t } = useI18n()
   if (isRef(value)) {
     return <ExpressionEditor value={value} onChange={onChange} modes={['field', 'value']} compact />
   }
   const items = Array.isArray(value) ? value : []
-  const numeric = hint.types?.some((t) => t === 'number' || t === 'integer')
+  const numeric = hint.types?.some((type) => type === 'number' || type === 'integer')
   return (
     <div className="inline">
       <input
-        aria-label="Valori separati da virgola"
+        aria-label={t('condition.listValues')}
         className="list-input"
         defaultValue={items.join(', ')}
-        placeholder="valore1, valore2"
+        placeholder={t('condition.listPlaceholder')}
         onBlur={(e) =>
           onChange(
             e.target.value
@@ -127,7 +130,7 @@ function ListValue({ value, onChange, hint }: { value: Expr; onChange: (e: Expr)
         }
       />
       <Button size="small" appearance="subtle" onClick={() => onChange({ ref: '' })}>
-        Da un campo
+        {t('condition.fromField')}
       </Button>
     </div>
   )
@@ -136,19 +139,20 @@ function ListValue({ value, onChange, hint }: { value: Expr; onChange: (e: Expr)
 function Group({ value, onChange, depth }: { value: OpExpr; onChange: (e: Expr) => void; depth: number }) {
   const children = operands(value)
   const set = (args: Expr[]) => onChange({ op: value.op, args })
+  const { t } = useI18n()
   return (
     <div className={`cond-group depth-${depth % 3}`}>
       <div className="cond-group-head">
         <Dropdown
-          aria-label="Combinazione"
+          aria-label={t('condition.combination')}
           size="small"
           className="logic-select"
-          value={value.op === 'and' ? 'Tutte vere (AND)' : 'Almeno una vera (OR)'}
+          value={value.op === 'and' ? t('condition.all') : t('condition.any')}
           selectedOptions={[value.op]}
           onOptionSelect={(_, d) => onChange({ op: d.optionValue, args: children })}
         >
-          <Option value="and">Tutte vere (AND)</Option>
-          <Option value="or">Almeno una vera (OR)</Option>
+          <Option value="and">{t('condition.all')}</Option>
+          <Option value="or">{t('condition.any')}</Option>
         </Dropdown>
       </div>
       {children.map((child, i) => (
@@ -162,7 +166,7 @@ function Group({ value, onChange, depth }: { value: OpExpr; onChange: (e: Expr) 
       ))}
       <div className="cond-group-actions">
         <Button size="small" appearance="subtle" icon={<Add16Regular />} onClick={() => set([...children, blankComparison()])}>
-          Condizione
+          {t('condition.addCondition')}
         </Button>
         <Button
           size="small"
@@ -170,7 +174,7 @@ function Group({ value, onChange, depth }: { value: OpExpr; onChange: (e: Expr) 
           icon={<Add16Regular />}
           onClick={() => set([...children, { op: value.op === 'and' ? 'or' : 'and', args: [blankComparison()] }])}
         >
-          Gruppo
+          {t('condition.addGroup')}
         </Button>
       </div>
     </div>
@@ -198,6 +202,7 @@ export function ConditionBuilder({
   const negated = isNot(value)
   const inner = negated ? operands(value as OpExpr)[0] : value
   const update = (e: Expr) => onChange(negated ? { op: 'not', arg: e } : e)
+  const { t } = useI18n()
 
   let body
   if (isGroup(inner)) body = <Group value={inner} onChange={update} depth={depth} />
@@ -207,11 +212,11 @@ export function ConditionBuilder({
   return (
     <div className="cond">
       <div className="cond-tools">
-        <ToggleButton size="small" checked={negated} onClick={() => onChange(toggleNot(value))} aria-label="Negazione">
-          NON
+        <ToggleButton size="small" checked={negated} onClick={() => onChange(toggleNot(value))} aria-label={t('condition.negation')}>
+          {t('condition.not')}
         </ToggleButton>
         {onRemove && (
-          <Button size="small" appearance="subtle" aria-label="Rimuovi condizione" icon={<Delete16Regular />} onClick={onRemove} />
+          <Button size="small" appearance="subtle" aria-label={t('condition.remove')} icon={<Delete16Regular />} onClick={onRemove} />
         )}
       </div>
       <div className="cond-body">{body}</div>
@@ -222,7 +227,7 @@ export function ConditionBuilder({
           icon={<Add16Regular />}
           onClick={() => onChange({ op: 'and', args: [value, blankComparison()] })}
         >
-          Aggiungi condizione
+          {t('condition.add')}
         </Button>
       )}
     </div>

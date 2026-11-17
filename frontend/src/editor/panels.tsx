@@ -44,34 +44,32 @@ import {
 } from '../api/hooks'
 import type { Change, ExecutionResult, GraphDiff, Issue, TestRun } from '../api/types'
 import { ErrorBar, FormDialog, JsonField } from '../components/forms'
+import { type Key, type Params, useI18n } from '../i18n'
 import { useEditor } from './store'
 
-const OUTCOME_LABEL: Record<string, string> = {
-  valid: 'Valido',
-  invalid: 'Non valido',
-  warning: 'Valido con avvisi',
-  error: 'Errore',
-}
+const OUTCOMES = new Set(['valid', 'invalid', 'warning', 'error'])
 
 export function OutcomeBadge({ outcome }: { outcome: string }) {
   const color = outcome === 'valid' ? 'success' : outcome === 'warning' ? 'warning' : 'danger'
+  const { t } = useI18n()
   return (
     <Badge appearance="filled" color={color}>
-      {OUTCOME_LABEL[outcome] ?? outcome}
+      {OUTCOMES.has(outcome) ? t(`outcome.${outcome}` as Key) : outcome}
     </Badge>
   )
 }
 
 export function ResultView({ result }: { result: ExecutionResult }) {
+  const { t } = useI18n()
   return (
     <div className="stack">
       <div className="inline">
         <OutcomeBadge outcome={result.outcome} />
         <Text size={200} className="muted">
-          uscita da {result.exit.nodeId} ({result.exit.reason}) · {result.timing.engineUs} µs
+          {t('result.exit', { node: result.exit.nodeId, reason: result.exit.reason, us: result.timing.engineUs })}
         </Text>
       </div>
-      {result.feedback.length === 0 && <Text size={200}>Nessun messaggio.</Text>}
+      {result.feedback.length === 0 && <Text size={200}>{t('result.noMessages')}</Text>}
       <ul className="feedback">
         {result.feedback.map((f, i) => (
           <li key={`${f.code}-${i}`} className={`sev-${f.severity}`}>
@@ -80,7 +78,7 @@ export function ResultView({ result }: { result: ExecutionResult }) {
           </li>
         ))}
       </ul>
-      <Text weight="semibold">Output</Text>
+      <Text weight="semibold">{t('result.output')}</Text>
       <pre>{JSON.stringify(result.result, null, 2)}</pre>
     </div>
   )
@@ -100,6 +98,7 @@ export function SimulatePanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
   const [busy, setBusy] = useState(false)
   const [testName, setTestName] = useState('')
   const qc = useQueryClient()
+  const { t } = useI18n()
 
   async function run() {
     setBusy(true)
@@ -120,31 +119,31 @@ export function SimulatePanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
   return (
     <div className="stack">
       {tests.data && tests.data.length > 0 && (
-        <Field label="Carica l'input di un test">
+        <Field label={t('simulate.loadTest')}>
           <Dropdown
-            placeholder="Scegli un test"
+            placeholder={t('simulate.chooseTest')}
             onOptionSelect={(_, d) => {
-              const t = tests.data?.find((x) => x.name === d.optionValue)
-              if (t) {
-                setInput(t.input)
-                setReferenceDate(t.referenceDate ?? '')
+              const test = tests.data?.find((x) => x.name === d.optionValue)
+              if (test) {
+                setInput(test.input)
+                setReferenceDate(test.referenceDate ?? '')
               }
             }}
           >
-            {tests.data.map((t) => (
-              <Option key={t.name} value={t.name}>
-                {t.name}
+            {tests.data.map((test) => (
+              <Option key={test.name} value={test.name}>
+                {test.name}
               </Option>
             ))}
           </Dropdown>
         </Field>
       )}
-      <JsonField label="Oggetto in input" value={input} onValid={setInput} rows={12} />
+      <JsonField label={t('simulate.input')} value={input} onValid={setInput} rows={12} />
       <div className="inline">
-        <Field label="Data di riferimento">
+        <Field label={t('simulate.referenceDate')}>
           <Input type="date" value={referenceDate} onChange={(_, d) => setReferenceDate(d.value)} />
         </Field>
-        <Field label="Lingua">
+        <Field label={t('common.language')}>
           <Dropdown value={locale} selectedOptions={[locale]} onOptionSelect={(_, d) => setLocale(d.optionValue ?? 'it')}>
             <Option value="it">it</Option>
             <Option value="en">en</Option>
@@ -152,7 +151,7 @@ export function SimulatePanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
         </Field>
       </div>
       <Button appearance="primary" onClick={run} disabled={busy}>
-        {busy ? 'Esecuzione…' : 'Simula il draft'}
+        {busy ? t('simulate.running') : t('simulate.run')}
       </Button>
       <ErrorBar error={error} />
       {error instanceof ApiError && Array.isArray(error.problem.issues) && (
@@ -161,12 +160,12 @@ export function SimulatePanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
       {simulation && (
         <>
           <ResultView result={simulation} />
-          <Text size={200}>Seleziona un nodo per vederne ingresso e uscita.</Text>
+          <Text size={200}>{t('simulate.selectNode')}</Text>
           <FormDialog
-            title="Salva come test"
-            submitLabel="Salva"
+            title={t('simulate.saveAsTestTitle')}
+            submitLabel={t('common.save')}
             canSubmit={Boolean(testName.trim())}
-            trigger={<Button>Salva questa simulazione come test</Button>}
+            trigger={<Button>{t('simulate.saveAsTest')}</Button>}
             onSubmit={async () => {
               await addTest(ws, rs, {
                 name: testName.trim(),
@@ -182,8 +181,8 @@ export function SimulatePanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
               setTestName('')
             }}
           >
-            <Text>L'esito, i codici dei messaggi e l'output attuali diventano il risultato atteso.</Text>
-            <Field label="Nome del test" required>
+            <Text>{t('simulate.saveAsTestHint')}</Text>
+            <Field label={t('simulate.testName')} required>
               <Input value={testName} onChange={(_, d) => setTestName(d.value)} />
             </Field>
           </FormDialog>
@@ -199,11 +198,12 @@ export function TestsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string; en
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
   const qc = useQueryClient()
-  const results = new Map(run?.tests.map((t) => [t.name, t]))
+  const results = new Map(run?.tests.map((r) => [r.name, r]))
+  const { t } = useI18n()
 
   return (
     <div className="stack">
-      <Text size={200}>I test vengono eseguiti a ogni pubblicazione: se uno fallisce, la versione non viene creata.</Text>
+      <Text size={200}>{t('tests.intro')}</Text>
       <Button
         appearance="primary"
         disabled={busy || !tests.data?.length}
@@ -219,31 +219,31 @@ export function TestsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string; en
           }
         }}
       >
-        Esegui i test sul draft
+        {t('tests.run')}
       </Button>
       <ErrorBar error={error ?? tests.error} />
       {tests.isLoading && <Spinner size="tiny" />}
-      {tests.data?.length === 0 && <Text>Nessun test. Salva una simulazione come test dalla scheda Simulazione.</Text>}
+      {tests.data?.length === 0 && <Text>{t('tests.empty')}</Text>}
       <ul className="test-list">
-        {tests.data?.map((t) => {
-          const r = results.get(t.name)
+        {tests.data?.map((test) => {
+          const r = results.get(test.name)
           return (
-            <li key={t.name}>
+            <li key={test.name}>
               <div className="inline">
-                {r && <Badge color={r.passed ? 'success' : 'danger'}>{r.passed ? 'ok' : 'fallito'}</Badge>}
-                <Text weight="semibold">{t.name}</Text>
+                {r && <Badge color={r.passed ? 'success' : 'danger'}>{r.passed ? t('tests.passed') : t('tests.failed')}</Badge>}
+                <Text weight="semibold">{test.name}</Text>
                 <Text size={200} className="muted">
-                  atteso: {t.expected.outcome ?? '—'}
+                  {t('tests.expected', { outcome: test.expected.outcome ?? '—' })}
                 </Text>
                 <Button
                   size="small"
                   appearance="subtle"
                   onClick={async () => {
-                    await deleteTest(ws, rs, t.name)
+                    await deleteTest(ws, rs, test.name)
                     await qc.invalidateQueries({ queryKey: keys.tests(ws, rs) })
                   }}
                 >
-                  Elimina
+                  {t('common.delete')}
                 </Button>
               </div>
               {r && !r.passed && (
@@ -275,6 +275,7 @@ export function VersionsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
   const info = useRuleset(ws, rs)
   const aliases = info.data?.aliases ?? {}
   const schedule = info.data?.schedule ?? {}
+  const { t, dateLocale } = useI18n()
 
   async function refresh() {
     await Promise.all([
@@ -286,15 +287,19 @@ export function VersionsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
   return (
     <div className="stack">
       <FormDialog
-        title="Pubblica una nuova versione"
-        submitLabel="Pubblica"
-        trigger={<Button appearance="primary">Pubblica…</Button>}
+        title={t('versions.publishTitle')}
+        submitLabel={t('versions.publish')}
+        trigger={<Button appearance="primary">{t('versions.publishMenu')}</Button>}
         onSubmit={async () => {
           setProblem(null)
-          if (!(await ensureSaved())) throw new Error('Salvataggio non riuscito')
+          if (!(await ensureSaved())) throw new Error(t('versions.saveFailed'))
           try {
             const v = await publish(ws, rs, { bump, notes: notes || undefined, promoteTo: promoteTo || undefined })
-            setMessage(`Pubblicata la versione ${v.version}${promoteTo ? ` e promossa in ${promoteTo}` : ''}.`)
+            setMessage(
+              promoteTo
+                ? t('versions.publishedPromoted', { version: v.version, env: promoteTo })
+                : t('versions.published', { version: v.version }),
+            )
             await refresh()
           } catch (e) {
             if (e instanceof ApiError) setProblem(e)
@@ -302,22 +307,22 @@ export function VersionsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
           }
         }}
       >
-        <Text>Il draft viene compilato, controllato sullo schema e verificato con tutti i test.</Text>
-        <RadioGroup value={bump} onChange={(_, d) => setBump(d.value as typeof bump)} aria-label="Tipo di versione">
-          <Radio value="patch" label="Correzione (patch)" />
-          <Radio value="minor" label="Modifica compatibile (minor)" />
-          <Radio value="major" label="Modifica importante (major)" />
+        <Text>{t('versions.publishIntro')}</Text>
+        <RadioGroup value={bump} onChange={(_, d) => setBump(d.value as typeof bump)} aria-label={t('versions.bump')}>
+          <Radio value="patch" label={t('versions.patch')} />
+          <Radio value="minor" label={t('versions.minor')} />
+          <Radio value="major" label={t('versions.major')} />
         </RadioGroup>
-        <Field label="Note">
+        <Field label={t('versions.notes')}>
           <Textarea value={notes} onChange={(_, d) => setNotes(d.value)} />
         </Field>
-        <Field label="Promuovi subito in">
+        <Field label={t('versions.promoteTo')}>
           <Dropdown
-            value={promoteTo || 'Nessun ambiente'}
+            value={promoteTo || t('versions.noEnvironment')}
             selectedOptions={[promoteTo]}
             onOptionSelect={(_, d) => setPromoteTo(d.optionValue ?? '')}
           >
-            <Option value="">Nessun ambiente</Option>
+            <Option value="">{t('versions.noEnvironment')}</Option>
             {ENVS.map((e) => (
               <Option key={e} value={e}>
                 {e}
@@ -328,9 +333,9 @@ export function VersionsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
         {problem && Array.isArray(problem.problem.issues) && <IssueList issues={problem.problem.issues as Issue[]} />}
         {problem && Array.isArray(problem.problem.tests) && (
           <ul className="diffs">
-            {(problem.problem.tests as TestRun['tests']).filter((t) => !t.passed).map((t) => (
-              <li key={t.name}>
-                {t.name}: {t.differences.join('; ')}
+            {(problem.problem.tests as TestRun['tests']).filter((r) => !r.passed).map((r) => (
+              <li key={r.name}>
+                {r.name}: {r.differences.join('; ')}
               </li>
             ))}
           </ul>
@@ -342,12 +347,11 @@ export function VersionsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
         </MessageBar>
       )}
 
-      <Text weight="semibold">Ambienti</Text>
+      <Text weight="semibold">{t('versions.environments')}</Text>
       <Text size={200} className="muted">
-        Ogni chiamata usa la versione in vigore alla sua data di riferimento: si possono pianificare le regole di un
-        periodo (es. dal 1° agosto) mentre le attuali restano attive.
+        {t('versions.environmentsHint')}
       </Text>
-      <table className="field-table" aria-label="Versioni per ambiente">
+      <table className="field-table" aria-label={t('versions.byEnvironment')}>
         <tbody>
           {ENVS.map((env) => (
             <tr key={env}>
@@ -361,12 +365,14 @@ export function VersionsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
                     <div key={entry.effectiveFrom ?? 'always'} className="inline">
                       <Badge appearance={aliases[env] === entry.version ? 'filled' : 'tint'}>{entry.version}</Badge>
                       <Text size={200}>
-                        {entry.effectiveFrom ? `dal ${formatDay(entry.effectiveFrom)}` : 'senza data di inizio'}
+                        {entry.effectiveFrom
+                          ? t('versions.since', { date: formatDay(entry.effectiveFrom, dateLocale) })
+                          : t('versions.noStart')}
                       </Text>
                       <Button
                         size="small"
                         appearance="subtle"
-                        aria-label={`Togli ${entry.version} da ${env}`}
+                        aria-label={t('versions.removeFromEnv', { version: entry.version, env })}
                         icon={<Delete16Regular />}
                         onClick={async () => {
                           setAliasError(null)
@@ -388,16 +394,16 @@ export function VersionsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
       </table>
       <ErrorBar error={aliasError} />
 
-      <Text weight="semibold">Versioni pubblicate</Text>
+      <Text weight="semibold">{t('versions.list')}</Text>
       {versions.isLoading && <Spinner size="tiny" />}
-      {versions.data?.length === 0 && <Text>Nessuna versione pubblicata.</Text>}
+      {versions.data?.length === 0 && <Text>{t('versions.empty')}</Text>}
       <ul className="version-list">
         {versions.data?.map((v) => (
           <li key={v.version}>
             <div className="inline">
               <Text weight="semibold">{v.version}</Text>
               <Text size={200} className="muted">
-                {new Date(v.publishedAt).toLocaleString('it-IT')} · {v.publishedBy}
+                {new Date(v.publishedAt).toLocaleString(dateLocale)} · {v.publishedBy}
               </Text>
             </div>
             {v.notes && <Text size={200}>{v.notes}</Text>}
@@ -410,7 +416,7 @@ export function VersionsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
                 icon={<ArrowDownload16Regular />}
                 onClick={async () => downloadJson(`${rs}-${v.version}.minos.json`, await exportBundle(ws, rs, v.version))}
               >
-                Esporta
+                {t('common.export')}
               </Button>
             </div>
           </li>
@@ -420,26 +426,27 @@ export function VersionsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
   )
 }
 
-function formatDay(iso: string): string {
-  return new Date(`${iso}T00:00:00`).toLocaleDateString('it-IT', { day: 'numeric', month: 'long', year: 'numeric' })
+function formatDay(iso: string, locale: string): string {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
 function PromoteDialog({ ws, rs, version, onDone }: { ws: string; rs: string; version: string; onDone: () => Promise<void> }) {
   const [env, setEnv] = useState('prod')
   const [when, setWhen] = useState<'now' | 'date'>('now')
   const [day, setDay] = useState('')
+  const { t } = useI18n()
   return (
     <FormDialog
-      title={`Porta ${version} in un ambiente`}
-      submitLabel="Conferma"
+      title={t('versions.promoteTitle', { version })}
+      submitLabel={t('common.confirm')}
       canSubmit={when === 'now' || Boolean(day)}
-      trigger={<Button size="small">Porta in…</Button>}
+      trigger={<Button size="small">{t('versions.promote')}</Button>}
       onSubmit={async () => {
         await setAlias(ws, rs, env, version, when === 'date' ? day : null)
         await onDone()
       }}
     >
-      <Field label="Ambiente">
+      <Field label={t('versions.environment')}>
         <Dropdown value={env} selectedOptions={[env]} onOptionSelect={(_, d) => setEnv(d.optionValue ?? 'prod')}>
           {ENVS.map((e) => (
             <Option key={e} value={e}>
@@ -448,12 +455,12 @@ function PromoteDialog({ ws, rs, version, onDone }: { ws: string; rs: string; ve
           ))}
         </Dropdown>
       </Field>
-      <RadioGroup value={when} onChange={(_, d) => setWhen(d.value as 'now' | 'date')} aria-label="Quando">
-        <Radio value="now" label="Da subito, senza data di inizio (sostituisce la versione attuale)" />
-        <Radio value="date" label="Da una data: le chiamate con data di riferimento successiva useranno questa versione" />
+      <RadioGroup value={when} onChange={(_, d) => setWhen(d.value as 'now' | 'date')} aria-label={t('versions.when')}>
+        <Radio value="now" label={t('versions.now')} />
+        <Radio value="date" label={t('versions.fromDate')} />
       </RadioGroup>
       {when === 'date' && (
-        <Field label="In vigore dal">
+        <Field label={t('versions.effectiveFrom')}>
           <Input type="date" value={day} onChange={(_, d) => setDay(d.value)} />
         </Field>
       )}
@@ -461,16 +468,17 @@ function PromoteDialog({ ws, rs, version, onDone }: { ws: string; rs: string; ve
   )
 }
 
-function changeText(c: Change): string {
+function changeText(c: Change, t: (key: Key, params?: Params) => string): string {
   const v = (x: unknown) => (x === undefined ? '' : JSON.stringify(x))
-  if (c.kind === 'added') return `${c.path}: aggiunto ${v(c.to)}`
-  if (c.kind === 'removed') return `${c.path}: rimosso (era ${v(c.from)})`
+  if (c.kind === 'added') return t('diff.added', { path: c.path, value: v(c.to) })
+  if (c.kind === 'removed') return t('diff.removed', { path: c.path, value: v(c.from) })
   return `${c.path}: ${v(c.from)} → ${v(c.to)}`
 }
 
 export function DiffDialog({ ws, rs, from }: { ws: string; rs: string; from: string }) {
   const [diff, setDiff] = useState<GraphDiff | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const { t } = useI18n()
   return (
     <Dialog
       onOpenChange={async (_, d) => {
@@ -486,21 +494,21 @@ export function DiffDialog({ ws, rs, from }: { ws: string; rs: string; from: str
     >
       <DialogTrigger disableButtonEnhancement>
         <Button size="small" appearance="subtle">
-          Confronta con il draft
+          {t('diff.compare')}
         </Button>
       </DialogTrigger>
       <DialogSurface className="wide-dialog">
         <DialogBody>
-          <DialogTitle>Da {from} al draft</DialogTitle>
+          <DialogTitle>{t('diff.title', { from })}</DialogTitle>
           <DialogContent className="stack">
             <ErrorBar error={error} />
             {!diff && !error && <Spinner size="tiny" />}
-            {diff?.identical && <Text>Nessuna differenza nelle regole (le posizioni sul canvas non contano).</Text>}
+            {diff?.identical && <Text>{t('diff.identical')}</Text>}
             {diff && !diff.identical && (
               <>
                 {diff.nodes.added.length > 0 && (
                   <section>
-                    <Text weight="semibold">Nodi aggiunti</Text>
+                    <Text weight="semibold">{t('diff.nodesAdded')}</Text>
                     <ul className="diff-list added">
                       {diff.nodes.added.map((n) => (
                         <li key={n.id}>
@@ -512,7 +520,7 @@ export function DiffDialog({ ws, rs, from }: { ws: string; rs: string; from: str
                 )}
                 {diff.nodes.removed.length > 0 && (
                   <section>
-                    <Text weight="semibold">Nodi rimossi</Text>
+                    <Text weight="semibold">{t('diff.nodesRemoved')}</Text>
                     <ul className="diff-list removed">
                       {diff.nodes.removed.map((n) => (
                         <li key={n.id}>
@@ -524,11 +532,11 @@ export function DiffDialog({ ws, rs, from }: { ws: string; rs: string; from: str
                 )}
                 {diff.nodes.changed.map((n) => (
                   <section key={n.id}>
-                    <Text weight="semibold">Nodo {n.id} modificato</Text>
+                    <Text weight="semibold">{t('diff.nodeChanged', { id: n.id })}</Text>
                     <ul className="diff-list">
                       {n.changes.map((c) => (
                         <li key={c.path}>
-                          <code>{changeText(c)}</code>
+                          <code>{changeText(c, t)}</code>
                         </li>
                       ))}
                     </ul>
@@ -536,7 +544,7 @@ export function DiffDialog({ ws, rs, from }: { ws: string; rs: string; from: str
                 ))}
                 {(diff.edges.added.length > 0 || diff.edges.removed.length > 0) && (
                   <section>
-                    <Text weight="semibold">Collegamenti</Text>
+                    <Text weight="semibold">{t('diff.edges')}</Text>
                     <ul className="diff-list">
                       {diff.edges.added.map((e) => (
                         <li key={`+${e}`} className="added">
@@ -553,11 +561,11 @@ export function DiffDialog({ ws, rs, from }: { ws: string; rs: string; from: str
                 )}
                 {diff.other.length > 0 && (
                   <section>
-                    <Text weight="semibold">Impostazioni e costanti</Text>
+                    <Text weight="semibold">{t('diff.other')}</Text>
                     <ul className="diff-list">
                       {diff.other.map((c) => (
                         <li key={c.path}>
-                          <code>{changeText(c)}</code>
+                          <code>{changeText(c, t)}</code>
                         </li>
                       ))}
                     </ul>
@@ -568,7 +576,7 @@ export function DiffDialog({ ws, rs, from }: { ws: string; rs: string; from: str
           </DialogContent>
           <DialogActions>
             <DialogTrigger disableButtonEnhancement>
-              <Button>Chiudi</Button>
+              <Button>{t('common.close')}</Button>
             </DialogTrigger>
           </DialogActions>
         </DialogBody>
@@ -583,23 +591,24 @@ export function SettingsPanel({ ws, entity }: { ws: string; entity: string | und
   const schemaVersion = useEditor((s) => s.schemaVersion)
   const setSchemaVersion = useEditor((s) => s.setSchemaVersion)
   const schemas = useSchemas(ws, entity ?? '')
+  const { t } = useI18n()
   if (!graph) return null
   const settings = graph.settings ?? {}
   return (
     <div className="stack">
-      <Field label="Modalità" hint="Raccogliere tutti gli errori è utile per i form; fermarsi al primo per i controlli bloccanti.">
+      <Field label={t('settings.mode')} hint={t('settings.modeHint')}>
         <Dropdown
-          value={settings.mode === 'collect_all' ? 'Raccogli tutti gli errori' : 'Fermati al primo errore'}
+          value={settings.mode === 'collect_all' ? t('settings.collectAll') : t('settings.failFast')}
           selectedOptions={[settings.mode ?? 'fail_fast']}
           onOptionSelect={(_, d) =>
             change((g) => ({ ...g, settings: { ...g.settings, mode: d.optionValue as 'fail_fast' | 'collect_all' } }))
           }
         >
-          <Option value="fail_fast">Fermati al primo errore</Option>
-          <Option value="collect_all">Raccogli tutti gli errori</Option>
+          <Option value="fail_fast">{t('settings.failFast')}</Option>
+          <Option value="collect_all">{t('settings.collectAll')}</Option>
         </Dropdown>
       </Field>
-      <Field label="Lingua predefinita dei messaggi">
+      <Field label={t('settings.locale')}>
         <Dropdown
           value={settings.locale ?? 'it'}
           selectedOptions={[settings.locale ?? 'it']}
@@ -610,9 +619,9 @@ export function SettingsPanel({ ws, entity }: { ws: string; entity: string | und
         </Dropdown>
       </Field>
       {entity && (
-        <Field label={`Versione dello schema di ${entity}`}>
+        <Field label={t('settings.schemaVersion', { entity })}>
           <Dropdown
-            value={schemaVersion ? `v${schemaVersion}` : 'Nessuno schema'}
+            value={schemaVersion ? `v${schemaVersion}` : t('settings.noSchema')}
             selectedOptions={[String(schemaVersion ?? '')]}
             onOptionSelect={(_, d) => setSchemaVersion(d.optionValue ? Number(d.optionValue) : null)}
           >
@@ -625,8 +634,8 @@ export function SettingsPanel({ ws, entity }: { ws: string; entity: string | und
         </Field>
       )}
       <JsonField
-        label="Costanti ($.vars)"
-        hint="Valori di configurazione riusati dalle regole: soglie, date, listini."
+        label={t('settings.constants')}
+        hint={t('settings.constantsHint')}
         value={graph.constants ?? {}}
         onValid={(constants) => change((g) => ({ ...g, constants: constants as Record<string, unknown> }))}
         rows={14}
@@ -656,19 +665,20 @@ export function IssueList({ issues, onSelect }: { issues: Issue[]; onSelect?: (w
 
 export function NodeIO({ nodeId }: { nodeId: string }) {
   const simulation = useEditor((s) => s.simulation)
+  const { t, rich } = useI18n()
   if (!simulation) return null
-  const entry = simulation.trace?.find((t) => t.nodeId === nodeId)
+  const entry = simulation.trace?.find((x) => x.nodeId === nodeId)
   const feedback = simulation.feedback.filter((f) => f.nodeId === nodeId)
   return (
     <section className="panel-section io">
-      <Text weight="semibold">Ultima simulazione</Text>
+      <Text weight="semibold">{t('io.title')}</Text>
       {!entry ? (
-        <Text size={200}>Il nodo non è stato eseguito.</Text>
+        <Text size={200}>{t('io.notExecuted')}</Text>
       ) : (
         <>
           <Text size={200}>
-            Esito: <b>{entry.outcome}</b>
-            {entry.port ? ` · uscita ${entry.port}` : ''}
+            {rich('io.outcome', { outcome: <b>{entry.outcome}</b> })}
+            {entry.port ? t('io.port', { port: entry.port }) : ''}
             {entry.us !== undefined ? ` · ${entry.us} µs` : ''}
           </Text>
           {entry.output !== undefined && entry.output !== null && <pre className="mini">{JSON.stringify(entry.output, null, 2)}</pre>}

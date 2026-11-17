@@ -31,6 +31,7 @@ import { type ReactElement, useCallback, useEffect, useMemo, useState } from 're
 import { useBlocker, useParams } from 'react-router'
 
 import { ApiError, errorMessage } from '../api/client'
+import { type Key, useI18n } from '../i18n'
 import { downloadJson, exportBundle, keys, saveDraft, useCatalog, useDraft, useRuleset, useSchema, useSchemas, validateDraft } from '../api/hooks'
 import { Canvas, Palette } from './Canvas'
 import { type FieldScope, ScopeContext } from './FieldPicker'
@@ -41,12 +42,12 @@ import { IssueList, NodeIO, SettingsPanel, SimulatePanel, TestsPanel, VersionsPa
 import { listFields } from './schemaPaths'
 import { type PanelTab, useEditor } from './store'
 
-const PANEL_TABS: { value: PanelTab; label: string; icon: ReactElement }[] = [
-  { value: 'node', label: 'Nodo', icon: <Cube20Regular /> },
-  { value: 'simulate', label: 'Simulazione', icon: <Play20Regular /> },
-  { value: 'tests', label: 'Test', icon: <Beaker20Regular /> },
-  { value: 'versions', label: 'Versioni', icon: <History20Regular /> },
-  { value: 'settings', label: 'Impostazioni', icon: <Settings20Regular /> },
+const PANEL_TABS: { value: PanelTab; label: Key; icon: ReactElement }[] = [
+  { value: 'node', label: 'editor.tabNode', icon: <Cube20Regular /> },
+  { value: 'simulate', label: 'editor.tabSimulate', icon: <Play20Regular /> },
+  { value: 'tests', label: 'editor.tabTests', icon: <Beaker20Regular /> },
+  { value: 'versions', label: 'editor.tabVersions', icon: <History20Regular /> },
+  { value: 'settings', label: 'editor.tabSettings', icon: <Settings20Regular /> },
 ]
 
 /** Rendered node sizes, so the layout leaves room for large nodes. */
@@ -65,6 +66,7 @@ export function EditorPage() {
   const info = useRuleset(ws, rs)
   const catalog = useCatalog()
   const qc = useQueryClient()
+  const { t } = useI18n()
 
   const graph = useEditor((s) => s.graph)
   const load = useEditor((s) => s.load)
@@ -97,10 +99,10 @@ export function EditorPage() {
   const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname)
   useEffect(() => {
     if (blocker.state === 'blocked') {
-      if (window.confirm('Ci sono modifiche non salvate. Uscire comunque?')) blocker.proceed()
+      if (window.confirm(t('editor.unsavedConfirm'))) blocker.proceed()
       else blocker.reset()
     }
-  }, [blocker])
+  }, [blocker, t])
   useEffect(() => {
     const onUnload = (e: BeforeUnloadEvent) => {
       if (useEditor.getState().dirty) e.preventDefault()
@@ -173,7 +175,7 @@ export function EditorPage() {
         <MessageBarBody>{errorMessage(draft.error ?? catalog.error)}</MessageBarBody>
       </MessageBar>
     ) : (
-      <Spinner label="Caricamento del rule set…" />
+      <Spinner label={t('editor.loading')} />
     )
   }
   if (!catalog.data || !scope) return null
@@ -201,7 +203,7 @@ export function EditorPage() {
             <Text weight="bold" size={500}>
               {info.data?.name ?? rs}
             </Text>
-            {info.data?.latestVersion && <Badge appearance="tint">ultima {info.data.latestVersion}</Badge>}
+            {info.data?.latestVersion && <Badge appearance="tint">{t('editor.latest', { version: info.data.latestVersion })}</Badge>}
             {Object.entries(info.data?.aliases ?? {}).map(([env, v]) => (
               <Badge key={env} appearance="outline">
                 {env}: {v}
@@ -210,14 +212,14 @@ export function EditorPage() {
           </div>
           <div className="inline">
             <span className={`save-state${dirty ? ' dirty' : ''}`} aria-live="polite">
-              {dirty ? 'Modifiche non salvate' : `Salvato (rev. ${lockVersion})`}
+              {dirty ? t('editor.unsaved') : t('editor.saved', { rev: lockVersion })}
             </span>
             {validated && (
               <Badge color={issues.length ? 'danger' : 'success'} appearance="filled">
-                {issues.length ? `${issues.length} problemi` : 'Valido'}
+                {issues.length ? t('editor.problems', { count: issues.length }) : t('editor.valid')}
               </Badge>
             )}
-            <Tooltip content="Annulla (Ctrl+Z)" relationship="label">
+            <Tooltip content={t('editor.undo')} relationship="label">
               <Button
                 appearance="subtle"
                 icon={<ArrowUndo20Regular />}
@@ -225,7 +227,7 @@ export function EditorPage() {
                 onClick={() => useEditor.getState().undo()}
               />
             </Tooltip>
-            <Tooltip content="Ripristina (Ctrl+Shift+Z)" relationship="label">
+            <Tooltip content={t('editor.redo')} relationship="label">
               <Button
                 appearance="subtle"
                 icon={<ArrowRedo20Regular />}
@@ -233,7 +235,7 @@ export function EditorPage() {
                 onClick={() => useEditor.getState().redo()}
               />
             </Tooltip>
-            <Tooltip content="Dispone i nodi da sinistra a destra seguendo i collegamenti" relationship="description">
+            <Tooltip content={t('editor.layoutHint')} relationship="description">
               <Button
                 appearance="subtle"
                 icon={<Organization20Regular />}
@@ -243,12 +245,12 @@ export function EditorPage() {
                   })
                 }
               >
-                Riordina
+                {t('editor.layout')}
               </Button>
             </Tooltip>
             <Tooltip content="Ctrl+S" relationship="description">
               <Button icon={<Save20Regular />} disabled={!dirty || busy} onClick={() => void save()}>
-                Salva
+                {t('editor.save')}
               </Button>
             </Tooltip>
             <Button
@@ -263,26 +265,26 @@ export function EditorPage() {
                 }
               }}
             >
-              Valida
+              {t('editor.validate')}
             </Button>
             <Button icon={<Play20Regular />} onClick={() => setTab('simulate')}>
-              Simula
+              {t('editor.simulate')}
             </Button>
-            <Tooltip content="Scarica il draft con schema e test, da importare altrove" relationship="description">
+            <Tooltip content={t('editor.exportHint')} relationship="description">
               <Button
                 icon={<ArrowDownload20Regular />}
                 onClick={async () => {
                   if (await save()) downloadJson(`${rs}-draft.minos.json`, await exportBundle(ws, rs))
                 }}
               >
-                Esporta
+                {t('editor.export')}
               </Button>
             </Tooltip>
             <Button appearance="primary" onClick={() => setTab('versions')}>
-              Pubblica
+              {t('editor.publish')}
             </Button>
             <span className="toolbar-sep" aria-hidden="true" />
-            <Tooltip content={panelOpen ? 'Chiudi il pannello' : 'Apri il pannello'} relationship="label">
+            <Tooltip content={panelOpen ? t('editor.closePanel') : t('editor.openPanel')} relationship="label">
               <Button
                 appearance="subtle"
                 aria-expanded={panelOpen}
@@ -298,7 +300,7 @@ export function EditorPage() {
           <MessageBar intent="error">
             <MessageBarBody>
               {conflict
-                ? 'Il draft è stato modificato da qualcun altro. Ricarica per vedere la versione aggiornata (le tue modifiche andranno perse).'
+                ? t('editor.conflict')
                 : errorMessage(saveError)}
             </MessageBarBody>
             {conflict && (
@@ -308,7 +310,7 @@ export function EditorPage() {
                   await qc.invalidateQueries({ queryKey: keys.draft(ws, rs) })
                 }}
               >
-                Ricarica
+                {t('editor.reload')}
               </Button>
             )}
           </MessageBar>
@@ -316,7 +318,7 @@ export function EditorPage() {
 
         <div className={`editor-body${panelOpen ? '' : ' panel-closed'}`}>
           <Palette catalog={catalog.data} onAdd={addAtCentre} />
-          <section className="editor-canvas" aria-label="Grafo delle regole">
+          <section className="editor-canvas" aria-label={t('editor.canvas')}>
             <ReactFlowProvider>
               <Canvas graph={graph} catalog={catalog.data} />
             </ReactFlowProvider>
@@ -325,13 +327,13 @@ export function EditorPage() {
             <aside className="editor-panel" id="editor-panel">
               <div className="editor-panel-head">
                 <TabList selectedValue={tab} onTabSelect={(_, d) => setTab(d.value as PanelTab)} size="small">
-                  {PANEL_TABS.map((t) => (
-                    <Tab key={t.value} value={t.value}>
-                      {t.label}
+                  {PANEL_TABS.map((item) => (
+                    <Tab key={item.value} value={item.value}>
+                      {t(item.label)}
                     </Tab>
                   ))}
                 </TabList>
-                <Tooltip content="Chiudi il pannello" relationship="label">
+                <Tooltip content={t('editor.closePanel')} relationship="label">
                   <Button appearance="subtle" size="small" icon={<Dismiss20Regular />} onClick={() => setPanelOpen(false)} />
                 </Tooltip>
               </div>
@@ -345,10 +347,7 @@ export function EditorPage() {
                   ) : (
                     <div className="empty-hint">
                       <Cube20Regular />
-                      <Text>
-                        Trascina un nodo dalla palette sul canvas, collega le uscite agli ingressi e seleziona un nodo
-                        per configurarlo.
-                      </Text>
+                      <Text>{t('editor.emptyHint')}</Text>
                     </div>
                   ))}
                 {tab === 'simulate' && <SimulatePanel ws={ws} rs={rs} ensureSaved={save} />}
@@ -358,14 +357,14 @@ export function EditorPage() {
               </div>
             </aside>
           ) : (
-            <nav className="editor-rail" aria-label="Pannelli">
-              {PANEL_TABS.map((t) => (
-                <Tooltip key={t.value} content={t.label} relationship="label" positioning="before">
+            <nav className="editor-rail" aria-label={t('editor.panels')}>
+              {PANEL_TABS.map((item) => (
+                <Tooltip key={item.value} content={t(item.label)} relationship="label" positioning="before">
                   <Button
                     appearance="subtle"
-                    icon={t.icon}
-                    className={t.value === tab ? 'rail-active' : undefined}
-                    onClick={() => setTab(t.value)}
+                    icon={item.icon}
+                    className={item.value === tab ? 'rail-active' : undefined}
+                    onClick={() => setTab(item.value)}
                   />
                 </Tooltip>
               ))}
@@ -374,7 +373,7 @@ export function EditorPage() {
         </div>
 
         {validated && (issues.length > 0 || warnings.length > 0) && (
-          <div className="issues-bar" role="region" aria-label="Problemi">
+          <div className="issues-bar" role="region" aria-label={t('editor.issues')}>
             <IssueList
               issues={issues}
               onSelect={(where) => {

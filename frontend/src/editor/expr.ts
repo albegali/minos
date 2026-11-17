@@ -1,5 +1,7 @@
 // Helpers over the expression AST (see docs/rgd-format.md).
 
+import { type Key, t } from '../i18n'
+
 export type Expr = unknown
 
 export interface RefExpr {
@@ -55,11 +57,20 @@ export const isNot = (e: Expr): e is OpExpr => isOp(e) && e.op === 'not'
 export const isComparison = (e: Expr): e is OpExpr => isOp(e) && COMPARE.has(e.op)
 
 const SYMBOL: Record<string, string> = {
-  '==': '=', '!=': '≠', '<': '<', '<=': '≤', '>': '>', '>=': '≥', in: 'in', not_in: 'non in',
-  contains: 'contiene', starts_with: 'inizia con', ends_with: 'finisce con', regex: '~',
-  date_before: 'prima di', date_after: 'dopo', between: 'tra', date_between: 'tra le date',
-  exists: 'presente', is_null: 'vuoto', is_not_null: 'non vuoto', '+': '+', '-': '−', '*': '×',
-  '/': '÷', '%': 'mod',
+  '==': '=', '!=': '≠', '<': '<', '<=': '≤', '>': '>', '>=': '≥', in: 'in', regex: '~',
+  '+': '+', '-': '−', '*': '×', '/': '÷',
+}
+/** Operators rendered as words, translated (`expr.<op>`). */
+const WORDS: Record<string, Key> = {
+  not_in: 'expr.not_in', contains: 'expr.contains', starts_with: 'expr.starts_with',
+  ends_with: 'expr.ends_with', date_before: 'expr.date_before', date_after: 'expr.date_after',
+  between: 'expr.between', date_between: 'expr.date_between', exists: 'expr.exists',
+  is_null: 'expr.is_null', is_not_null: 'expr.is_not_null', '%': 'expr.mod',
+}
+
+function symbol(op: string): string {
+  const word = WORDS[op]
+  return word ? t(word) : (SYMBOL[op] ?? op)
 }
 
 export function shortRef(path: string): string {
@@ -72,24 +83,28 @@ export function describe(e: Expr, depth = 0): string {
   if (isRef(e)) return e.ref ? shortRef(e.ref) : '?'
   if (isFn(e)) {
     const args = (e.args ?? []).map((a) => describe(a, depth + 1)).join(', ')
-    const where = e.where !== undefined ? ` dove ${describe(e.where, depth + 1)}` : ''
-    const select = e.select !== undefined ? ` di ${describe(e.select, depth + 1)}` : ''
+    const where = e.where !== undefined ? ` ${t('expr.where')} ${describe(e.where, depth + 1)}` : ''
+    const select = e.select !== undefined ? ` ${t('expr.of')} ${describe(e.select, depth + 1)}` : ''
     return `${e.fn}(${args}${select}${where})`
   }
   if (isOp(e)) {
     const ops = operands(e)
     if (LOGIC.has(e.op)) {
-      const joined = ops.map((o) => describe(o, depth + 1)).join(e.op === 'and' ? ' E ' : ' O ')
+      const joined = ops.map((o) => describe(o, depth + 1)).join(` ${t(e.op === 'and' ? 'expr.and' : 'expr.or')} `)
       return depth > 0 ? `(${joined})` : joined
     }
-    if (e.op === 'not') return `NON ${describe(ops[0], depth + 1)}`
-    if (UNARY.has(e.op)) return `${describe(ops[0], depth + 1)} ${SYMBOL[e.op]}`
+    if (e.op === 'not') return `${t('expr.not')} ${describe(ops[0], depth + 1)}`
+    if (UNARY.has(e.op)) return `${describe(ops[0], depth + 1)} ${symbol(e.op)}`
     if (RANGE.has(e.op) && Array.isArray(ops[1])) {
       const [lo, hi] = ops[1] as Expr[]
-      return `${describe(ops[0], depth + 1)} tra ${describe(lo, depth + 1)} e ${describe(hi, depth + 1)}`
+      return t('expr.range', {
+        value: describe(ops[0], depth + 1),
+        low: describe(lo, depth + 1),
+        high: describe(hi, depth + 1),
+      })
     }
-    if (e.op === 'if') return `se ${describe(ops[0], depth + 1)} …`
-    return ops.map((o) => describe(o, depth + 1)).join(` ${SYMBOL[e.op] ?? e.op} `)
+    if (e.op === 'if') return t('expr.if', { condition: describe(ops[0], depth + 1) })
+    return ops.map((o) => describe(o, depth + 1)).join(` ${symbol(e.op)} `)
   }
   if (Array.isArray(e)) return `[${e.map((x) => describe(x, depth + 1)).join(', ')}]`
   if (isObject(e) && 'literal' in e) return JSON.stringify(e.literal)

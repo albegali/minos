@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router'
 import { useCreateWorkspace, useWorkspaces } from '../api/hooks'
 import { ErrorBar, FormDialog, slugify } from '../components/forms'
 import { Page } from '../components/Shell'
+import { useI18n } from '../i18n'
 
 export function WorkspacesPage() {
   const { data, isLoading, error } = useWorkspaces()
@@ -13,22 +14,23 @@ export function WorkspacesPage() {
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
+  const { t } = useI18n()
 
   return (
     <Page
-      title="Workspace"
+      title={t('workspaces.title')}
       actions={
         <FormDialog
-          title="Nuovo workspace"
-          submitLabel="Crea"
+          title={t('workspaces.new')}
+          submitLabel={t('common.create')}
           canSubmit={Boolean(name && slug)}
           onSubmit={async () => {
             await create.mutateAsync({ slug, name })
             navigate(`/w/${slug}`)
           }}
-          trigger={<Button icon={<Add20Regular />}>Nuovo workspace</Button>}
+          trigger={<Button icon={<Add20Regular />}>{t('workspaces.new')}</Button>}
         >
-          <Field label="Nome" required>
+          <Field label={t('common.name')} required>
             <Input
               value={name}
               onChange={(_, d) => {
@@ -37,15 +39,15 @@ export function WorkspacesPage() {
               }}
             />
           </Field>
-          <Field label="Identificativo" hint="Usato negli URL delle API. Richiede una chiave admin.">
+          <Field label={t('workspaces.slug')} hint={t('workspaces.slugHint')}>
             <Input value={slug} onChange={(_, d) => setSlug(d.value)} />
           </Field>
         </FormDialog>
       }
     >
-      {isLoading && <Spinner label="Caricamento…" />}
+      {isLoading && <Spinner label={t('common.loading')} />}
       <ErrorBar error={error} />
-      {data?.length === 0 && <Text>Nessun workspace. Creane uno per iniziare.</Text>}
+      {data?.length === 0 && <Text>{t('workspaces.empty')}</Text>}
       <div className="card-grid">
         {data?.map((w) => (
           <Card key={w.slug} onClick={() => navigate(`/w/${w.slug}`)} className="clickable">

@@ -2,6 +2,7 @@
 // tests cover them without a browser.
 
 import type { NodeManifest } from '../api/types'
+import { t } from '../i18n'
 import { layered, type RgdEdge, type RgdNode, type RuleGraph } from '../rgd'
 import { omit } from '../util'
 import { blankComparison } from './expr'
@@ -32,46 +33,48 @@ export function newNodeId(graph: RuleGraph, type: string): string {
   }
 }
 
-/** A new node of `type` with sensible, editable defaults. */
+/** A new node of `type` with sensible, editable defaults, labelled in the Studio language. */
 export function defaultNode(type: string, id: string): RgdNode {
   switch (type) {
     case 'condition':
-      return { id, type, label: 'Nuova condizione', condition: blankComparison() }
+      return { id, type, label: t('graph.newCondition'), condition: blankComparison() }
     case 'group':
       return {
         id,
         type,
-        label: 'Nuovo gruppo',
+        label: t('graph.newGroup'),
         operator: 'and',
         evaluate: 'all',
         children: [{ rule: blankComparison() }],
       }
     case 'set':
-      return { id, type, label: 'Nuovo calcolo', assign: { nuovaVariabile: 0 } }
+      return { id, type, label: t('graph.newSet'), assign: { [t('graph.newVariable')]: 0 } }
     case 'switch':
-      return { id, type, label: 'Nuovo switch', cases: [{ name: 'caso1', when: blankComparison() }] }
+      return { id, type, label: t('graph.newSwitch'), cases: [{ name: `${t('graph.caseName')}1`, when: blankComparison() }] }
     case 'feedback':
       return {
         id,
         type,
-        label: 'Nuovo messaggio',
+        label: t('graph.newFeedback'),
         feedback: { code: 'MSG', severity: 'info', message: { it: '' } },
       }
-    case 'decision_table':
+    case 'decision_table': {
+      const result = t('graph.tableResult')
       return {
         id,
         type,
-        label: 'Nuova tabella',
+        label: t('graph.newTable'),
         hitPolicy: 'first',
         inputs: [{ name: 'input', label: 'input', expr: { ref: '' } }],
-        outputs: [{ name: 'risultato', label: 'risultato' }],
-        rules: [{ when: [null], then: { risultato: null } }],
+        outputs: [{ name: result, label: result }],
+        rules: [{ when: [null], then: { [result]: null } }],
         target: `${id}Result`,
       }
+    }
     case 'subruleset':
-      return { id, type, label: 'Rule set annidato', ruleset: '', version: '', target: `${id}Result` }
+      return { id, type, label: t('graph.subruleset'), ruleset: '', version: '', target: `${id}Result` }
     case 'end':
-      return { id, type, label: 'Fine', outcome: 'valid' }
+      return { id, type, label: t('graph.end'), outcome: 'valid' }
     default:
       return { id, type: type as RgdNode['type'] }
   }
@@ -92,7 +95,7 @@ export function frozenPositions(graph: RuleGraph): Record<string, Position> {
 export function addNode(graph: RuleGraph, node: RgdNode, position: Position): RuleGraph {
   if (graph.nodes.some((n) => n.id === node.id)) throw new Error(`duplicate node id ${node.id}`)
   if (node.type === 'start' && graph.nodes.some((n) => n.type === 'start')) {
-    throw new Error('il grafo ha già un nodo di inizio')
+    throw new Error(t('graph.startExists'))
   }
   const positions = { ...frozenPositions(graph), [node.id]: position }
   return withPositions({ ...graph, nodes: [...graph.nodes, node] }, positions)
@@ -128,13 +131,13 @@ export interface ConnectionCheck {
 }
 
 export function canConnect(graph: RuleGraph, from: string, port: string, to: string): ConnectionCheck {
-  if (from === to) return { ok: false, reason: 'un nodo non può collegarsi a sé stesso' }
+  if (from === to) return { ok: false, reason: t('graph.selfLoop') }
   const target = graph.nodes.find((n) => n.id === to)
-  if (!target) return { ok: false, reason: 'nodo di destinazione inesistente' }
-  if (target.type === 'start') return { ok: false, reason: "non si può entrare nel nodo di inizio" }
+  if (!target) return { ok: false, reason: t('graph.missingTarget') }
+  if (target.type === 'start') return { ok: false, reason: t('graph.intoStart') }
   const source = graph.nodes.find((n) => n.id === from)
-  if (!source || !portsOf(source).includes(port)) return { ok: false, reason: 'porta inesistente' }
-  if (reaches(graph, to, from)) return { ok: false, reason: 'il collegamento creerebbe un ciclo' }
+  if (!source || !portsOf(source).includes(port)) return { ok: false, reason: t('graph.missingPort') }
+  if (reaches(graph, to, from)) return { ok: false, reason: t('graph.cycle') }
   return { ok: true }
 }
 
