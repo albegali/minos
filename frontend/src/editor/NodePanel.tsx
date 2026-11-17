@@ -146,7 +146,7 @@ export function FeedbackEditor({
           {LOCALES.map((loc) => (
             <Field
               key={loc}
-              label={t('node.message', { locale: loc })}
+              label={t('node.messageIn', { locale: loc })}
               hint={loc === LOCALES[0] ? t('node.templateHint') : undefined}
             >
               <Textarea

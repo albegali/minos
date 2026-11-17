@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { readFileSync } from 'node:fs'
+
 import { describe as describeExpr } from '../editor/expr'
 import { canConnect } from '../editor/graph'
 import en from './locales/en.json'
@@ -18,7 +20,30 @@ function leaf(catalog: unknown, key: string): string {
   return key.split('.').reduce<unknown>((n, part) => (n as Record<string, unknown>)[part], catalog) as string
 }
 
+/** Keys written twice in the same object of a catalogue file (JSON keeps only the last). */
+function duplicateKeys(lang: string): string[] {
+  const text = readFileSync(new URL(`./locales/${lang}.json`, import.meta.url), 'utf8')
+  const stack: Set<string>[] = []
+  const dups: string[] = []
+  for (const line of text.split('\n')) {
+    const key = /^\s*"([^"]+)":/.exec(line)?.[1]
+    if (key !== undefined) {
+      const scope = stack.at(-1)
+      if (scope?.has(key)) dups.push(key)
+      scope?.add(key)
+    }
+    if (/\{\s*$/.test(line)) stack.push(new Set())
+    if (/^\s*\},?\s*$/.test(line)) stack.pop()
+  }
+  return dups
+}
+
 describe('catalogues', () => {
+  it('have no key written twice', () => {
+    expect(duplicateKeys('it')).toEqual([])
+    expect(duplicateKeys('en')).toEqual([])
+  })
+
   it('have the same keys in every language', () => {
     expect(keys(en).sort()).toEqual(keys(itCatalog).sort())
   })

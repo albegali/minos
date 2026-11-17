@@ -253,6 +253,7 @@
     "severityInfo": "Informazione",
     "severityWarning": "Avviso",
     "severityError": "Errore",
+    "messageIn": "Messaggio ({locale})",
     "message": "Messaggio",
     "templateHint": "Inserisci valori con {{vars.nome}} o {{input.campo}}",
     "affectedField": "Campo interessato",
