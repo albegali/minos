@@ -18,6 +18,7 @@ Configuration through environment variables:
 | `MINOS_RULESETS_DIR` | — | RGD files served as workspace `local`, environment `prod` |
 | `MINOS_POLL_INTERVAL_S` | `30` | Periodic alias check (safety net for lost NOTIFYs), at least 1 |
 | `MINOS_EXEC_TIME_LIMIT_MS` | `1000` | Wall-clock budget of one execution, sub rule sets included (`422` beyond it) |
+| `MINOS_PUBLISH_REQUIRES_TESTS` | `false` | `true` to refuse publishing a rule set without tests (recommended in production) |
 | `MINOS_EXAMPLES_DIR` | the repo's `examples/` | Examples loaded by `minos.cli seed-examples` |
 | `MINOS_SEED_EXAMPLES` | `true` only in the Docker image | Loads the examples on the container's first start |
 | `MINOS_STUDIO_URL` | `http://localhost:8080` | Studio address in the links returned by the MCP server |
@@ -115,7 +116,8 @@ A rule set on this entity reads every part directly (`$.input.student.birthDate`
 | `POST /v1/exec/{ws}/{ruleset}` | Runs the `prod` alias (the version in force on the reference date) |
 | `POST /v1/exec/{ws}/{ruleset}@{env}` | Runs the `env` alias (`test`, `dev`, ...) |
 | `POST /v1/exec/{ws}/{ruleset}/versions/{semver}` | Runs a pinned version (loaded on the first request, then cached) |
-| `GET /v1/health` · `GET /v1/ready` | Probes; `ready` after the initial load |
+| `GET /v1/health` · `GET /v1/ready` | Probes; `ready` after the initial load. `health` is always `200`, with `status: degraded` and `problems` when the worker is not listening for changes (polling only) or a deployment failed to reload (the previous version keeps serving) |
+| `GET /v1/metrics` | Prometheus text: executions by outcome, engine time, requests refused (too large, invalid input, limits), deployments, reloads and their failures, NOTIFY connection (admin key) |
 | `GET /v1/deployments` | Aliases loaded in the worker, with version and hash (admin key) |
 | `GET /v1/exec/openapi.json[?workspace=<ws>]` | OpenAPI 3.1 of the deployed rule sets (see below) |
 | `GET /v1/exec/docs[?workspace=<ws>]` | Swagger UI on the same document |

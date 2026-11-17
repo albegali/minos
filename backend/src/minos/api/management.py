@@ -16,6 +16,7 @@ import orjson
 from fastapi import APIRouter, FastAPI, Header, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import DataError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from minos import __version__
@@ -182,7 +183,11 @@ def _key_out(c: ApiClient) -> dict[str, Any]:
     }
 
 
-def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: bool) -> APIRouter:
+def management_router(
+    sessions: async_sessionmaker[AsyncSession],
+    require_auth: bool,
+    require_tests: bool = False,
+) -> APIRouter:
     router = APIRouter(prefix="/v1")
 
     async def principal(request: Request) -> Principal:
@@ -485,7 +490,14 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
             w = await workspace(s, who, ws)
             r = await svc.get_ruleset(s, w, rs)
             version, tests = await svc.publish(
-                s, who.actor, w, r, body.bump, body.notes, body.promoteTo
+                s,
+                who.actor,
+                w,
+                r,
+                body.bump,
+                body.notes,
+                body.promoteTo,
+                require_tests=require_tests,
             )
         out = _version_out(version)
         out["tests"] = tests
@@ -660,6 +672,12 @@ def install_error_handlers(app: FastAPI) -> None:
     async def control_error(request: Request, exc: ControlError) -> Response:
         return problem(exc.status, exc.title, exc.detail, **exc.extra)
 
+    @app.exception_handler(DataError)
+    async def data_error(request: Request, exc: DataError) -> Response:
+        # Safety net for values the service layer did not check (too long, out of range):
+        # the request is wrong, not the server.
+        return problem(422, "Unprocessable Content", "a value is too long or out of range")
+
 
 def create_management_app(settings: Settings | None = None) -> FastAPI:
     cfg = settings or Settings.from_env()
@@ -674,7 +692,7 @@ def create_management_app(settings: Settings | None = None) -> FastAPI:
         await engine.dispose()
 
     app = FastAPI(title="Minos Management API", version=__version__, lifespan=lifespan)
-    app.include_router(management_router(sessions, cfg.require_auth))
+    app.include_router(management_router(sessions, cfg.require_auth, cfg.publish_requires_tests))
 
     @app.get("/v1/info")
     def info() -> Response:

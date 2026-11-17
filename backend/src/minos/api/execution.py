@@ -7,6 +7,7 @@ deployment is looked up in memory, API keys are resolved from an in-memory cache
 from __future__ import annotations
 
 import datetime as dt
+import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -31,6 +32,8 @@ from .exec_docs import OpenApiCache, swagger_html
 from .registry import DEFAULT_ENV, DbSync, Deployment, KeyCache, RulesetRegistry
 
 _TRACE_LEVELS = frozenset({"none", "summary", "full"})
+log = logging.getLogger(__name__)
+
 MAX_BODY_BYTES = 1_048_576
 
 
@@ -93,6 +96,7 @@ def execution_router(
     ) -> Response:
         raw = await request.body()
         if len(raw) > MAX_BODY_BYTES:
+            stats.reject("too_large")
             return problem(413, "Payload Too Large", "input exceeds 1 MB")
         try:
             body = orjson.loads(raw)
@@ -129,6 +133,7 @@ def execution_router(
             )
         validator = dep.validator if validate is not False else None
         if validator is not None and not validator.is_valid(data):
+            stats.reject("invalid_input")
             return problem(
                 400,
                 "Bad Request",
@@ -148,7 +153,10 @@ def execution_router(
                 ),
             )
         except ExecutionLimitError as exc:
+            stats.reject("limit")
             return problem(422, "Execution Limit", str(exc))
+        stats.outcomes[result["outcome"]] = stats.outcomes.get(result["outcome"], 0) + 1
+        stats.engine_us += result["timing"]["engineUs"]
 
         headers = {
             "X-Ruleset-Version": dep.compiled.version,
@@ -158,9 +166,62 @@ def execution_router(
         }
         return json_response(result, 422 if result["outcome"] == "error" else 200, headers)
 
+    stats = _Stats()
+
     @router.get("/health")
     def health() -> Response:
-        return json_response({"status": "ok", "deployments": len(registry.schedules())})
+        """Liveness, with what an operator should know: ``degraded`` when changes may not be
+        picked up promptly (no NOTIFY connection) or a deployment failed to reload."""
+        problems = []
+        if sync is not None and not sync.listening:
+            problems.append("not listening for changes: relying on polling")
+        if sync is not None and sync.failing:
+            failing = ", ".join(f"{w}/{r}@{e}" for w, r, e in sorted(sync.failing))
+            problems.append(f"cannot reload {failing}: serving the previous version")
+        body: dict[str, Any] = {
+            "status": "degraded" if problems else "ok",
+            "deployments": len(registry.schedules()),
+        }
+        if problems:
+            body["problems"] = problems
+        return json_response(body)
+
+    @router.get("/metrics")
+    async def metrics(request: Request) -> Response:
+        """Prometheus text format (admin key when API keys are on)."""
+        denied = await authorise(request, None)
+        if denied is not None:
+            return denied
+        lines = [
+            "# HELP minos_executions_total Executions by outcome.",
+            "# TYPE minos_executions_total counter",
+            *(
+                f'minos_executions_total{{outcome="{o}"}} {n}'
+                for o, n in sorted(stats.outcomes.items())
+            ),
+            "# HELP minos_engine_seconds_total Engine time spent executing.",
+            "# TYPE minos_engine_seconds_total counter",
+            f"minos_engine_seconds_total {stats.engine_us / 1e6:.6f}",
+            "# HELP minos_rejected_total Requests refused before execution, by reason.",
+            "# TYPE minos_rejected_total counter",
+            *(
+                f'minos_rejected_total{{reason="{r}"}} {n}'
+                for r, n in sorted(stats.rejected.items())
+            ),
+            "# HELP minos_deployments Deployed environments served by this worker.",
+            "# TYPE minos_deployments gauge",
+            f"minos_deployments {len(registry.schedules())}",
+        ]
+        if sync is not None:
+            lines += [
+                "# TYPE minos_reloads_total counter",
+                f"minos_reloads_total {sync.reloads}",
+                "# TYPE minos_reload_failures_total counter",
+                f"minos_reload_failures_total {sync.reload_failures}",
+                "# TYPE minos_listening gauge",
+                f"minos_listening {int(sync.listening)}",
+            ]
+        return Response("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
 
     @router.get("/ready")
     def ready() -> Response:
@@ -239,7 +300,13 @@ def execution_router(
         denied, caller = await authenticate(request, workspace)
         if denied is not None:
             return denied
-        dep = await sync.load_version(workspace, ruleset, semver) if sync else None
+        try:
+            dep = await sync.load_version(workspace, ruleset, semver) if sync else None
+        except Exception:
+            log.exception("cannot load %s/%s/%s", workspace, ruleset, semver)
+            return problem(
+                500, "Internal Server Error", f"version {semver} cannot be loaded by this worker"
+            )
         return await run(
             request, lambda on: dep, f"no version {workspace}/{ruleset}/{semver}", caller
         )
@@ -319,3 +386,15 @@ def install_problem_handler(app: FastAPI) -> None:
 
 def _can_skip_validation(caller: Principal) -> bool:
     return caller.is_admin() or "manage" in caller.scopes
+
+
+@dataclass
+class _Stats:
+    """Counters of this worker, exposed by /v1/metrics."""
+
+    outcomes: dict[str, int] = field(default_factory=dict)
+    rejected: dict[str, int] = field(default_factory=dict)
+    engine_us: float = 0.0
+
+    def reject(self, reason: str) -> None:
+        self.rejected[reason] = self.rejected.get(reason, 0) + 1

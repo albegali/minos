@@ -11,10 +11,20 @@ import httpx
 import pytest
 from alembic import command
 
+from minos.api.app import create_app
 from minos.cli import alembic_config, migrate
 from minos.control.diff import diff_graphs
 
-from .test_platform import EXEC, RS, WS, admin, client, eventually, setup_aurora  # noqa: F401
+from .test_platform import (  # noqa: F401  (fixtures)
+    EXEC,
+    RS,
+    WS,
+    admin,
+    client,
+    eventually,
+    settings,
+    setup_aurora,
+)
 
 pytestmark = pytest.mark.usefixtures("clean_db")
 
@@ -296,4 +306,50 @@ def test_alias_migration_round_trip(clean_db: str) -> None:
     asyncio.run(seed())
     migrate(clean_db)
     command.downgrade(cfg, "0001")
+    migrate(clean_db)
+
+
+def test_downgrades_keep_or_refuse(
+    clean_db: str, aurora_graph: dict[str, Any], valid_plan: dict[str, Any]
+) -> None:
+    """CTL-07: refuse to drop resolved schemas still needed; CTL-08: an environment with only
+    dated entries survives the downgrade of 0002."""
+    admin_h: dict[str, str] = {}
+
+    async def populate() -> None:
+        app = create_app(settings(clean_db, require_auth=False))
+        async with (
+            app.router.lifespan_context(app),
+            httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://m") as c,
+        ):
+            await setup_aurora(c, admin_h, aurora_graph, [valid_plan])
+            v = (await c.post(f"{RS}/publish", json={}, headers=admin_h)).json()["version"]
+            body = {"version": v, "effectiveFrom": "2027-08-01"}
+            r = await c.put(f"{RS}/aliases/prod", json=body, headers=admin_h)
+            assert r.status_code == 200, r.text
+            wrapper = {"schema": {"properties": {"p": {"$ref": "entity:StudyPlan"}}}}
+            await c.post(f"{WS}/entities", json={"key": "Wrap", "name": "W"}, headers=admin_h)
+            r = await c.post(f"{WS}/entities/Wrap/schemas", json=wrapper, headers=admin_h)
+            assert r.status_code == 201, r.text
+
+    async def sql(query: str) -> Any:
+        conn = await asyncpg.connect(clean_db.replace("+asyncpg", ""))
+        try:
+            return await conn.fetch(query)
+        finally:
+            await conn.close()
+
+    asyncio.run(populate())
+    cfg = alembic_config(clean_db)
+    with pytest.raises(RuntimeError, match="reference other entities"):
+        command.downgrade(cfg, "0002")
+    asyncio.run(
+        sql(
+            "DELETE FROM schema_version WHERE entity_id = "
+            "(SELECT id FROM entity WHERE key = 'Wrap')"
+        )
+    )
+    command.downgrade(cfg, "0001")
+    rows = asyncio.run(sql("SELECT env FROM ruleset_alias"))
+    assert [r["env"] for r in rows] == ["prod"]
     migrate(clean_db)

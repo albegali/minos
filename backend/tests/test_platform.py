@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import dataclasses
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
@@ -732,3 +733,87 @@ def test_key_cache_keeps_valid_keys() -> None:
     assert cache.get(f"bad{KeyCache.MAX_ENTRIES + 4}") == (True, None)
     assert well_formed(generate_key())
     assert not well_formed("mns_nope") and not well_formed("x" * 47)
+
+
+async def test_names_dates_and_test_inputs_are_checked(
+    client: httpx.AsyncClient,
+    admin: dict[str, str],
+    aurora_graph: dict[str, Any],
+    valid_plan: dict[str, Any],
+) -> None:
+    c = client
+    await setup_aurora(c, admin, aurora_graph, [valid_plan])
+    # CTL-06: too long or malformed values are the request's fault (422), not a 500
+    r = await c.post(f"{WS}/entities", json={"key": "Long", "name": "x" * 201}, headers=admin)
+    assert r.status_code == 422
+    test = {"name": "t", "input": valid_plan, "expected": {"outcome": "valid"}}
+    r = await c.post(f"{RS}/tests", json={**test, "name": "n" * 201}, headers=admin)
+    assert r.status_code == 422
+    # CTL-10: a test input production would refuse fails the gate
+    bad = {**test, "name": "bad input", "input": {**valid_plan, "courses": "nope"}}
+    assert (await c.post(f"{RS}/tests", json=bad, headers=admin)).status_code == 201
+    r = await c.post(f"{RS}/tests/run", headers=admin)
+    (result,) = [t for t in r.json()["tests"] if t["name"] == "bad input"]
+    assert result["passed"] is False
+    assert "does not match the entity schema" in result["differences"][0]
+    r = await c.post(f"{RS}/publish", json={}, headers=admin)
+    assert r.status_code == 422
+
+
+async def test_publishing_can_require_tests(
+    clean_db: str,
+    admin: dict[str, str],
+    aurora_graph: dict[str, Any],
+    valid_plan: dict[str, Any],
+) -> None:
+    # CTL-09: with MINOS_PUBLISH_REQUIRES_TESTS an empty suite does not pass the gate
+    cfg = dataclasses.replace(settings(clean_db, require_auth=False), publish_requires_tests=True)
+    app = create_app(cfg)
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://m") as c,
+    ):
+        await setup_aurora(c, admin, aurora_graph, [valid_plan])
+        r = await c.post(f"{RS}/publish", json={}, headers=admin)
+        assert r.status_code == 422 and "at least one test" in r.json()["detail"]
+        test = {"name": "ok", "input": valid_plan, "expected": {"outcome": "valid"}}
+        assert (await c.post(f"{RS}/tests", json=test, headers=admin)).status_code == 201
+        assert (await c.post(f"{RS}/publish", json={}, headers=admin)).status_code == 201
+
+
+async def test_metrics_health_and_reserved_slug(
+    client: httpx.AsyncClient,
+    admin: dict[str, str],
+    aurora_graph: dict[str, Any],
+    valid_plan: dict[str, Any],
+) -> None:
+    c = client
+    exec_key = await setup_aurora(c, admin, aurora_graph, [valid_plan])
+    await c.post(f"{RS}/publish", json={"promoteTo": "prod"}, headers=admin)
+
+    async def deployed() -> bool:
+        res = await c.post(EXEC, json={"input": valid_plan}, headers=exec_key)
+        return res.status_code == 200
+
+    await eventually(deployed)
+    await c.post(EXEC, json={"input": {**valid_plan, "courses": 1}}, headers=exec_key)
+    # FN-05: Prometheus counters, admin only
+    assert (await c.get("/v1/metrics", headers=exec_key)).status_code == 403
+    text = (await c.get("/v1/metrics", headers=admin)).text
+    assert 'minos_executions_total{outcome="valid"}' in text
+    assert 'minos_rejected_total{reason="invalid_input"} 1' in text
+    assert "minos_listening 1" in text
+    # API-12: health says when a deployment cannot be reloaded
+    rt = c.app.state.runtime  # type: ignore[attr-defined]
+    assert (await c.get("/v1/health")).json()["status"] == "ok"
+    rt.sync.failing.add(("aurora", "studyplan-emba", "prod"))
+    health = (await c.get("/v1/health")).json()
+    assert health["status"] == "degraded" and "studyplan-emba" in health["problems"][0]
+    rt.sync.failing.clear()
+    # API-06: an unknown version is a 404, asked again without a database query
+    url = "/v1/exec/aurora/studyplan-emba/versions/9.9.9"
+    assert (await c.post(url, json={"input": valid_plan}, headers=exec_key)).status_code == 404
+    assert ("aurora", "studyplan-emba", "9.9.9") in rt.sync._missing_versions
+    # API-02: the file-served namespace cannot be taken by a workspace
+    r = await c.post("/v1/workspaces", json={"slug": "local", "name": "L"}, headers=admin)
+    assert r.status_code == 422 and "reserved" in r.json()["detail"]

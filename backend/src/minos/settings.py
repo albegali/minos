@@ -66,6 +66,9 @@ class Settings:
     """Where Minos Studio is reachable: the MCP server links drafts there (MINOS_STUDIO_URL)."""
     exec_time_limit_ms: float = 1000
     """Wall-clock budget of one execution, sub-rule sets included (MINOS_EXEC_TIME_LIMIT_MS)."""
+    publish_requires_tests: bool = False
+    """Refuse to publish a rule set without tests (MINOS_PUBLISH_REQUIRES_TESTS); recommended
+    in production."""
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -80,4 +83,5 @@ class Settings:
             ),
             studio_url=os.environ.get("MINOS_STUDIO_URL") or "http://localhost:8080",
             exec_time_limit_ms=_number("MINOS_EXEC_TIME_LIMIT_MS", 1000, minimum=1),
+            publish_requires_tests=_bool("MINOS_PUBLISH_REQUIRES_TESTS", False),
         )

@@ -62,7 +62,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
     )
     if rt.engine is not None:
-        app.include_router(management_router(make_sessionmaker(rt.engine), cfg.require_auth))
+        app.include_router(
+            management_router(
+                make_sessionmaker(rt.engine), cfg.require_auth, cfg.publish_requires_tests
+            )
+        )
         install_error_handlers(app)
         mcp = _mount_mcp(app, cfg)
     else:

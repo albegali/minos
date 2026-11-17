@@ -282,6 +282,11 @@ class DbSync:
         self._listener: asyncpg.Connection | None = None
         self._tasks: list[asyncio.Task[None]] = []
         self.reloads = 0  # observable in tests and metrics
+        self.reload_failures = 0
+        self.failing: set[Key] = set()
+        """Deployments whose last reload failed (they keep serving the previous version)."""
+        self._reload_locks: dict[Key, asyncio.Lock] = {}
+        self._missing_versions: dict[tuple[str, str, str], float] = {}
 
     async def start(self) -> None:
         await self.load_all()
@@ -326,16 +331,29 @@ class DbSync:
         return tuple(out)
 
     async def reload_one(self, ws: str, rs: str, env: str) -> None:
-        q = _ALIAS_QUERY.where(Workspace.slug == ws, Ruleset.key == rs, RulesetAlias.env == env)
-        async with self.sessions() as s:
-            rows = (await s.execute(q)).all()
-        self.registry.put((ws, rs, env), await self._schedule(ws, list(rows)) if rows else None)
-        self.reloads += 1
+        # One reload per key at a time: each reads the database inside the lock, so the last
+        # one to finish installs the latest state, never an older snapshot.
+        lock = self._reload_locks.setdefault((ws, rs, env), asyncio.Lock())
+        async with lock:
+            q = _ALIAS_QUERY.where(Workspace.slug == ws, Ruleset.key == rs, RulesetAlias.env == env)
+            async with self.sessions() as s:
+                rows = (await s.execute(q)).all()
+            try:
+                schedule = await self._schedule(ws, list(rows)) if rows else None
+            except Exception:
+                self.failing.add((ws, rs, env))
+                raise
+            self.registry.put((ws, rs, env), schedule)
+            self.failing.discard((ws, rs, env))
+            self.reloads += 1
 
     async def load_version(self, ws: str, rs: str, semver: str) -> Deployment | None:
         cached = self.registry.get_version(ws, rs, semver)
         if cached is not None:
             return cached
+        missing_until = self._missing_versions.get((ws, rs, semver))
+        if missing_until is not None and missing_until > time.monotonic():
+            return None  # asked again within seconds: no database query
         q = (
             select(RulesetVersion.graph, SchemaVersion.resolved_schema)
             .join(Ruleset, Ruleset.id == RulesetVersion.ruleset_id)
@@ -346,6 +364,9 @@ class DbSync:
         async with self.sessions() as s:
             row = (await s.execute(q)).first()
         if row is None:
+            if len(self._missing_versions) >= KeyCache.MAX_ENTRIES:
+                self._missing_versions.clear()
+            self._missing_versions[(ws, rs, semver)] = time.monotonic() + 5
             return None
         async with self.sessions() as s:
             resolve = await resolver_for(s, ws, row.graph)
@@ -372,6 +393,11 @@ class DbSync:
         return principal
 
     # ------------------------------------------------------------------ notifications
+
+    @property
+    def listening(self) -> bool:
+        """Whether NOTIFY messages arrive (otherwise only the periodic poll applies changes)."""
+        return self._listener is not None and not self._listener.is_closed()
 
     async def _listen(self) -> None:
         try:
@@ -400,6 +426,7 @@ class DbSync:
         with contextlib.suppress(ValueError):
             self._tasks.remove(task)
         if not task.cancelled() and task.exception() is not None:
+            self.reload_failures += 1
             log.error("reload failed", exc_info=task.exception())
 
     # ------------------------------------------------------------------ safety net
@@ -410,6 +437,8 @@ class DbSync:
             rows = (await s.execute(_HASH_QUERY)).all()
         wanted: dict[Key, list[tuple[dt.date, str]]] = {}
         for ws, rs, env, start, digest in rows:
+            if ws == LOCAL_WORKSPACE:  # served from files; the slug is reserved
+                continue
             wanted.setdefault((ws, rs, env), []).append((start, digest))
         current = {
             key: sorted((start, dep.hash) for start, dep in schedule)
@@ -427,6 +456,7 @@ class DbSync:
                 await self.reload_one(ws, rs, env)
                 fixed += 1
             except Exception:
+                self.reload_failures += 1
                 log.exception("cannot reload %s/%s@%s", ws, rs, env)
         return fixed
 

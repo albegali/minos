@@ -12,7 +12,7 @@ import re
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
@@ -41,7 +41,14 @@ from minos.engine import (
     compile_ruleset,
 )
 from minos.engine.compiler import Resolver, dependencies
-from minos.schema import SchemaError, check_schema, find_refs, pin_refs, resolve_refs
+from minos.schema import (
+    InputValidator,
+    SchemaError,
+    check_schema,
+    find_refs,
+    pin_refs,
+    resolve_refs,
+)
 
 from .errors import Conflict, Invalid, NotFound, PreconditionFailed
 from .keys import SCOPES, display_prefix, generate_key, hash_key, well_formed
@@ -56,6 +63,18 @@ ENV = re.compile(r"^[a-z][a-z0-9\-]{0,31}$")
 def canonical_hash(doc: Any) -> str:
     raw = json.dumps(doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(raw.encode()).hexdigest()
+
+
+NAME_MAX: Final = 200
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _check_name(value: Any, what: str) -> None:
+    """Names are stored in 200-character columns: refuse longer ones as a 422, not a 500."""
+    if not isinstance(value, str) or not value.strip():
+        raise Invalid(f"{what} is required")
+    if len(value) > NAME_MAX:
+        raise Invalid(f"{what} is longer than {NAME_MAX} characters")
 
 
 def _check_slug(value: str, what: str) -> None:
@@ -73,7 +92,11 @@ async def audit(
 ) -> None:
     s.add(
         AuditEvent(
-            actor=actor, action=action, target=target, workspace_id=workspace_id, detail=detail
+            actor=actor[:200],
+            action=action,
+            target=target[:300],
+            workspace_id=workspace_id,
+            detail=detail,
         )
     )
 
@@ -89,8 +112,15 @@ async def notify(s: AsyncSession, payload: dict[str, Any]) -> None:
 # --------------------------------------------------------------------------- workspaces
 
 
+RESERVED_WORKSPACES: Final = frozenset({"local"})
+"""``local`` is where the execution API serves rule sets read from files."""
+
+
 async def create_workspace(s: AsyncSession, actor: str, slug: str, name: str) -> Workspace:
     _check_slug(slug, "workspace slug")
+    if slug in RESERVED_WORKSPACES:
+        raise Invalid(f"workspace slug {slug!r} is reserved")
+    _check_name(name, "workspace name")
     ws = Workspace(slug=slug, name=name)
     s.add(ws)
     try:
@@ -119,6 +149,7 @@ async def create_entity(
     s: AsyncSession, actor: str, ws: Workspace, key: str, name: str, description: str | None
 ) -> Entity:
     _check_slug(key.lower(), "entity key")
+    _check_name(name, "entity name")
     entity = Entity(workspace_id=ws.id, key=key, name=name, description=description)
     s.add(entity)
     try:
@@ -294,6 +325,7 @@ async def create_ruleset(
     graph: dict[str, Any] | None = None,
 ) -> Ruleset:
     _check_slug(key, "ruleset key")
+    _check_name(name, "rule set name")
     rs = Ruleset(
         workspace_id=ws.id, entity_id=entity.id, key=key, name=name, description=description
     )
@@ -506,6 +538,13 @@ async def add_test(
     expected: dict[str, Any],
     reference_date: str | None,
 ) -> TestCase:
+    _check_name(name, "test name")
+    if reference_date is not None and not (
+        isinstance(reference_date, str) and _ISO_DATE.match(reference_date)
+    ):
+        raise Invalid("referenceDate must be an ISO date (YYYY-MM-DD)")
+    if not isinstance(expected, dict):
+        raise Invalid("expected must be an object")
     unknown = set(expected) - EXPECTATION_KEYS
     if unknown or not expected:
         raise Invalid(f"expected must use some of {sorted(EXPECTATION_KEYS)}")
@@ -537,10 +576,23 @@ async def delete_test(s: AsyncSession, actor: str, ws: Workspace, rs: Ruleset, n
     await audit(s, actor, "test.delete", f"{ws.slug}/{rs.key}/{name}", ws.id)
 
 
-def run_tests(compiled: CompiledRuleset, tests: list[TestCase]) -> list[dict[str, Any]]:
+def run_tests(
+    compiled: CompiledRuleset, tests: list[TestCase], schema: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
+    """Run ``tests``; with ``schema``, inputs are first checked against it, as the execution
+    API does, so that a test cannot pass on an input production would refuse."""
+    validator = InputValidator(schema) if schema else None
     out = []
     for tc in tests:
         opts = ExecuteOptions(reference_date=tc.reference_date, request_id=f"test:{tc.name}")
+        if validator is not None and not validator.is_valid(tc.input):
+            errors = validator.errors(tc.input, limit=5)
+            diffs = [
+                f"input does not match the entity schema: {e['path'] or '/'} {e['message']}"
+                for e in errors
+            ]
+            out.append({"name": tc.name, "passed": False, "differences": diffs})
+            continue
         try:
             result = compiled.execute(tc.input, opts)
             diffs = compare(tc.expected, result)
@@ -554,8 +606,10 @@ async def run_draft_tests(s: AsyncSession, rs: Ruleset) -> dict[str, Any]:
     validation = await validate_draft(s, rs)
     if validation.compiled is None:
         raise Invalid("the draft does not compile", {"issues": validation.issues})
+    sv = await _draft_schema(s, await get_draft(s, rs))
     cases = await list_tests(s, rs)
-    results = await asyncio.to_thread(run_tests, validation.compiled, cases)
+    schema = sv.resolved_schema if sv else None
+    results = await asyncio.to_thread(run_tests, validation.compiled, cases, schema)
     return {"passed": all(r["passed"] for r in results), "tests": results}
 
 
@@ -592,6 +646,8 @@ async def publish(
     bump: Bump,
     notes: str | None,
     promote_to: str | None = None,
+    *,
+    require_tests: bool = False,
 ) -> tuple[RulesetVersion, list[dict[str, Any]]]:
     """Compile, test and freeze the draft as a new immutable version."""
     rs = await get_ruleset(s, ws, rs.key, for_update=True)  # serialise concurrent publishes
@@ -609,7 +665,11 @@ async def publish(
     )
     if validation.compiled is None:
         raise Invalid("the draft does not compile", {"issues": validation.issues})
-    tests = await asyncio.to_thread(run_tests, validation.compiled, cases)
+    if require_tests and not cases:
+        raise Invalid("publishing needs at least one test (MINOS_PUBLISH_REQUIRES_TESTS)")
+    tests = await asyncio.to_thread(
+        run_tests, validation.compiled, cases, sv.resolved_schema if sv else None
+    )
     failed = [t for t in tests if not t["passed"]]
     if failed:
         raise Invalid(f"{len(failed)} test(s) failed", {"tests": tests})
@@ -783,6 +843,7 @@ async def create_api_client(
     scopes: list[str],
 ) -> tuple[ApiClient, str]:
     """Create a key; the clear-text key is returned once and never stored."""
+    _check_name(name, "key name")
     bad = set(scopes) - SCOPES
     if not scopes or bad:
         raise Invalid(f"scopes must be a non-empty subset of {sorted(SCOPES)}")

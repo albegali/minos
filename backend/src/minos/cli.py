@@ -22,6 +22,7 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from sqlalchemy import text
 
 from minos.control import service as svc
 from minos.control.examples import WORKSPACE, Seeded, load_examples, seed_examples
@@ -30,6 +31,7 @@ from minos.settings import Settings
 
 MIGRATIONS = Path(__file__).resolve().parent / "db" / "migrations"
 REPO_EXAMPLES = Path(__file__).resolve().parents[3] / "examples"
+SEED_LOCK = 0x4D494E4F5345  # "MINOSE"
 
 
 def alembic_config(url: str) -> Config:
@@ -86,6 +88,8 @@ async def seed(url: str, root: Path, workspace: str) -> Seeded:
     engine = make_engine(url)
     try:
         async with make_sessionmaker(engine).begin() as s:
+            # one replica at a time (they all seed on start)
+            await s.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": SEED_LOCK})
             return await seed_examples(s, examples, workspace)
     finally:
         await engine.dispose()
