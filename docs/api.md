@@ -1,46 +1,46 @@
-# API · riferimento (F1)
+# API · reference (F1)
 
-Due piani, deployabili separatamente:
+Two planes, deployable separately:
 
-| App | Uvicorn target | Uso |
+| App | Uvicorn target | Use |
 | --- | --- | --- |
-| Execution API | `minos.api.app:execution_app` | Sistemi terzi; percorso caldo in memoria |
-| Management API | `minos.api.app:management_app` | Minos Studio, CI, amministratori |
-| Entrambe (sviluppo) | `minos.api.app:app` | Un solo processo |
+| Execution API | `minos.api.app:execution_app` | Third-party systems; in-memory hot path |
+| Management API | `minos.api.app:management_app` | Minos Studio, CI, administrators |
+| Both (development) | `minos.api.app:app` | A single process |
 
-Configurazione da variabili d'ambiente:
+Configuration through environment variables:
 
-| Variabile | Default | Significato |
+| Variable | Default | Meaning |
 | --- | --- | --- |
 | `MINOS_DATABASE_URL` | — | `postgresql+asyncpg://user:pass@host:5432/db` |
-| `MINOS_REQUIRE_AUTH` | `false` | `true` per richiedere le API key |
-| `MINOS_CORS_ORIGINS` | — | Origini ammesse da browser, separate da virgola |
-| `MINOS_RULESETS_DIR` | — | File RGD serviti come workspace `local`, ambiente `prod` |
-| `MINOS_POLL_INTERVAL_S` | `30` | Controllo periodico degli alias (rete di sicurezza per NOTIFY persi) |
-| `MINOS_EXAMPLES_DIR` | `examples/` del repo | Esempi caricati da `minos.cli seed-examples` |
-| `MINOS_SEED_EXAMPLES` | `true` solo nell'immagine Docker | Carica gli esempi al primo avvio del container |
-| `MINOS_STUDIO_URL` | `http://localhost:8080` | Indirizzo dello Studio nei link restituiti dal server MCP |
+| `MINOS_REQUIRE_AUTH` | `false` | `true` to require API keys |
+| `MINOS_CORS_ORIGINS` | — | Allowed browser origins, comma-separated |
+| `MINOS_RULESETS_DIR` | — | RGD files served as workspace `local`, environment `prod` |
+| `MINOS_POLL_INTERVAL_S` | `30` | Periodic alias check (safety net for lost NOTIFYs) |
+| `MINOS_EXAMPLES_DIR` | the repo's `examples/` | Examples loaded by `minos.cli seed-examples` |
+| `MINOS_SEED_EXAMPLES` | `true` only in the Docker image | Loads the examples on the container's first start |
+| `MINOS_STUDIO_URL` | `http://localhost:8080` | Studio address in the links returned by the MCP server |
 
-Senza database né directory, `minos.api.app:app` serve gli esempi del repo: è la modalità demo
-usata da Minos Studio. Con il database, `minos.api.app:app` espone anche il server MCP su `/mcp`
-(vedi [`mcp.md`](mcp.md)).
+With neither a database nor a directory, `minos.api.app:app` serves the repo's examples: this is
+the demo mode used by Minos Studio. With the database, `minos.api.app:app` also exposes the MCP
+server on `/mcp` (see [`mcp.md`](mcp.md)).
 
-`GET /v1/info` (sempre pubblico) descrive l'installazione:
-`{"name", "version", "authRequired", "management", "database"}`. Lo Studio lo usa per decidere se
-chiedere una chiave e se aprire la demo.
+`GET /v1/info` (always public) describes the installation:
+`{"name", "version", "authRequired", "management", "database"}`. The Studio uses it to decide
+whether to ask for a key and whether to open the demo.
 
-## Autenticazione (facoltativa)
+## Authentication (optional)
 
-Di default l'installazione è **aperta**: nessuna chiave richiesta. Con `MINOS_REQUIRE_AUTH=true`
-servono `Authorization: Bearer mns_...` oppure `X-Api-Key: mns_...`, con questi scope (ADR 0005):
+By default the installation is **open**: no key required. With `MINOS_REQUIRE_AUTH=true` you need
+`Authorization: Bearer mns_...` or `X-Api-Key: mns_...`, with these scopes (ADR 0005):
 
-| Scope | Ambito | Permette |
+| Scope | Reach | Allows |
 | --- | --- | --- |
-| `admin` | globale | tutto, compresa la creazione di workspace e chiavi admin |
-| `manage` | un workspace | Management API del workspace |
-| `exec` | un workspace | Execution API del workspace |
+| `admin` | global | everything, including creating workspaces and admin keys |
+| `manage` | one workspace | the workspace's Management API |
+| `exec` | one workspace | the workspace's Execution API |
 
-La prima chiave admin si crea da riga di comando:
+The first admin key is created from the command line:
 
 ```bash
 MINOS_DATABASE_URL=... uv run python -m minos.cli migrate
@@ -50,96 +50,96 @@ MINOS_DATABASE_URL=... uv run python -m minos.cli migrate
 MINOS_DATABASE_URL=... uv run python -m minos.cli create-admin-key --name ops
 ```
 
-## Esempi pronti
+## Ready-made examples
 
 ```bash
 MINOS_DATABASE_URL=... uv run python -m minos.cli seed-examples
 ```
 
-Crea il workspace `esempi` con tutti gli esempi del repo (piano di studi Aurora, ordine
-e-commerce, finanziamento): entità con lo schema ricavato dagli input di esempio, rule set con i
-loro test, versione `0.1.0` pubblicata (i test fanno da gate) e portata in `prod`. Se il workspace
-esiste già non tocca nulla, quindi le modifiche fatte nello Studio restano. `--workspace` sceglie
-un altro nome, `--dir` un'altra cartella (`rulesets/`, `inputs/`, `tests/`). L'immagine Docker lo
-esegue a ogni avvio (`MINOS_SEED_EXAMPLES=false` per partire vuoti).
+Creates the `esempi` workspace with every example in the repo (Aurora study plan, e-commerce
+order, loan): entities with the schema derived from the sample inputs, rule sets with their tests,
+version `0.1.0` published (the tests act as the gate) and moved to `prod`. If the workspace already
+exists it touches nothing, so changes made in the Studio are kept. `--workspace` picks another
+name, `--dir` another folder (`rulesets/`, `inputs/`, `tests/`). The Docker image runs it on every
+start (`MINOS_SEED_EXAMPLES=false` to start empty).
 
-Gli errori sono `application/problem+json` (`status`, `title`, `detail` più campi specifici).
+Errors are `application/problem+json` (`status`, `title`, `detail` plus specific fields).
 
 ## Execution API
 
-| Metodo e path | Descrizione |
+| Method and path | Description |
 | --- | --- |
-| `POST /v1/exec/{ws}/{ruleset}` | Esegue l'alias `prod` (la versione in vigore alla data di riferimento) |
-| `POST /v1/exec/{ws}/{ruleset}@{env}` | Esegue l'alias `env` (`test`, `dev`, ...) |
-| `POST /v1/exec/{ws}/{ruleset}/versions/{semver}` | Esegue una versione fissa (caricata alla prima richiesta, poi in cache) |
-| `GET /v1/health` · `GET /v1/ready` | Probe; `ready` dopo il caricamento iniziale |
-| `GET /v1/deployments` | Alias caricati nel worker, con versione e hash (chiave admin) |
-| `GET /v1/exec/openapi.json[?workspace=<ws>]` | OpenAPI 3.1 dei rule set deployati (vedi sotto) |
-| `GET /v1/exec/docs[?workspace=<ws>]` | Swagger UI sullo stesso documento |
+| `POST /v1/exec/{ws}/{ruleset}` | Runs the `prod` alias (the version in force on the reference date) |
+| `POST /v1/exec/{ws}/{ruleset}@{env}` | Runs the `env` alias (`test`, `dev`, ...) |
+| `POST /v1/exec/{ws}/{ruleset}/versions/{semver}` | Runs a pinned version (loaded on the first request, then cached) |
+| `GET /v1/health` · `GET /v1/ready` | Probes; `ready` after the initial load |
+| `GET /v1/deployments` | Aliases loaded in the worker, with version and hash (admin key) |
+| `GET /v1/exec/openapi.json[?workspace=<ws>]` | OpenAPI 3.1 of the deployed rule sets (see below) |
+| `GET /v1/exec/docs[?workspace=<ws>]` | Swagger UI on the same document |
 
-### Swagger dei rule set
+### Rule set Swagger
 
-`/openapi.json` e `/docs` di FastAPI descrivono la piattaforma: un solo endpoint di esecuzione con
-`input` libero. `/v1/exec/openapi.json` descrive invece quello che è deployato: un'operazione per
-rule set e ambiente (`/v1/exec/{ws}/{rs}` per `prod`, `/v1/exec/{ws}/{rs}@{env}` per gli altri),
-con lo schema dell'entità come corpo della richiesta, la versione in vigore e il calendario delle
-versioni pianificate, e i codici di feedback dichiarati dal grafo.
+FastAPI's `/openapi.json` and `/docs` describe the platform: a single execution endpoint with a
+free-form `input`. `/v1/exec/openapi.json` instead describes what is deployed: one operation per
+rule set and environment (`/v1/exec/{ws}/{rs}` for `prod`, `/v1/exec/{ws}/{rs}@{env}` for the
+others), with the entity schema as the request body, the version in force and the schedule of
+planned versions, and the feedback codes declared by the graph.
 
-Il documento è generato dal registry in memoria del worker, quindi si aggiorna da solo quando una
-versione viene pubblicata su un ambiente (`promoteTo`) o un alias cambia: niente passi in più. Una
-versione pubblicata ma non portata in nessun ambiente non compare (si esegue comunque da
+The document is generated from the worker's in-memory registry, so it updates itself when a version
+is published to an environment (`promoteTo`) or an alias changes: no extra steps. A version that is
+published but not moved to any environment does not appear (it can still be run through
 `/versions/{semver}`).
 
-Con `MINOS_REQUIRE_AUTH=true` il documento elenca solo i rule set che la chiave può eseguire (tutti
-per una chiave admin, quelli del suo workspace per una chiave `exec`, nessuno senza chiave). Nella
-Swagger UI: *Authorize* con la chiave, poi ricarica la pagina. La chiave resta nel browser e viene
-mandata anche nella richiesta del documento.
+With `MINOS_REQUIRE_AUTH=true` the document lists only the rule sets the key can run (all of them
+for an admin key, those of its workspace for an `exec` key, none without a key). In the Swagger UI:
+*Authorize* with the key, then reload the page. The key stays in the browser and is also sent with
+the document request.
 
-Corpo: `{"input": {...}, "options": {"trace": "none|summary|full", "locale": "it",
+Body: `{"input": {...}, "options": {"trace": "none|summary|full", "locale": "it",
 "referenceDate": "2027-09-20", "validateSchema": true}}`.
 
-- `referenceDate` (default: oggi, UTC) è la data "di riferimento" delle regole: alimenta
-  `today()` e `age()` e sceglie la versione quando l'ambiente ha versioni pianificate.
-- `200` con l'esito nel corpo (`valid`, `invalid`, `warning`); `422` se l'esecuzione va in errore o
-  supera `maxSteps`; `400` se l'input non rispetta lo schema dell'entità (lista `errors` con JSON
-  pointer); `401`/`403` per le chiavi; `404` se il rule set o l'alias non sono deployati.
-- Header: `X-Ruleset-Version`, `X-Ruleset-Hash`, `X-Request-Id` (eco di quello ricevuto),
+- `referenceDate` (default: today, UTC) is the rules' "reference" date: it feeds `today()` and
+  `age()` and picks the version when the environment has scheduled versions.
+- `200` with the outcome in the body (`valid`, `invalid`, `warning`); `422` if execution fails or
+  exceeds `maxSteps`; `400` if the input does not match the entity schema (`errors` list with JSON
+  pointers); `401`/`403` for keys; `404` if the rule set or the alias is not deployed.
+- Headers: `X-Ruleset-Version`, `X-Ruleset-Hash`, `X-Request-Id` (echo of the one received),
   `Server-Timing: engine;dur=<ms>`.
 
 ## Management API
 
-Tutti i path sotto `/v1`. `{ws}` è lo slug del workspace, `{rs}` la chiave del rule set.
+All paths under `/v1`. `{ws}` is the workspace slug, `{rs}` the rule set key.
 
-| Metodo e path | Descrizione |
+| Method and path | Description |
 | --- | --- |
-| `GET/POST /workspaces` | Elenco (filtrato per chiave) e creazione (admin) |
-| `GET/POST /workspaces/{ws}/api-keys` · `DELETE .../api-keys/{id}` | Chiavi del workspace; la chiave in chiaro è restituita solo alla creazione |
-| `POST /admin/api-keys` | Chiave admin globale |
-| `GET /workspaces/{ws}/audit?limit=100` | Registro delle modifiche |
-| `POST /schemas/infer` | `{"samples": [...], "title"?}` → JSON Schema 2020-12, senza salvarlo |
-| `GET/POST /workspaces/{ws}/entities` | Entità |
-| `GET/POST .../entities/{entity}/schemas` | Versioni dello schema: `{"schema": {...}}` oppure `{"samples": [...]}`; uno schema identico all'ultimo non crea una versione |
-| `GET .../entities/{entity}/schemas/{version}` | Una versione con il documento |
-| `GET/POST /workspaces/{ws}/rulesets` | Rule set: `{"key", "name", "entity", "graph"?}`; il draft parte dal grafo dato o da start → end |
-| `GET .../rulesets/{rs}` | Metadati, entità, ultima versione, `aliases` (versione in vigore oggi per ambiente) e `schedule` (calendario completo) |
-| `GET/PUT .../rulesets/{rs}/draft` | Draft con `ETag`; `PUT` con `If-Match` per il lock ottimistico (`412` se cambiato); `schemaVersion` opzionale |
-| `POST .../rulesets/{rs}/validate` | Compila e fa il type-check: `{"valid", "issues": [{"where", "message"}], "warnings"}` |
-| `POST .../rulesets/{rs}/simulate` | Esegue il draft (trace `full` di default) |
-| `GET/POST .../rulesets/{rs}/tests` · `DELETE .../tests/{name}` · `POST .../tests/run` | Test case del rule set |
-| `POST .../rulesets/{rs}/publish` | `{"bump": "major|minor|patch", "notes"?, "promoteTo"?}`; fallisce con `422` se il draft non compila o un test non passa |
-| `GET .../rulesets/{rs}/versions[/{semver}]` | Versioni pubblicate (immutabili) |
-| `GET .../rulesets/{rs}/aliases` | Calendario per ambiente: `{"prod": [{"version": "1.0.0", "effectiveFrom": null}, {"version": "2.0.0", "effectiveFrom": "2027-08-01"}]}` |
-| `PUT .../aliases/{env}` | `{"version": "2.0.0", "effectiveFrom"?: "2027-08-01"}`: senza data sostituisce la voce senza data; con la data aggiunge o aggiorna quella voce. I worker si aggiornano via NOTIFY |
-| `DELETE .../aliases/{env}` | Toglie l'ambiente; `?effectiveFrom=YYYY-MM-DD` toglie solo quella voce, `?effectiveFrom=always` quella senza data |
-| `GET .../rulesets/{rs}/diff?from=<v>&to=<v\|draft>` | Nodi aggiunti, rimossi, modificati (campo per campo), collegamenti, impostazioni e costanti; le posizioni sul canvas non contano |
-| `GET .../rulesets/{rs}/export[?version=<v>]` | Bundle JSON `minos-bundle/1`: rule set, schema dell'entità, test, dipendenze (draft se manca `version`) |
-| `POST /workspaces/{ws}/import` | Importa un bundle: crea o aggiorna entità, schema (se diverso), rule set (come draft, mai pubblicato in automatico) e test (sostituiti per nome); i sub-rule set elencati in `dependencies` vanno importati e pubblicati prima |
+| `GET/POST /workspaces` | List (filtered by key) and create (admin) |
+| `GET/POST /workspaces/{ws}/api-keys` · `DELETE .../api-keys/{id}` | Workspace keys; the plaintext key is returned only on creation |
+| `POST /admin/api-keys` | Global admin key |
+| `GET /workspaces/{ws}/audit?limit=100` | Change log |
+| `POST /schemas/infer` | `{"samples": [...], "title"?}` → JSON Schema 2020-12, without saving it |
+| `GET/POST /workspaces/{ws}/entities` | Entities |
+| `GET/POST .../entities/{entity}/schemas` | Schema versions: `{"schema": {...}}` or `{"samples": [...]}`; a schema identical to the latest does not create a version |
+| `GET .../entities/{entity}/schemas/{version}` | One version with its document |
+| `GET/POST /workspaces/{ws}/rulesets` | Rule sets: `{"key", "name", "entity", "graph"?}`; the draft starts from the given graph or from start → end |
+| `GET .../rulesets/{rs}` | Metadata, entity, latest version, `aliases` (version in force today per environment) and `schedule` (full schedule) |
+| `GET/PUT .../rulesets/{rs}/draft` | Draft with `ETag`; `PUT` with `If-Match` for optimistic locking (`412` if changed); optional `schemaVersion` |
+| `POST .../rulesets/{rs}/validate` | Compiles and type-checks: `{"valid", "issues": [{"where", "message"}], "warnings"}` |
+| `POST .../rulesets/{rs}/simulate` | Runs the draft (`full` trace by default) |
+| `GET/POST .../rulesets/{rs}/tests` · `DELETE .../tests/{name}` · `POST .../tests/run` | The rule set's test cases |
+| `POST .../rulesets/{rs}/publish` | `{"bump": "major|minor|patch", "notes"?, "promoteTo"?}`; fails with `422` if the draft does not compile or a test does not pass |
+| `GET .../rulesets/{rs}/versions[/{semver}]` | Published (immutable) versions |
+| `GET .../rulesets/{rs}/aliases` | Schedule per environment: `{"prod": [{"version": "1.0.0", "effectiveFrom": null}, {"version": "2.0.0", "effectiveFrom": "2027-08-01"}]}` |
+| `PUT .../aliases/{env}` | `{"version": "2.0.0", "effectiveFrom"?: "2027-08-01"}`: without a date it replaces the undated entry; with a date it adds or updates that entry. Workers update through NOTIFY |
+| `DELETE .../aliases/{env}` | Removes the environment; `?effectiveFrom=YYYY-MM-DD` removes only that entry, `?effectiveFrom=always` the undated one |
+| `GET .../rulesets/{rs}/diff?from=<v>&to=<v\|draft>` | Added, removed and changed nodes (field by field), edges, settings and constants; canvas positions are ignored |
+| `GET .../rulesets/{rs}/export[?version=<v>]` | `minos-bundle/1` JSON bundle: rule set, entity schema, tests, dependencies (the draft if `version` is missing) |
+| `POST /workspaces/{ws}/import` | Imports a bundle: creates or updates entity, schema (if different), rule set (as a draft, never published automatically) and tests (replaced by name); the sub rule sets listed in `dependencies` must be imported and published first |
 
-### Test case
+### Test cases
 
 ```json
 {
-  "name": "piano non valido",
+  "name": "invalid plan",
   "input": { "...": "..." },
   "referenceDate": "2027-09-20",
   "expected": {
@@ -151,5 +151,5 @@ Tutti i path sotto `/v1`. `{ws}` è lo slug del workspace, `{rs}` la chiave del 
 }
 ```
 
-Tutte le chiavi di `expected` sono facoltative: `feedbackCodes` confronta l'insieme dei codici
-(con ripetizioni, ordine ignorato), `result` è un confronto per sottoinsieme.
+Every key in `expected` is optional: `feedbackCodes` compares the set of codes (with repetitions,
+order ignored), `result` is a subset comparison.

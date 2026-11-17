@@ -1,8 +1,8 @@
-# Minos in locale: PostgreSQL, API e Studio.
+# Minos locally: PostgreSQL, API and Studio.
 #   docker compose up --build
-# Studio: http://localhost:8080 · API: http://localhost:8000/v1 · nessun login (installazione aperta)
-# Al primo avvio gli esempi vengono pubblicati nel workspace "esempi" (MINOS_SEED_EXAMPLES=false
-# per partire vuoti); /demo li mostra in sola lettura con il simulatore.
+# Studio: http://localhost:8080 · API: http://localhost:8000/v1 · no login (open installation)
+# On first start the examples are published in workspace "esempi" (MINOS_SEED_EXAMPLES=false
+# to start empty); /demo shows them read-only with the simulator.
 services:
   db:
     image: postgres:17-alpine

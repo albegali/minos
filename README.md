@@ -5,70 +5,70 @@
   </picture>
 </p>
 
-<p align="center"><b>Motore di regole JSON · editor visuale · API sub-millisecondo</b></p>
+<p align="center"><b>JSON rule engine · visual editor · sub-millisecond API</b></p>
 
 # Minos
 
-**Minos** è un motore di regole JSON-in / JSON-out: valuta un oggetto JSON contro un grafo di regole
-versionato e restituisce esito, punto di uscita e feedback strutturati, con latenza sub-millisecondo.
-È generico: gli esempi coprono un piano di studi universitario, un ordine e-commerce e
-l'idoneità a un finanziamento, ma qualunque oggetto JSON con uno schema può essere validato.
+**Minos** is a JSON-in / JSON-out rule engine: it evaluates a JSON object against a versioned rule
+graph and returns a structured outcome, exit point and feedback, with sub-millisecond latency.
+It is generic: the examples cover a university study plan, an e-commerce order and loan
+eligibility, but any JSON object with a schema can be validated.
 
-> Come Minosse, re e legislatore di Creta e poi giudice delle anime, Minos giudica ogni oggetto
-> e decide da che parte farlo passare.
+> Like Minos, king and lawgiver of Crete and later judge of souls, Minos judges every object and
+> decides which way it goes.
 
-Stato: **fasi F0–F3 completate** della [roadmap](docs/spec.md#roadmap): motore compilato, control
-plane su PostgreSQL con versioni, alias e validità temporale, Execution API con hot reload, Minos
-Studio per costruire, testare e pubblicare le regole senza scrivere JSON, e un server MCP per
-farle scrivere a un assistente AI partendo da una descrizione.
+Status: **phases F0–F3 complete** on the [roadmap](docs/spec.md#roadmap): compiled engine, control
+plane on PostgreSQL with versions, aliases and effective dates, Execution API with hot reload, Minos
+Studio to build, test and publish rules without writing JSON, and an MCP server that lets an AI
+assistant write them from a description.
 
-![Minos Studio: un rule set simulato, con il percorso evidenziato sul canvas e messaggi e output nel pannello](docs/screenshots/simulation.png)
+![Minos Studio: a simulated rule set, with the path highlighted on the canvas and messages and output in the panel](docs/screenshots/simulation.png)
 
-## Struttura
+## Layout
 
-| Percorso | Contenuto |
+| Path | Contents |
 | --- | --- |
-| [`backend/`](backend/) | Python 3.14: motore (`minos.engine`), schemi (`minos.schema`), control plane (`minos.control`, `minos.db`), API FastAPI (`minos.api`), server MCP (`minos.mcp`), test, benchmark |
-| [`frontend/`](frontend/) | Minos Studio: React 19, Fluent UI 2, React Flow; test Vitest e Playwright |
-| [`examples/`](examples/) | Rule set di esempio di tre domini (piano di studi, ordine e-commerce, finanziamento; valori illustrativi), input e suite di test |
-| [`docs/spec.md`](docs/spec.md) | Specifiche funzionali, architettura, API e roadmap |
-| [`docs/rgd-format.md`](docs/rgd-format.md) | Riferimento del formato Rule Graph Document 1.0 |
-| [`docs/studio.md`](docs/studio.md) | Guida rapida a Minos Studio |
-| [`docs/api.md`](docs/api.md) | Riferimento delle API di esecuzione e gestione |
-| [`docs/mcp.md`](docs/mcp.md) | Server MCP: regole scritte da un assistente AI |
-| [`docs/benchmarks.md`](docs/benchmarks.md) | Misure e gate di fase |
-| [`docs/adr/`](docs/adr/) | Decisioni architetturali |
-| [`docs/brand/`](docs/brand/) | Logo (originale, versioni per tema chiaro e scuro, marchio) |
-| [`docs/screenshots/`](docs/screenshots/) | Schermate dello Studio usate in questa pagina |
+| [`backend/`](backend/) | Python 3.14: engine (`minos.engine`), schemas (`minos.schema`), control plane (`minos.control`, `minos.db`), FastAPI API (`minos.api`), MCP server (`minos.mcp`), tests, benchmarks |
+| [`frontend/`](frontend/) | Minos Studio: React 19, Fluent UI 2, React Flow; Vitest and Playwright tests |
+| [`examples/`](examples/) | Example rule sets from three domains (study plan, e-commerce order, loan; illustrative values), inputs and test suites |
+| [`docs/spec.md`](docs/spec.md) | Functional specification, architecture, API and roadmap |
+| [`docs/rgd-format.md`](docs/rgd-format.md) | Rule Graph Document 1.0 format reference |
+| [`docs/studio.md`](docs/studio.md) | Minos Studio quick guide |
+| [`docs/api.md`](docs/api.md) | Execution and Management API reference |
+| [`docs/mcp.md`](docs/mcp.md) | MCP server: rules written by an AI assistant |
+| [`docs/benchmarks.md`](docs/benchmarks.md) | Measurements and phase gates |
+| [`docs/adr/`](docs/adr/) | Architecture decisions |
+| [`docs/brand/`](docs/brand/) | Logo (original, light and dark theme versions, mark) |
+| [`docs/screenshots/`](docs/screenshots/) | Studio screenshots used on this page |
 
-## Avvio rapido
+## Quick start
 
-Con Docker, un solo comando avvia PostgreSQL, API e Studio:
+With Docker, a single command starts PostgreSQL, the API and the Studio:
 
 ```bash
 docker compose up --build
 ```
 
-Apri http://localhost:8080 (Studio) e http://localhost:8000/v1/info (API). L'installazione è
-**aperta**: nessun login, pensata per l'uso in locale.
+Open http://localhost:8080 (Studio) and http://localhost:8000/v1/info (API). The installation is
+**open**: no login, meant for local use.
 
-Al primo avvio il workspace **Esempi** contiene già tutti gli esempi del repo (piano di studi,
-ordine e-commerce, finanziamento), pubblicati in `prod` con i loro test: aprili nello Studio,
-simula, modifica e ripubblica. Per esempio:
+On first start the **Esempi** workspace already holds every example in the repo (study plan,
+e-commerce order, loan), published to `prod` with their tests: open them in the Studio, simulate,
+edit and republish. For example:
 
 ```bash
 curl -s -H 'Content-Type: application/json' -d "{\"input\": $(cat examples/inputs/order-valid.json)}" http://localhost:8000/v1/exec/esempi/shop.order
 ```
 
-Per partire con un database vuoto imposta `MINOS_SEED_EXAMPLES: "false"` in `compose.yaml`;
-`docker compose down -v` cancella i dati e al riavvio ricarica gli esempi. Per richiedere le API key, imposta
-`MINOS_REQUIRE_AUTH=true` (vedi [`docs/api.md`](docs/api.md)). La
-[guida allo Studio](docs/studio.md) descrive il percorso completo, dall'entità alla pubblicazione.
+To start with an empty database set `MINOS_SEED_EXAMPLES: "false"` in `compose.yaml`;
+`docker compose down -v` wipes the data and the examples are reloaded on the next start. To require
+API keys, set `MINOS_REQUIRE_AUTH=true` (see [`docs/api.md`](docs/api.md)). The
+[Studio guide](docs/studio.md) walks through the whole path, from entity to publication.
 
-### Sviluppo senza Docker
+### Development without Docker
 
-Requisiti: [uv](https://docs.astral.sh/uv/), Node.js 22 o superiore (CI su Node 24 LTS),
-PostgreSQL 16 o 17.
+Requirements: [uv](https://docs.astral.sh/uv/), Node.js 22 or later (CI on Node 24 LTS),
+PostgreSQL 16 or 17.
 
 ```bash
 export MINOS_DATABASE_URL=postgresql+asyncpg://minos:minos@localhost:5432/minos
@@ -82,73 +82,73 @@ cd backend && uv sync && uv run python -m minos.cli migrate && uv run python -m 
 cd frontend && npm install && npm run dev
 ```
 
-Studio su http://localhost:5173. Senza `MINOS_DATABASE_URL` l'API serve in sola lettura gli esempi
-di `examples/rulesets` e lo Studio apre la demo (`/demo`).
+Studio on http://localhost:5173. Without `MINOS_DATABASE_URL` the API serves the examples in
+`examples/rulesets` read-only and the Studio opens the demo (`/demo`).
 
-In un'installazione più grande Execution API e Management API girano come processi separati
+In a larger installation the Execution API and the Management API run as separate processes
 (`minos.api.app:execution_app`, `minos.api.app:management_app`).
 
 ## Minos Studio
 
-Lo Studio è l'editor web delle regole: si costruisce il grafo trascinando i nodi dalla palette, si
-configura ogni nodo con form guidati dallo schema dell'entità, si simula su un input reale, si
-salvano le simulazioni come test e si pubblica per ambiente, senza scrivere JSON. La
-[guida allo Studio](docs/studio.md) descrive il percorso completo.
+The Studio is the web rule editor: you build the graph by dragging nodes from the palette,
+configure each node with forms driven by the entity schema, simulate on a real input, save
+simulations as tests and publish per environment, all without writing JSON. The
+[Studio guide](docs/studio.md) walks through the whole path.
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/screenshots/workspace.png" alt="Pagina del workspace con rule set ed entità"></td>
-    <td width="50%"><img src="docs/screenshots/entity.png" alt="Schema di un'entità con campi, tipi e riferimenti"></td>
+    <td width="50%"><img src="docs/screenshots/workspace.png" alt="Workspace page with rule sets and entities"></td>
+    <td width="50%"><img src="docs/screenshots/entity.png" alt="Entity schema with fields, types and references"></td>
   </tr>
   <tr>
-    <td><b>Workspace.</b> Rule set ed entità di un'area, con importazione da file.</td>
-    <td><b>Entità.</b> Lo schema, inferito da esempi o scritto a mano, con il riferimento da usare in ogni regola.</td>
+    <td><b>Workspace.</b> The rule sets and entities of an area, with import from file.</td>
+    <td><b>Entity.</b> The schema, inferred from samples or written by hand, with the reference to use in every rule.</td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/editor-node.png" alt="Editor con un nodo Calcolo selezionato e il form nel pannello"></td>
-    <td><img src="docs/screenshots/canvas-full.png" alt="Canvas a tutta larghezza con il pannello chiuso e il percorso simulato"></td>
+    <td><img src="docs/screenshots/editor-node.png" alt="Editor with a Compute node selected and its form in the panel"></td>
+    <td><img src="docs/screenshots/canvas-full.png" alt="Full-width canvas with the panel closed and the simulated path"></td>
   </tr>
   <tr>
-    <td><b>Configurazione.</b> Palette a sinistra, canvas al centro, il form del nodo selezionato a destra; le espressioni annidate restano leggibili a ogni livello.</td>
-    <td><b>Pannello richiudibile.</b> Il pannello si chiude in una barra di icone e lascia tutto lo spazio al grafo; si riapre selezionando un nodo.</td>
+    <td><b>Configuration.</b> Palette on the left, canvas in the middle, the selected node's form on the right; nested expressions stay readable at every level.</td>
+    <td><b>Collapsible panel.</b> The panel collapses into an icon bar and leaves all the space to the graph; selecting a node reopens it.</td>
   </tr>
 </table>
 
-Lo Studio segue il tema del sistema operativo, chiaro o scuro, e si adatta a finestre strette e
-telefoni.
+The Studio follows the operating system theme, light or dark, and adapts to narrow windows and
+phones.
 
-![Lo Studio in tema scuro](docs/screenshots/dark.png)
+![The Studio in dark theme](docs/screenshots/dark.png)
 
-## Identità visiva
+## Visual identity
 
-| | Colore | Uso |
+| | Colour | Use |
 | --- | --- | --- |
-| <img src="docs/brand/swatch-navy.png" width="16" height="16" alt=""> | Blu notte `#0B2D4E` | Testo del marchio, azioni principali |
-| <img src="docs/brand/swatch-teal.png" width="16" height="16" alt=""> | Teal `#039BB0` | Accenti, focus, selezione, percorso simulato |
-| <img src="docs/brand/swatch-green.png" width="16" height="16" alt=""> | Verde `#01928C` | Esito positivo, nodi superati |
+| <img src="docs/brand/swatch-navy.png" width="16" height="16" alt=""> | Night blue `#0B2D4E` | Brand text, primary actions |
+| <img src="docs/brand/swatch-teal.png" width="16" height="16" alt=""> | Teal `#039BB0` | Accents, focus, selection, simulated path |
+| <img src="docs/brand/swatch-green.png" width="16" height="16" alt=""> | Green `#01928C` | Positive outcome, passed nodes |
 
-- **Font**: [League Spartan](https://fonts.google.com/specimen/League+Spartan), caricato da Google
+- **Font**: [League Spartan](https://fonts.google.com/specimen/League+Spartan), loaded from Google
   Fonts.
-- **Logo**: l'originale e le versioni per sfondo chiaro e scuro sono in
-  [`docs/brand/`](docs/brand/); nello Studio il marchio è disegnato in SVG
-  ([`Brand.tsx`](frontend/src/components/Brand.tsx)) e cambia colore con il tema.
-- **Tema**: colori, font, raggi e ombre dei componenti Fluent UI stanno in
-  [`theme.ts`](frontend/src/theme.ts); le variabili CSS per canvas e nodi in
+- **Logo**: the original and the versions for light and dark backgrounds are in
+  [`docs/brand/`](docs/brand/); in the Studio the mark is drawn in SVG
+  ([`Brand.tsx`](frontend/src/components/Brand.tsx)) and changes colour with the theme.
+- **Theme**: colours, font, radii and shadows of the Fluent UI components live in
+  [`theme.ts`](frontend/src/theme.ts); the CSS variables for canvas and nodes in
   [`styles.css`](frontend/src/styles.css).
 
-## Assistente AI (MCP)
+## AI assistant (MCP)
 
-Collega un client MCP a `http://localhost:8000/mcp` (o avvia `python -m minos.mcp` via stdio) e
-descrivi le regole a parole: l'assistente crea entità e rule set come draft, li valida, li prova
-e restituisce il link allo Studio per la revisione e la pubblicazione. Per Claude Code:
+Connect an MCP client to `http://localhost:8000/mcp` (or start `python -m minos.mcp` over stdio)
+and describe the rules in words: the assistant creates entities and rule sets as drafts, validates
+them, tries them out and returns the Studio link for review and publication. For Claude Code:
 
 ```bash
 claude mcp add --transport http minos http://localhost:8000/mcp
 ```
 
-Dettagli, configurazione di Claude Desktop e tool in [`docs/mcp.md`](docs/mcp.md).
+Details, Claude Desktop configuration and tools in [`docs/mcp.md`](docs/mcp.md).
 
-## Qualità
+## Quality
 
 ```bash
 cd backend && uv run ruff check . && uv run mypy && uv run pytest && uv run python bench/bench_engine.py && uv run python bench/bench_api.py
@@ -159,9 +159,9 @@ cd frontend && npm run lint && npm test && npm run build
 ```
 
 ```bash
-cd frontend && npm run e2e   # Playwright: avvia API e Studio su un database nuovo (PostgreSQL locale)
+cd frontend && npm run e2e   # Playwright: starts the API and the Studio on a fresh database (local PostgreSQL)
 ```
 
-## Licenza
+## License
 
 [MIT](LICENSE).

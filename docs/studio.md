@@ -1,66 +1,67 @@
-# Minos Studio · guida rapida
+# Minos Studio · quick guide
 
-Minos Studio è l'editor web delle regole. Su un'installazione aperta (il default, ad esempio con
-`docker compose up`) si entra direttamente; se l'API richiede le chiavi, lo Studio chiede una API
-key con scope `manage` o `admin`. Il percorso tipico, senza scrivere JSON:
+Minos Studio is the web rule editor. On an open installation (the default, for example with
+`docker compose up`) you go straight in; if the API requires keys, the Studio asks for an API key
+with scope `manage` or `admin`. The Studio speaks English and Italian: the menu at the top right
+switches language (the choice is remembered in the browser; the first time it follows the
+browser language). The typical path, without writing JSON:
 
-1. **Entità e schema.** Nel workspace, *Nuova entità*, poi incolla uno o più oggetti di esempio:
-   lo schema viene inferito mentre scrivi (tipi, oggetti annidati, liste, date, campi
-   obbligatori). Più esempi rendono facoltativi i campi che non compaiono ovunque. *Salva come
-   nuova versione*; in alternativa *Modifica JSON Schema* per correggerlo a mano.
-2. **Rule set.** *Nuovo rule set*, scegli l'entità. Si apre l'editor con *Inizio → Fine*.
-3. **Nodi.** Trascina i nodi dalla palette sul canvas (o fai clic per aggiungerli) e collega le
-   uscite (`pass`, `fail`, `next`, i rami dello switch) agli ingressi. Un'uscita ha un solo
-   collegamento: trascinarne uno nuovo sostituisce il precedente. I cicli sono impediti.
-4. **Configurazione.** Seleziona un nodo per configurarlo nel pannello *Nodo*:
-   - *Condizione*: campo, operatore e valore, con gruppi **E/O** annidati e **NON** su ogni
-     parte. Gli operatori proposti dipendono dal tipo del campo; le date usano il calendario.
-   - *Su una lista*: somma, conteggio, minimo, massimo, media, "tutti", "almeno uno" sugli
-     elementi di una lista, con un filtro sugli elementi e un valore calcolato da ciascuno.
-   - *Gruppo di regole*: più regole con un messaggio per regola; *Tutte le regole* le valuta
-     tutte per raccogliere ogni errore.
-   - *Tabella decisionale*: colonne di input (campi o espressioni), colonne di output e righe da
-     compilare come un foglio di calcolo, con celle brevi: vuoto = qualsiasi, `EMBA`, `A, B`
-     (uno tra), `>= 60`, `30..59`, `2027-01-01..2027-12-31`, `!= X`, `$.vars.nome`. Si sceglie
-     quale riga vale (la prima, l'unica, la più prioritaria, tutte). Il risultato finisce in
-     `$.vars`.
-   - *Rule set annidato*: riusa un rule set già pubblicato (versione fissata), sull'oggetto in
-     input o su ogni elemento di una lista; i suoi messaggi compaiono nel risultato.
-   - *Calcolo*: variabili riusabili negli altri nodi (`$.vars.nome`).
-   - *Messaggi*: codice, gravità, testo in italiano e inglese con valori inseriti
-     (`{{vars.totalCfu}}`), campo interessato e dati allegati.
-5. **Impostazioni.** Modalità (*fermati al primo errore* o *raccogli tutti gli errori*), lingua,
-   versione dello schema e costanti (soglie, date, listini).
-6. **Salva e valida** (`Ctrl+S`). La validazione avviene sul server con lo schema: i problemi
-   compaiono in basso, un clic porta al nodo, i nodi con problemi hanno il bordo tratteggiato.
-7. **Simula** il draft su un input: il percorso si illumina sul canvas, ogni nodo mostra esito e
-   uscita, il pannello riporta messaggi e output. *Salva questa simulazione come test* la
-   trasforma in un test di regressione.
-8. **Pubblica** dalla scheda *Versioni*: correzione, modifica compatibile o importante. La
-   pubblicazione fallisce se il draft non è valido o un test non passa. Si può promuovere subito
-   in `dev`, `test` o `prod`, e in seguito portare ogni ambiente su qualunque versione (anche
-   indietro, per un rollback immediato).
-9. **Pianifica** con *Porta in… → Da una data*: per esempio le regole del nuovo anno in `prod` dal
-   1° agosto, mentre quelle attuali restano in vigore fino ad allora. Ogni chiamata usa la
-   versione valida alla sua data di riferimento.
-10. **Confronta** una versione con il draft per vedere cosa cambierà prima di pubblicare.
-11. **Esporta / importa**: *Esporta* (toolbar o versione) scarica rule set, schema e test in un file
-    JSON; *Importa* nella pagina del workspace lo carica come draft, in un'altra installazione o
-    in un altro workspace.
+1. **Entity and schema.** In the workspace, *New entity*, then paste one or more sample objects:
+   the schema is inferred as you type (types, nested objects, lists, dates, required fields). With
+   several samples, fields that do not appear everywhere become optional. *Save as new version*;
+   alternatively *Edit JSON Schema* to fix it by hand.
+2. **Rule set.** *New rule set*, choose the entity. The editor opens with *Start → End*.
+3. **Nodes.** Drag nodes from the palette onto the canvas (or click to add them) and connect the
+   outputs (`pass`, `fail`, `next`, the switch branches) to the inputs. An output has a single
+   connection: dragging a new one replaces the previous one. Cycles are prevented.
+4. **Configuration.** Select a node to configure it in the *Node* panel:
+   - *Condition*: field, operator and value, with nested **AND/OR** groups and **NOT** on every
+     part. The operators offered depend on the field type; dates use a calendar.
+   - *Over a list*: sum, count, minimum, maximum, average, "all", "at least one" over the items of
+     a list, with a filter on the items and a value computed from each.
+   - *Group*: several rules with one message per rule; *All the rules* evaluates every one of them
+     to collect every error.
+   - *Decision table*: input columns (fields or expressions), output columns and rows filled in
+     like a spreadsheet, with short cells: empty = any, `EMBA`, `A, B` (one of), `>= 60`,
+     `30..59`, `2027-01-01..2027-12-31`, `!= X`, `$.vars.name`. You choose which row applies (the
+     first, the only one, the highest priority, all). The result goes into `$.vars`.
+   - *Sub rule set*: reuses an already published rule set (pinned version), on the input object
+     or on each item of a list; its messages appear in the result.
+   - *Compute*: variables reusable in the other nodes (`$.vars.name`).
+   - *Messages*: code, severity, text in Italian and English with inserted values
+     (`{{vars.totalCfu}}`), the field concerned and attached data.
+5. **Settings.** Mode (*Stop at the first error* or *Collect all errors*), language, schema
+   version and constants (thresholds, dates, price lists).
+6. **Save and validate** (`Ctrl+S`). Validation happens on the server against the schema: problems
+   appear at the bottom, a click takes you to the node, and nodes with problems have a dashed
+   border.
+7. **Simulate** the draft on an input: the path lights up on the canvas, every node shows its
+   outcome and exit, and the panel lists messages and output. *Save this simulation as a test*
+   turns it into a regression test.
+8. **Publish** from the *Versions* tab: fix, compatible change or breaking change. Publication
+   fails if the draft is invalid or a test does not pass. You can promote right away to `dev`,
+   `test` or `prod`, and later move any environment to any version (backwards too, for an instant
+   rollback).
+9. **Schedule** with *Move to… → From a date*: for example next year's rules in `prod` from
+   1 August, while the current ones stay in force until then. Every call uses the version that is
+   valid on its reference date.
+10. **Compare** a version with the draft to see what will change before publishing.
+11. **Export / import**: *Export* (toolbar or version) downloads rule set, schema and tests as a
+    JSON file; *Import* on the workspace page loads it as a draft, in another installation or in
+    another workspace.
 
-Il pannello a destra (*Nodo*, *Simulazione*, *Test*, *Versioni*, *Impostazioni*) si chiude con
-la ✕ o con l'ultimo pulsante della toolbar: resta una barra di icone, e il grafo si allarga a tutto
-lo spazio. Selezionare un nodo, *Simula* o *Pubblica* lo riaprono sulla scheda giusta.
+The right-hand panel (*Node*, *Simulation*, *Tests*, *Versions*, *Settings*) closes with the ✕ or
+with the last toolbar button: an icon bar remains and the graph widens to take all the space.
+Selecting a node, *Simulate* or *Publish* reopens it on the right tab.
 
-Nell'editor, *Annulla* / *Ripristina* (`Ctrl+Z`, `Ctrl+Shift+Z`) annullano le modifiche al grafo
-(dentro un campo di testo `Ctrl+Z` resta l'annulla del testo) e *Riordina* dispone i nodi da
-sinistra a destra seguendo i collegamenti.
+In the editor, *Undo* / *Redo* (`Ctrl+Z`, `Ctrl+Shift+Z`) undo changes to the graph (inside a text
+field `Ctrl+Z` remains the text undo) and *Tidy up* arranges the nodes left to right following the
+connections.
 
-Se due persone modificano lo stesso draft, il secondo salvataggio viene rifiutato e lo Studio
-propone di ricaricare. Uscire con modifiche non salvate chiede conferma.
+If two people edit the same draft, the second save is rejected and the Studio offers to reload.
+Leaving with unsaved changes asks for confirmation.
 
-Per partire da qualcosa di concreto apri il workspace **Esempi**: con `docker compose up` (o
-dopo `python -m minos.cli seed-examples`) contiene tutti gli esempi del repository (piano di
-studi, ordine e-commerce, finanziamento) già pubblicati in `prod`, con i loro test, da modificare
-liberamente. `/demo` li mostra invece in sola lettura con i loro input e il simulatore, anche
-senza database.
+To start from something concrete open the **Esempi** workspace: with `docker compose up` (or after
+`python -m minos.cli seed-examples`) it holds every example in the repository (study plan,
+e-commerce order, loan) already published to `prod`, with their tests, free to edit. `/demo`
+instead shows them read-only with their inputs and the simulator, even without a database.

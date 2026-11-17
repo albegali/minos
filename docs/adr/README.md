@@ -1,13 +1,13 @@
 # Architecture Decision Records
 
-Ogni decisione architetturale rilevante è un file `NNNN-titolo.md` con stato
-(`Proposta`, `Accettata`, `Superata da NNNN`), contesto, decisione e conseguenze.
+Every relevant architectural decision is an `NNNN-title.md` file with a status
+(`Proposed`, `Accepted`, `Superseded by NNNN`), context, decision and consequences.
 
-| ADR | Titolo | Stato |
+| ADR | Title | Status |
 | --- | --- | --- |
-| [0001](0001-storage-e-cache.md) | Storage delle regole: PostgreSQL + cache in memoria | Accettata |
-| [0002](0002-motore-compilato-in-python.md) | Motore compilato a closure in Python puro | Accettata |
-| [0003](0003-linguaggio-espressioni.md) | Espressioni come AST JSON a grammatica chiusa | Accettata (testuale: Proposta) |
-| [0004](0004-ui-kit.md) | UI kit dell'editor: Fluent UI 2 | Accettata |
-| [0005](0005-api-key-e-autorizzazione.md) | API key e autorizzazione | Accettata |
-| [0006](0006-server-mcp.md) | Server MCP sopra la Management API, solo draft | Accettata |
+| [0001](0001-rule-storage-and-cache.md) | Rule storage: PostgreSQL + in-memory cache | Accepted |
+| [0002](0002-compiled-python-engine.md) | Engine compiled to closures in pure Python | Accepted |
+| [0003](0003-expression-language.md) | Expressions as a closed-grammar JSON AST | Accepted (textual syntax: Proposed) |
+| [0004](0004-ui-kit.md) | Editor UI kit: Fluent UI 2 | Accepted |
+| [0005](0005-api-keys-and-authorization.md) | API keys and authorization | Accepted |
+| [0006](0006-mcp-server.md) | MCP server on top of the Management API, drafts only | Accepted |
