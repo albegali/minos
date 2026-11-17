@@ -165,6 +165,7 @@ function DemoView({ graph, onRuleset }: { graph: RuleGraph; onRuleset: (key: str
             onNodeClick={(_, node) => setSelected(node.id)}
             onPaneClick={() => setSelected(null)}
             nodesConnectable={false}
+            deleteKeyCode={null}
             fitView
           >
             <Background />

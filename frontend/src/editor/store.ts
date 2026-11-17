@@ -53,7 +53,8 @@ interface EditorState {
   undo: () => void
   redo: () => void
   setSchemaVersion: (version: number | null) => void
-  saved: (lockVersion: number) => void
+  /** The draft was saved as `graph` (and `schemaVersion`): edits made meanwhile stay dirty. */
+  saved: (lockVersion: number, graph: RuleGraph, schemaVersion: number | null) => void
   select: (id: string | null) => void
   setTab: (tab: PanelTab) => void
   setPanelOpen: (open: boolean) => void
@@ -135,7 +136,8 @@ export const useEditor = create<EditorState>((set, get) => ({
       }
     }),
   setSchemaVersion: (version) => set({ schemaVersion: version, dirty: true, validated: false }),
-  saved: (lockVersion) => set({ lockVersion, dirty: false }),
+  saved: (lockVersion, graph, schemaVersion) =>
+    set((s) => ({ lockVersion, dirty: s.graph !== graph || s.schemaVersion !== schemaVersion })),
   select: (id) => set((s) => (id ? { selected: id, tab: 'node', panelOpen: true } : { selected: null, tab: s.tab })),
   setTab: (tab) => set({ tab, panelOpen: true }),
   setPanelOpen: (panelOpen) => set({ panelOpen }),

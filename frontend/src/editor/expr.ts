@@ -129,6 +129,15 @@ export function parseLiteral(text: string, preferred?: string[]): Expr {
   return text
 }
 
+/** "IT, FR" -> ["IT", "FR"]; numbers for numeric fields ("1, 2.5" -> [1, 2.5]). */
+export function parseList(text: string, numeric: boolean): Expr[] {
+  return text
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => (numeric ? parseLiteral(s, ['number']) : s))
+}
+
 export function literalText(e: Expr): string {
   if (e === null || e === undefined) return ''
   if (typeof e === 'string') return e

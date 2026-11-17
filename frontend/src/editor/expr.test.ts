@@ -73,3 +73,12 @@ describe('typing values', () => {
     expect(parseLiteral('20100', ['string'])).toBe('20100')
   })
 })
+
+describe('typing lists', () => {
+  it('splits on commas, numbers only for numeric fields (UI-08)', async () => {
+    const { parseList } = await import('./expr')
+    expect(parseList('IT, FR,', false)).toEqual(['IT', 'FR'])
+    expect(parseList('1, 2.5, x', true)).toEqual([1, 2.5, 'x'])
+    expect(parseList('20100, 0x10', false)).toEqual(['20100', '0x10'])
+  })
+})

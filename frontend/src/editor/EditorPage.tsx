@@ -27,7 +27,7 @@ import {
 } from '@fluentui/react-icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { ReactFlowProvider } from '@xyflow/react'
-import { type ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useBlocker, useParams } from 'react-router'
 
 import { ApiError, errorMessage } from '../api/client'
@@ -97,6 +97,7 @@ export function EditorPage() {
   const schemas = useSchemas(ws, entity ?? '')
   const schema = useSchema(ws, entity ?? '', schemaVersion ?? schemas.data?.[0]?.version)
   const [saveError, setSaveError] = useState<unknown>(null)
+  const [validateError, setValidateError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -132,26 +133,48 @@ export function EditorPage() {
     return v
   }, [ws, rs])
 
-  const save = useCallback(async (): Promise<boolean> => {
+  // One save at a time: a second request (Ctrl+S twice, Ctrl+S while a panel saves) waits
+  // for the first, then saves what changed meanwhile, with the new lock version.
+  const saving = useRef<Promise<boolean> | null>(null)
+
+  const saveOnce = useCallback(async (): Promise<boolean> => {
     const s = useEditor.getState()
     if (!s.graph || s.key !== editorKey) return false
     if (!s.dirty) return true
+    const { graph: sent, schemaVersion: sentSchema } = s
     setSaveError(null)
     try {
-      const lock = await saveDraft(ws, rs, s.graph, s.lockVersion, s.schemaVersion)
-      s.saved(lock)
+      const lock = await saveDraft(ws, rs, sent, s.lockVersion, sentSchema)
+      useEditor.getState().saved(lock, sent, sentSchema)
       // Keep the cached draft in step with what was saved: a later refetch or remount then
       // starts from it, not from the version loaded before.
       qc.setQueryData<Draft>(keys.draft(ws, rs), (old) =>
-        old ? { ...old, graph: s.graph ?? old.graph, lockVersion: lock, schemaVersion: s.schemaVersion } : old,
+        old ? { ...old, graph: sent, lockVersion: lock, schemaVersion: sentSchema } : old,
       )
-      await validate()
-      return true
     } catch (e) {
       setSaveError(e)
       return false
     }
+    // The draft is saved: a failing validation is reported as such, not as a failed save.
+    try {
+      await validate()
+      setValidateError(null)
+    } catch (e) {
+      setValidateError(e)
+    }
+    return true
   }, [ws, rs, validate, editorKey, qc])
+
+  const save = useCallback(async (): Promise<boolean> => {
+    while (saving.current) await saving.current
+    const run = saveOnce()
+    saving.current = run
+    try {
+      return await run
+    } finally {
+      saving.current = null
+    }
+  }, [saveOnce])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -328,11 +351,20 @@ export function EditorPage() {
                 onClick={async () => {
                   setSaveError(null)
                   await qc.invalidateQueries({ queryKey: keys.draft(ws, rs) })
+                  // Unsaved edits are kept on refetch; here the user chose to drop them.
+                  const fresh = qc.getQueryData<Draft>(keys.draft(ws, rs))
+                  if (fresh) load(fresh, editorKey)
                 }}
               >
                 {t('editor.reload')}
               </Button>
             )}
+          </MessageBar>
+        )}
+
+        {validateError !== null && (
+          <MessageBar intent="warning">
+            <MessageBarBody>{t('editor.validateFailed', { error: errorMessage(validateError) })}</MessageBarBody>
           </MessageBar>
         )}
 

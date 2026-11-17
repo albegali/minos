@@ -150,7 +150,8 @@
     "canvas": "Rule graph",
     "emptyHint": "Drag a node from the palette onto the canvas, connect outputs to inputs and select a node to configure it.",
     "panels": "Panels",
-    "issues": "Problems"
+    "issues": "Problems",
+    "validateFailed": "Draft saved, but it could not be validated: {error}"
   },
   "canvas": {
     "groupSummary": "{count} rules · {operator}",

@@ -150,7 +150,8 @@
     "canvas": "Grafo delle regole",
     "emptyHint": "Trascina un nodo dalla palette sul canvas, collega le uscite agli ingressi e seleziona un nodo per configurarlo.",
     "panels": "Pannelli",
-    "issues": "Problemi"
+    "issues": "Problemi",
+    "validateFailed": "Bozza salvata, ma non è stato possibile validarla: {error}"
   },
   "canvas": {
     "groupSummary": "{count} regole · {operator}",

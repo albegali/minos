@@ -42,3 +42,32 @@ describe('editor history', () => {
     expect(useEditor.getState().past).toHaveLength(2)
   })
 })
+
+describe('saving', () => {
+  it('keeps edits made while a save was in flight (UI-05)', () => {
+    const s = useEditor.getState()
+    s.load(draft)
+    s.change(label('a'), { coalesce: false })
+    const sent = useEditor.getState().graph as RuleGraph
+    useEditor.getState().change(label('ab'), { coalesce: false }) // typed during the request
+    useEditor.getState().saved(2, sent, null)
+    expect(useEditor.getState()).toMatchObject({ lockVersion: 2, dirty: true })
+    const latest = useEditor.getState().graph as RuleGraph
+    useEditor.getState().saved(3, latest, null)
+    expect(useEditor.getState()).toMatchObject({ lockVersion: 3, dirty: false })
+  })
+
+  it('keeps the simulator form across tabs and ties a result to its graph (UI-02)', () => {
+    const s = useEditor.getState()
+    s.load({ ...draft, graph: { ...graph, settings: { locale: 'en' } } })
+    expect(useEditor.getState().simRequest.locale).toBe('en')
+    useEditor.getState().setSimRequest({ input: { n: 1 } })
+    useEditor.getState().setTab('node')
+    expect(useEditor.getState().simRequest.input).toEqual({ n: 1 })
+    const result = { outcome: 'valid' } as never
+    useEditor.getState().setSimulation(result, useEditor.getState().simRequest)
+    expect(useEditor.getState().simulated?.graph).toBe(useEditor.getState().graph)
+    useEditor.getState().change(label('x'))
+    expect(useEditor.getState().simulated?.graph).not.toBe(useEditor.getState().graph)
+  })
+})

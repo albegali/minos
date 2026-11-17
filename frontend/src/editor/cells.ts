@@ -17,6 +17,22 @@
 export type Cell = unknown
 
 const DATE = /^\d{4}-\d{2}-\d{2}([T ][\d:.]+(Z|[+-]\d{2}:?\d{2})?)?$/
+// Plain decimal numbers: "0x10" or "Infinity" stay text.
+const NUMBER = /^-?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/
+
+/** A cell holding a JSON object (an expression, shown as JSON): kept whole, never split on its
+ * commas. */
+function jsonObject(text: string): Record<string, unknown> | undefined {
+  if (!text.startsWith('{')) return undefined
+  try {
+    const parsed: unknown = JSON.parse(text)
+    return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined
+  } catch {
+    return undefined
+  }
+}
 
 /** A single value: number, boolean, null, quoted text, reference, or bare text. */
 export function parseValue(text: string): unknown {
@@ -25,7 +41,7 @@ export function parseValue(text: string): unknown {
   if (t.length >= 2 && t.startsWith('"') && t.endsWith('"')) return t.slice(1, -1)
   if (t === 'true' || t === 'false') return t === 'true'
   if (t === 'null') return null
-  if (t !== '' && !Number.isNaN(Number(t))) return Number(t)
+  if (NUMBER.test(t)) return Number(t)
   return t
 }
 
@@ -51,6 +67,8 @@ const isDate = (v: unknown) => typeof v === 'string' && DATE.test(v)
 export function parseCell(text: string): Cell {
   const t = text.trim()
   if (t === '' || t === '-') return null
+  const object = jsonObject(t)
+  if (object) return object
 
   const cmp = /^(>=|<=|!=|=|<|>)\s*(.+)$/.exec(t)
   if (cmp) {
@@ -122,7 +140,7 @@ export function formatCell(cell: Cell): string {
 
 /** Output cells: a value or a reference; anything else is kept as an expression. */
 export function parseOutput(text: string): unknown {
-  return parseValue(text)
+  return jsonObject(text.trim()) ?? parseValue(text)
 }
 
 export function formatOutput(v: unknown): string {
