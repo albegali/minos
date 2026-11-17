@@ -97,7 +97,15 @@ def compile_ruleset(
             raise CompileError(
                 f"{first['msg']} ({exc.error_count()} error(s))", loc or None
             ) from exc
-    compiled = _Compiler(graph, graph_hash(raw), resolve).build()
+    try:
+        compiled = _Compiler(graph, graph_hash(raw), resolve).build()
+    except ValidationError as exc:  # a group child that is not a valid rule
+        first = exc.errors()[0]
+        raise CompileError(f"{first['msg']} ({exc.error_count()} error(s))") from exc
+    except RecursionError as exc:
+        raise CompileError("expressions are nested too deeply") from exc
+    except TypeError as exc:  # e.g. {"op": ["=="]}: an operator or function name that is not text
+        raise CompileError(f"malformed expression: {exc}") from exc
     issues = typecheck(graph, dict(schema) if schema is not None else None)
     if issues:
         raise TypeCheckError(issues)

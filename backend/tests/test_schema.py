@@ -179,3 +179,13 @@ def test_external_references_are_refused(ref: str) -> None:
         check_schema({"type": "object", "properties": {"a": {"$ref": ref}}})
     check_schema({"$defs": {"a": {"type": "string"}}, "properties": {"a": {"$ref": "#/$defs/a"}}})
     check_schema({"properties": {"a": {"$ref": "entity:Course@1"}}})
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["2027-09-20T10:15:00", "2027-09-20 10:15:00Z", "2027-09-20T10:15Z", "first..last@example.com"],
+)
+def test_inferred_schema_accepts_its_own_samples(value: str) -> None:
+    # ENG-10: a format is inferred only if the validator accepts the sample
+    schema = infer_schema([{"v": value}])
+    assert InputValidator(schema).errors({"v": value}) == []

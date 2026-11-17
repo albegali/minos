@@ -357,3 +357,21 @@ async def test_reference_versions(
     await rejected({"$ref": "entity:Course", "minProperties": 1}, "only carry annotations")
     r = await c.post(f"{WS}/entities", json={"key": "Empty", "name": "E"}, headers=h)
     await rejected({"$ref": "entity:Empty"}, "'Empty' has no schema yet")
+
+
+def test_references_under_properties_named_like_keywords() -> None:
+    # ENG-11: a property called "default" or "enum" is a field, not a data keyword
+    schema = {
+        "type": "object",
+        "properties": {
+            "default": {"$ref": "entity:Course"},
+            "enum": {"type": "array", "items": {"$ref": "entity:Course"}},
+            "plain": {"type": "string", "default": {"$ref": "entity:Ignored"}},
+        },
+    }
+    assert find_refs(schema) == [("Course", None)]
+    pinned = pin_refs(schema, {"Course": 2})
+    assert pinned["properties"]["default"] == {"$ref": "entity:Course@2"}
+    assert pinned["properties"]["enum"]["items"] == {"$ref": "entity:Course@2"}
+    with pytest.raises(SchemaError, match="no version"):
+        pin_refs(schema, {})

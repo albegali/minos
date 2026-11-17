@@ -160,18 +160,21 @@ class DecisionTable:
     def evaluate(self, scope: Scope) -> tuple[list[int], Any]:
         """Return ``(matched row indexes, result)``; result is ``None`` when nothing matched."""
         values = [ev(scope) for ev in self.inputs]
-        matched = [
-            row
-            for row in self.rows
-            if all(cell is None or cell(values[i], scope) for i, cell in enumerate(row.cells))
-        ]
+
+        def matches(row: _Row) -> bool:
+            return all(cell is None or cell(values[i], scope) for i, cell in enumerate(row.cells))
+
+        if self.hit_policy == "first":
+            # Rows after the first match are never evaluated: a row that could not even be
+            # evaluated for this input (e.g. a number test on a text) does not matter.
+            hit = next((row for row in self.rows if matches(row)), None)
+            return ([hit.index], self._out(hit, scope)) if hit else ([], None)
+        matched = [row for row in self.rows if matches(row)]
         indexes = [r.index for r in matched]
         if not matched:
-            return indexes, None
+            return indexes, [] if self.hit_policy == "collect" else None
         if self.hit_policy == "collect":
             return indexes, [self._out(r, scope) for r in matched]
-        if self.hit_policy == "first":
-            return indexes[:1], self._out(matched[0], scope)
         if self.hit_policy == "priority":
             best = max(matched, key=lambda r: (r.priority, -r.index))
             return [best.index], self._out(best, scope)

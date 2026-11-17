@@ -178,7 +178,7 @@ JSON literals; lists of expressions; `{"literal": <any JSON>}` for literal objec
 | `==` `!=` | JSON equality: `1` equals `1.0` but not `true`; lists and objects by content. `null` and a missing field are equivalent |
 | `<` `<=` `>` `>=` | `false` if one side is missing; error if the types are not comparable |
 | `between` | `right: [min, max]`, bounds included |
-| `date_before` `date_after` `date_between` | Compares the date part (ISO `YYYY-MM-DD...`) |
+| `date_before` `date_after` `date_between` | Compares the date part: the date written in an ISO date or date-time, in its own offset; any other text is an evaluation error |
 | `in` `not_in` | `right` a literal list or a reference to a list |
 | `contains` `starts_with` `ends_with` `regex` | `regex` requires a literal pattern, in [RE2 syntax](https://github.com/google/re2/wiki/Syntax) (no backreferences or lookarounds; matching time is linear) and finds a match anywhere in the text (anchor it with `^...$`) |
 | `exists` `is_null` `is_not_null` | `exists` tells a missing field from `null` |
@@ -187,8 +187,8 @@ JSON literals; lists of expressions; `{"literal": <any JSON>}` for literal objec
 
 | Functions | Notes |
 | --- | --- |
-| `sum` `count` `min` `max` `avg` `any` `all` `distinct` `filter` `map` | One array argument; optional `where` (filter) and `select` (projection) with `$.item` |
-| `len` `lower` `upper` `trim` `coalesce` `round` `abs` `floor` | |
+| `sum` `count` `min` `max` `avg` `any` `all` `distinct` `filter` `map` | One array argument; optional `where` (filter) and `select` (projection) with `$.item`. For `any`/`all` with `where` and no `select`, `where` is the test: whether any / every item satisfies it |
+| `len` `lower` `upper` `trim` `coalesce` `round` `abs` `floor` | `round(x, digits)` rounds half away from zero on the decimal value as written (`round(2.675, 2)` = 2.68) |
 | `date` `today` `days_between` `age` | `today` and `age` use `meta.referenceDate` (settable per request) |
 
 ## Execution result

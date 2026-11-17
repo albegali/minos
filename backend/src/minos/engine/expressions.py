@@ -19,6 +19,7 @@ import datetime as dt
 import math
 import operator
 from collections.abc import Callable, Iterable
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Final
 
 import re2
@@ -53,11 +54,15 @@ def to_date(v: Any) -> dt.date:
     if isinstance(v, dt.date):
         return v
     if isinstance(v, str) and len(v) >= 10:
+        # The whole text must be an ISO date or date-time ("2027-09-20garbage" is not); a
+        # date-time counts for the date written in it, in its own offset.
         try:
-            return dt.date.fromisoformat(v[:10])
+            if len(v) == 10:
+                return dt.date.fromisoformat(v)
+            return dt.datetime.fromisoformat(v).date()
         except ValueError as exc:
-            raise EvaluationError(f"not an ISO date: {v!r}") from exc
-    raise EvaluationError(f"not a date: {v!r}")
+            raise EvaluationError(f"not an ISO date: {v[:40]!r}") from exc
+    raise EvaluationError(f"not a date: {str(v)[:40]!r}")
 
 
 def _const(value: Any) -> Evaluator:
@@ -497,6 +502,15 @@ def _compile_fn(e: dict[str, Any], where: str) -> Evaluator:
                 return sum(vals) / len(vals) if vals else None
 
             return avg
+        if name in ("any", "all") and pred is not None and select is None:
+            # `where` alone is the test: "any course with cfu >= 6", "all courses with ...".
+            def matching(s: Scope) -> bool:
+                seq = source(s)
+                total = len(seq) if isinstance(seq, list) else 0
+                matched = len(items(s))
+                return matched > 0 if name == "any" else matched == total
+
+            return matching
         if name == "any":
             return lambda s: any(bool(x) for x in items(s))
         if name == "all":
@@ -556,10 +570,15 @@ def _compile_fn(e: dict[str, Any], where: str) -> Evaluator:
             if _is_absent(v):
                 return None
             digits = args[1](s) if len(args) == 2 else 0
+            if not _is_number(v) or not isinstance(digits, int) or isinstance(digits, bool):
+                raise EvaluationError("round: expects a number and a whole number of digits")
+            # Half away from zero on the decimal value as written (2.675 -> 2.68, 2.5 -> 3),
+            # as fees and credits are rounded; Python's round() is half-to-even on binary floats.
             try:
-                return round(v, digits) if digits else round(v)
-            except TypeError as exc:
-                raise EvaluationError(f"round: {exc}") from exc
+                exact = Decimal(repr(v)).quantize(Decimal(1).scaleb(-digits), ROUND_HALF_UP)
+            except InvalidOperation as exc:
+                raise EvaluationError(f"round: cannot round {v!r}") from exc
+            return int(exact) if digits <= 0 else float(exact)
 
         return rnd
     if name == "abs":

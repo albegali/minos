@@ -18,6 +18,8 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import Any, Final
 
+import jsonschema_rs
+
 SCHEMA_DIALECT: Final = "https://json-schema.org/draft/2020-12/schema"
 
 _EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
@@ -26,7 +28,28 @@ _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _DATETIME = re.compile(r"^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$")
 
 
+_FORMAT_CHECKS: dict[str, Any] = {}
+
+
+def _accepted(value: str, fmt: str) -> bool:
+    """Whether the input validator accepts ``value`` for ``fmt``: a format is inferred only if
+    the samples it comes from would pass validation (its rules are stricter than these
+    patterns, e.g. a date-time needs an offset)."""
+    check = _FORMAT_CHECKS.get(fmt)
+    if check is None:
+        check = jsonschema_rs.validator_for(
+            {"type": "string", "format": fmt}, validate_formats=True
+        )
+        _FORMAT_CHECKS[fmt] = check
+    return bool(check.is_valid(value))
+
+
 def _string_format(value: str) -> str | None:
+    fmt = _candidate_format(value)
+    return fmt if fmt is not None and _accepted(value, fmt) else None
+
+
+def _candidate_format(value: str) -> str | None:
     if _DATE.match(value):
         try:
             dt.date.fromisoformat(value)

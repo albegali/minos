@@ -158,7 +158,7 @@ def test_operators(expr: Any, expected: Any) -> None:
         ({"fn": "coalesce", "args": [ref("$.input.none"), ref("$.input.nul"), 7]}, 7),
         ({"fn": "coalesce", "args": [ref("$.input.none")]}, None),
         ({"fn": "round", "args": [2.567, 2]}, 2.57),
-        ({"fn": "round", "args": [2.5]}, 2),
+        ({"fn": "round", "args": [2.5]}, 3),  # half away from zero (ENG-07)
         ({"fn": "round", "args": [ref("$.input.none")]}, None),
         ({"fn": "abs", "args": [-3]}, 3),
         ({"fn": "floor", "args": [2.9]}, 2),
@@ -316,3 +316,32 @@ def test_regex_runs_in_linear_time() -> None:
     assert time.perf_counter() - t0 < 0.5  # catastrophic backtracking with `re` (SEC-05)
     with pytest.raises(CompileError, match="RE2"):
         compile_expr({"op": "regex", "left": ref("$.input.s"), "right": r"(a)\1"})
+
+
+def test_rounding_is_half_up_on_the_written_decimal() -> None:
+    assert ev({"fn": "round", "args": [2.675, 2]}) == 2.68
+    assert ev({"fn": "round", "args": [0.125, 2]}) == 0.13
+    assert ev({"fn": "round", "args": [-2.5]}) == -3
+    assert ev({"fn": "round", "args": [1234.5, -1]}) == 1230
+    with pytest.raises(EvaluationError):
+        ev({"fn": "round", "args": ["x"]})
+
+
+def test_dates_must_be_whole_iso_values() -> None:
+    # ENG-05: the date written in a date-time, garbage refused
+    assert to_date("2027-09-20T23:30:00-05:00") == dt.date(2027, 9, 20)
+    assert to_date("2027-09-20T10:15:00Z") == dt.date(2027, 9, 20)
+    with pytest.raises(EvaluationError):
+        to_date("2027-09-20garbage")
+
+
+def test_where_alone_is_the_test_of_any_and_all() -> None:
+    # ENG-09: "any course with cfu >= 6" / "all courses with cfu >= 6"
+    big = {"op": ">=", "left": ref("$.item.cfu"), "right": 6}
+    courses = ref("$.input.courses")
+    assert ev({"fn": "any", "args": [courses], "where": big}) is True
+    assert ev({"fn": "all", "args": [courses], "where": big}) is False
+    zero = {"fn": "any", "args": [[0]], "where": {"op": ">=", "left": ref("$.item"), "right": 0}}
+    assert ev(zero) is True
+    none = {"op": ">", "left": ref("$.item.cfu"), "right": 99}
+    assert ev({"fn": "all", "args": [courses], "where": none}) is False

@@ -71,3 +71,20 @@ describe('entity references', () => {
     ])
   })
 })
+
+describe('keyword-named properties', () => {
+  it('unpins references under a property called "default" (ENG-11)', () => {
+    const out = unpinRefs({ type: 'object', properties: { default: { $ref: 'entity:Course@2' } } }) as {
+      properties: { default: unknown }
+    }
+    expect(out.properties.default).toEqual({ $ref: 'entity:Course' })
+  })
+})
+
+describe('reference grammar', () => {
+  it('matches the backend (CQ-06)', () => {
+    expect(entityOf({ $ref: 'entity:Course@0' })).toBeUndefined()
+    expect(entityOf({ $ref: `entity:${'a'.repeat(101)}` })).toBeUndefined()
+    expect(entityOf({ $ref: `entity:${'a'.repeat(100)}@12` })).toEqual({ entity: 'a'.repeat(100), version: 12 })
+  })
+})
