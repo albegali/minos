@@ -5,6 +5,7 @@
 
 import type { JsonSchema } from '../api/types'
 import { t } from '../i18n'
+import { type EntityLink, entityOf } from './entityRefs'
 
 export interface FieldInfo {
   /** Reference as used in expressions, e.g. `$.input.courses[*].cfu`. */
@@ -18,6 +19,8 @@ export interface FieldInfo {
   /** True when the path crosses a `[*]`: the value is a list of such values. */
   many: boolean
   enum?: unknown[]
+  /** The entity the field is typed with (a list of it when the field is an array). */
+  entity?: EntityLink
 }
 
 type Schema = Record<string, unknown>
@@ -75,7 +78,8 @@ export function listFields(schema: JsonSchema | undefined, root = '$.input', max
       const types = typesOf(childCandidates)
       const format = childCandidates.map((c) => c.format).find((f): f is string => typeof f === 'string')
       const enumValues = childCandidates.map((c) => c.enum).find(Array.isArray)
-      out.push({ path: childPath, name, depth, types, format, required: required.has(name), many, enum: enumValues })
+      const entity = entityOf(child) ?? entityOf((child as Schema).items)
+      out.push({ path: childPath, name, depth, types, format, required: required.has(name), many, enum: enumValues, entity })
       if (types.includes('object') || childCandidates.some((c) => c.properties)) {
         walk(child, childPath, depth + 1, many)
       }

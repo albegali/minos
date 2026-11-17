@@ -222,7 +222,7 @@ _ALIAS_QUERY = (
         RulesetAlias.effective_from,
         RulesetVersion.hash,
         RulesetVersion.graph,
-        SchemaVersion.json_schema,
+        SchemaVersion.resolved_schema,
     )
     .join(Ruleset, Ruleset.workspace_id == Workspace.id)
     .join(RulesetAlias, RulesetAlias.ruleset_id == Ruleset.id)
@@ -303,7 +303,7 @@ class DbSync:
         for row in entries:
             async with self.sessions() as s:
                 resolve = await resolver_for(s, ws, row.graph)
-            out.append((row.effective_from, build(ws, row.graph, row.json_schema, resolve)))
+            out.append((row.effective_from, build(ws, row.graph, row.resolved_schema, resolve)))
         return tuple(out)
 
     async def reload_one(self, ws: str, rs: str, env: str) -> None:
@@ -318,7 +318,7 @@ class DbSync:
         if cached is not None:
             return cached
         q = (
-            select(RulesetVersion.graph, SchemaVersion.json_schema)
+            select(RulesetVersion.graph, SchemaVersion.resolved_schema)
             .join(Ruleset, Ruleset.id == RulesetVersion.ruleset_id)
             .join(Workspace, Workspace.id == Ruleset.workspace_id)
             .outerjoin(SchemaVersion, SchemaVersion.id == RulesetVersion.schema_version_id)
@@ -330,7 +330,7 @@ class DbSync:
             return None
         async with self.sessions() as s:
             resolve = await resolver_for(s, ws, row.graph)
-        dep = build(ws, row.graph, row.json_schema, resolve)
+        dep = build(ws, row.graph, row.resolved_schema, resolve)
         self.registry.put_version((ws, rs, semver), dep)
         return dep
 

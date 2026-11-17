@@ -11,7 +11,8 @@
     "name": "Nome",
     "key": "Chiave",
     "invalidJson": "JSON non valido: {message}",
-    "language": "Lingua"
+    "language": "Lingua",
+    "remove": "Rimuovi"
   },
   "shell": {
     "connecting": "Connessione all'API…",
@@ -74,7 +75,18 @@
     "samples": "Esempi (un oggetto o una lista di oggetti)",
     "samplesHint": "Più esempi rendono facoltativi i campi che non compaiono ovunque.",
     "preview": "Anteprima dello schema",
-    "jsonSchema": "JSON Schema (draft 2020-12)"
+    "jsonSchema": "JSON Schema (draft 2020-12)",
+    "compose": "Componi da entità",
+    "composeHint": "Campi il cui tipo è un'altra entità: un rule set su questa entità legge ogni parte direttamente ($.input.<campo>...). I campi che non sono entità restano come sono.",
+    "composeTable": "Campi con tipo entità",
+    "entity": "Entità",
+    "list": "Lista",
+    "addField": "Aggiungi campo",
+    "uses": "Usa",
+    "usedBy": "Usata da",
+    "staleRefs": "Versioni più recenti disponibili: {list}.",
+    "updateRefs": "Aggiorna i riferimenti",
+    "jsonSchemaHint": "Un'altra entità come tipo di un campo: {\"$ref\": \"entity:Course\"}, fissata alla sua ultima versione al salvataggio."
   },
   "demo": {
     "noExamples": "Nessun esempio.",

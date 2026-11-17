@@ -10,6 +10,12 @@ browser language). The typical path, without writing JSON:
    the schema is inferred as you type (types, nested objects, lists, dates, required fields). With
    several samples, fields that do not appear everywhere become optional. *Save as new version*;
    alternatively *Edit JSON Schema* to fix it by hand.
+   **Input made of several objects** (a student, the study plan, the program, its courses): create
+   an entity for each from its own samples, then an entity for the whole input and use *Compose
+   from entities*: each field gets an entity as its type (*List* for a list of them). Fields show
+   the entity they come from; the page lists the entities used and those that use it, and offers
+   *Update references* when one of them has a newer version. Rule sets on the composite entity
+   read every part directly, without nested rule sets.
 2. **Rule set.** *New rule set*, choose the entity. The editor opens with *Start → End*.
 3. **Nodes.** Drag nodes from the palette onto the canvas (or click to add them) and connect the
    outputs (`pass`, `fail`, `next`, the switch branches) to the inputs. An output has a single

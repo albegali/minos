@@ -71,6 +71,10 @@ class SchemaVersion(Base):
     entity_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("entity.id", ondelete="CASCADE"))
     version: Mapped[int] = mapped_column(Integer)
     json_schema: Mapped[dict[str, Any]]
+    """As written, with every entity reference pinned to a version."""
+    resolved_schema: Mapped[dict[str, Any]]
+    """Standalone form: referenced entities embedded under ``$defs`` (see ``minos.schema.refs``).
+    Equal to ``json_schema`` when the schema references no entity."""
     source: Mapped[str] = mapped_column(String(20))  # sample | manual | connector | import
     hash: Mapped[str] = mapped_column(String(64))
     created_by: Mapped[str] = mapped_column(String(200))

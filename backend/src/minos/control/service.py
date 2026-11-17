@@ -40,7 +40,7 @@ from minos.engine import (
     compile_ruleset,
 )
 from minos.engine.compiler import Resolver, dependencies
-from minos.schema import SchemaError, check_schema
+from minos.schema import SchemaError, check_schema, find_refs, pin_refs, resolve_refs
 
 from .errors import Conflict, Invalid, NotFound, PreconditionFailed
 from .keys import SCOPES, display_prefix, generate_key, hash_key
@@ -149,18 +149,23 @@ async def add_schema_version(
     json_schema: dict[str, Any],
     source: str,
 ) -> SchemaVersion:
+    """Add a version, unless identical to the latest. ``{"$ref": "entity:<key>"}`` references
+    are pinned to that entity's latest version and resolved (see :mod:`minos.schema.refs`)."""
     try:
         check_schema(json_schema)
+        pinned, resolved = await _resolve_entity_refs(s, ws, entity, json_schema)
+        check_schema(resolved)
     except SchemaError as exc:
         raise Invalid(f"invalid JSON Schema: {exc}") from exc
     latest = await latest_schema(s, entity)
-    digest = canonical_hash(json_schema)
+    digest = canonical_hash(pinned)
     if latest is not None and latest.hash == digest:
         return latest  # unchanged: no new version
     sv = SchemaVersion(
         entity_id=entity.id,
         version=(latest.version + 1) if latest else 1,
-        json_schema=json_schema,
+        json_schema=pinned,
+        resolved_schema=resolved,
         source=source,
         hash=digest,
         created_by=actor,
@@ -169,6 +174,65 @@ async def add_schema_version(
     await s.flush()
     await audit(s, actor, "schema.publish", f"{ws.slug}/{entity.key}@{sv.version}", ws.id)
     return sv
+
+
+async def _resolve_entity_refs(
+    s: AsyncSession, ws: Workspace, entity: Entity, json_schema: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """``(pinned, resolved)`` forms of an authored schema."""
+    refs = find_refs(json_schema)
+    if not refs:
+        return json_schema, json_schema
+    latest: dict[str, int] = {}
+    targets: dict[tuple[str, int], dict[str, Any]] = {}
+    for key, version in refs:
+        try:
+            other = await get_entity(s, ws, key)
+        except NotFound:
+            raise SchemaError(f"entity {key!r} referenced by the schema does not exist") from None
+        if version is None:
+            sv = await latest_schema(s, other)
+            if sv is None:
+                raise SchemaError(f"entity {key!r} has no schema yet")
+            if other.id == entity.id:
+                raise SchemaError(f"{key!r} cannot reference its own latest version")
+            latest[key] = sv.version
+        else:
+            try:
+                sv = await get_schema_version(s, other, version)
+            except NotFound as exc:
+                raise SchemaError(exc.detail) from None
+        targets[(key, sv.version)] = sv.resolved_schema
+    pinned = pin_refs(json_schema, latest)
+    return pinned, resolve_refs(pinned, targets)
+
+
+async def schema_references(
+    s: AsyncSession, ws: Workspace, sv: SchemaVersion
+) -> list[dict[str, Any]]:
+    """Entities a version references: ``{entity, version, latest}`` (``latest`` > ``version``
+    means the reference can be moved forward with a new version)."""
+    out = []
+    for key, version in find_refs(sv.json_schema):
+        try:
+            newest = await latest_schema(s, await get_entity(s, ws, key))
+        except NotFound:
+            newest = None
+        latest = newest.version if newest else None
+        out.append({"entity": key, "version": version, "latest": latest})
+    return out
+
+
+async def entities_referencing(s: AsyncSession, ws: Workspace, entity: Entity) -> list[str]:
+    """Entities whose latest schema version references ``entity`` (any version)."""
+    out = []
+    for other in await list_entities(s, ws):
+        if other.id == entity.id:
+            continue
+        sv = await latest_schema(s, other)
+        if sv is not None and any(k == entity.key for k, _ in find_refs(sv.json_schema)):
+            out.append(other.key)
+    return out
 
 
 async def latest_schema(s: AsyncSession, entity: Entity) -> SchemaVersion | None:
@@ -348,7 +412,7 @@ async def resolver_for(s: AsyncSession, workspace: str, graph: dict[str, Any]) -
                 continue
             row = (
                 await s.execute(
-                    select(RulesetVersion.graph, SchemaVersion.json_schema)
+                    select(RulesetVersion.graph, SchemaVersion.resolved_schema)
                     .join(Ruleset, Ruleset.id == RulesetVersion.ruleset_id)
                     .join(Workspace, Workspace.id == Ruleset.workspace_id)
                     .outerjoin(SchemaVersion, SchemaVersion.id == RulesetVersion.schema_version_id)
@@ -360,7 +424,7 @@ async def resolver_for(s: AsyncSession, workspace: str, graph: dict[str, Any]) -
                 )
             ).first()
             if row is not None:
-                sources[(key, version)] = (row.graph, row.json_schema)
+                sources[(key, version)] = (row.graph, row.resolved_schema)
                 await load(row.graph)
 
     await load(graph)
@@ -399,7 +463,7 @@ async def validate_draft(s: AsyncSession, rs: Ruleset) -> Validation:
     ws = await s.get(Workspace, rs.workspace_id)
     assert ws is not None
     resolve = await resolver_for(s, ws.slug, draft.graph)
-    return compile_checked(draft.graph, sv.json_schema if sv else None, resolve)
+    return compile_checked(draft.graph, sv.resolved_schema if sv else None, resolve)
 
 
 async def simulate_draft(
@@ -523,7 +587,7 @@ async def publish(
 
     graph = dict(draft.graph, version=semver)
     resolve = await resolver_for(s, ws.slug, graph)
-    validation = compile_checked(graph, sv.json_schema if sv else None, resolve)
+    validation = compile_checked(graph, sv.resolved_schema if sv else None, resolve)
     if validation.compiled is None:
         raise Invalid("the draft does not compile", {"issues": validation.issues})
     tests = run_tests(validation.compiled, await list_tests(s, rs))

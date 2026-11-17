@@ -108,7 +108,9 @@ class ApiKeyIn(BaseModel):
 # --------------------------------------------------------------------------- serialisers
 
 
-def _schema_out(sv: SchemaVersion, full: bool = True) -> dict[str, Any]:
+def _schema_out(
+    sv: SchemaVersion, full: bool = True, references: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
     out: dict[str, Any] = {
         "version": sv.version,
         "source": sv.source,
@@ -118,6 +120,8 @@ def _schema_out(sv: SchemaVersion, full: bool = True) -> dict[str, Any]:
     }
     if full:
         out["schema"] = sv.json_schema
+        out["resolved"] = sv.resolved_schema
+        out["references"] = references or []
     return out
 
 
@@ -299,6 +303,17 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
             e = await svc.create_entity(s, who.actor, w, body.key, body.name, body.description)
         return json_response({"key": e.key, "name": e.name, "description": e.description}, 201)
 
+    @router.get("/workspaces/{ws}/entities/{entity}")
+    async def get_entity(ws: str, entity: str, request: Request) -> Response:
+        who = await principal(request)
+        async with sessions() as s:
+            w = await workspace(s, who, ws)
+            e = await svc.get_entity(s, w, entity)
+            used_by = await svc.entities_referencing(s, w, e)
+        return json_response(
+            {"key": e.key, "name": e.name, "description": e.description, "usedBy": used_by}
+        )
+
     @router.get("/workspaces/{ws}/entities/{entity}/schemas")
     async def list_schemas(ws: str, entity: str, request: Request) -> Response:
         who = await principal(request)
@@ -315,7 +330,8 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
             w = await workspace(s, who, ws)
             e = await svc.get_entity(s, w, entity)
             sv = await svc.get_schema_version(s, e, version)
-        return json_response(_schema_out(sv))
+            refs = await svc.schema_references(s, w, sv)
+        return json_response(_schema_out(sv, references=refs))
 
     @router.post("/workspaces/{ws}/entities/{entity}/schemas", status_code=201)
     async def add_schema(ws: str, entity: str, body: SchemaIn, request: Request) -> Response:
@@ -335,7 +351,8 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
             w = await workspace(s, who, ws)
             e = await svc.get_entity(s, w, entity)
             sv = await svc.add_schema_version(s, who.actor, w, e, doc, source)
-        return json_response(_schema_out(sv), 201)
+            refs = await svc.schema_references(s, w, sv)
+        return json_response(_schema_out(sv, references=refs), 201)
 
     # ---------------------------------------------------------------- rule sets
 

@@ -8,6 +8,7 @@ import type {
   Catalog,
   Draft,
   Entity,
+  EntityInfo,
   ExecutionResult,
   GraphDiff,
   ImportResult,
@@ -30,6 +31,7 @@ export const keys = {
   workspaces: ['workspaces'] as const,
   catalog: ['catalog'] as const,
   entities: (w: string) => ['entities', w] as const,
+  entity: (w: string, e: string) => ['entity', w, e] as const,
   schemas: (w: string, e: string) => ['schemas', w, e] as const,
   schema: (w: string, e: string, v: number) => ['schema', w, e, v] as const,
   rulesets: (w: string) => ['rulesets', w] as const,
@@ -66,6 +68,13 @@ export function useCatalog() {
 
 export function useEntities(w: string) {
   return useQuery({ queryKey: keys.entities(w), queryFn: () => api<Entity[]>(`${ws(w)}/entities`) })
+}
+
+export function useEntity(w: string, e: string) {
+  return useQuery({
+    queryKey: keys.entity(w, e),
+    queryFn: () => api<EntityInfo>(`${ws(w)}/entities/${encodeURIComponent(e)}`),
+  })
 }
 
 export function useSchemas(w: string, e: string) {
@@ -143,7 +152,10 @@ export function useAddSchema(w: string, e: string) {
         method: 'POST',
         body,
       }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.schemas(w, e) }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.schemas(w, e) })
+      void qc.invalidateQueries({ queryKey: ['entity', w] }) // "used by" of the referenced ones
+    },
   })
 }
 

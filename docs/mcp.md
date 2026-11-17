@@ -59,7 +59,7 @@ the same scopes apply. Without a key the tools answer 401.
 | `guide` | Workflow, full example and RGD format reference (read it first) |
 | `list_workspaces`, `create_workspace` | Existing workspaces; create a new one |
 | `list_entities`, `get_entity` | Entities and their JSON Schema |
-| `create_entity` | New entity with the schema derived from sample objects (or a JSON Schema) |
+| `create_entity` | New entity with the schema derived from sample objects (or a JSON Schema, which can use other entities as field types with `{"$ref": "entity:<key>"}`) |
 | `update_entity_schema` | New schema version (for example one more field) |
 | `list_rulesets`, `get_ruleset` | Rule sets, published versions, environments, draft and tests |
 | `create_ruleset` | New rule set with the graph as a draft; returns the validation and the link |

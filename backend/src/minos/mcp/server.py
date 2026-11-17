@@ -181,14 +181,19 @@ def build_server(api: ApiFactory, studio_url: str) -> MCPServer:
     @mcp.tool(annotations=read_only)
     async def get_entity(ctx: Context, workspace: str, entity: str) -> Json:
         """An entity with its latest JSON Schema: every `$.input` reference of a rule set must
-        exist in it."""
+        exist in it. When it references other entities, `references` lists them and
+        `resolvedSchema` embeds them (under `$defs`), showing every field a rule can read."""
         base = f"/workspaces/{_p(workspace)}/entities/{_p(entity)}"
         versions = await get(ctx, f"{base}/schemas")
         out: Json = {"entity": entity, "schemaVersions": [v["version"] for v in versions]}
         if versions:
             latest = max(v["version"] for v in versions)
-            out["schema"] = (await get(ctx, f"{base}/schemas/{latest}"))["schema"]
+            sv = await get(ctx, f"{base}/schemas/{latest}")
+            out["schema"] = sv["schema"]
             out["schemaVersion"] = latest
+            if sv.get("references"):
+                out["references"] = sv["references"]
+                out["resolvedSchema"] = sv["resolved"]
         out["studioUrl"] = entity_url(workspace, entity)
         return out
 
@@ -219,7 +224,8 @@ def build_server(api: ApiFactory, studio_url: str) -> MCPServer:
         description: str | None = None,
     ) -> Json:
         """Create the entity a rule set validates, with its first schema version inferred from
-        `samples` (preferred) or given as `json_schema`."""
+        `samples` (preferred) or given as `json_schema`. A `json_schema` may use other entities
+        as field types with `{"$ref": "entity:<key>"}` (see `guide`)."""
         await post(
             ctx,
             f"/workspaces/{_p(workspace)}/entities",
