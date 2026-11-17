@@ -1,7 +1,9 @@
 """Bundles: a rule set with its entity schema and tests in one JSON file.
 
 Used to move rule sets between installations, keep them in Git, or share them. Pinned
-sub-rulesets are listed under ``dependencies`` but not included: import them first.
+sub-rulesets are listed under ``dependencies`` but not included: import them first. The schema
+is the resolved one: entities it references travel embedded under ``$defs``, so the bundle
+imports into a workspace that does not have them.
 """
 
 from __future__ import annotations
@@ -42,7 +44,7 @@ async def export_bundle(
         "source": {"workspace": ws.slug, "ruleset": rs.key, "version": source},
         "ruleset": {"key": rs.key, "name": rs.name, "description": rs.description},
         "entity": {"key": entity.key, "name": entity.name, "description": entity.description},
-        "schema": schema.json_schema if schema else None,
+        "schema": schema.resolved_schema if schema else None,
         "graph": graph,
         "tests": [
             {

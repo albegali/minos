@@ -17,13 +17,29 @@ export interface Entity {
 
 export type JsonSchema = Record<string, unknown>
 
+export interface EntityInfo extends Entity {
+  /** Entities whose latest schema uses this one as a field type. */
+  usedBy: string[]
+}
+
+export interface SchemaReference {
+  entity: string
+  version: number
+  /** Latest version of the referenced entity: newer than `version` means it can move. */
+  latest: number | null
+}
+
 export interface SchemaVersion {
   version: number
   source: string
   hash: string
   createdBy: string
   createdAt: string
+  /** As written, with entity references pinned (`entity:Course@2`). */
   schema?: JsonSchema
+  /** Standalone form, referenced entities embedded under `$defs`: what rules read. */
+  resolved?: JsonSchema
+  references?: SchemaReference[]
 }
 
 export interface RulesetSummary {

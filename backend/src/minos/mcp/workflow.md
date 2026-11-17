@@ -18,6 +18,15 @@ set is published or live, give them the Studio link to review it.
    Ask the user for a sample or build a plausible one from their description and say so. Pass
    `json_schema` instead only when the user gives a schema. `get_entity` shows the schema: every
    `$.input...` reference must exist in it.
+   **Several objects** (e.g. a student, their study plan, the program and its courses): create
+   one entity per kind of object from its own samples, then an entity for what the rule set
+   receives, with `json_schema` using `{"$ref": "entity:<key>"}` as the type of a field
+   (`{"type": "array", "items": {"$ref": "entity:Course"}}` for a list). References work inside
+   any entity too (a `Program` with a list of `Course`). A rule set on the composite entity reads
+   every part directly (`$.input.student.age`, `$.input.program.courses[*].cfu`): no
+   `subruleset` is needed. A reference is pinned to the entity's latest version when saved; to
+   move it after the referenced entity changes, save the schema again with `update_entity_schema`.
+   A reference carries only `title`/`description`: constraints belong in the referenced entity.
 3. **Rule set.** Write the RGD graph and call `create_ruleset`. Put thresholds, dates and lists
    that the business may change in `constants` (read as `$.vars.<name>`), not inline. Give every
    check a `feedback` with a stable `code`, `severity` and a clear message (`it` and `en`).

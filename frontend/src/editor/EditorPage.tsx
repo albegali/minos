@@ -160,7 +160,7 @@ export function EditorPage() {
 
   const scope: FieldScope | null = useMemo(() => {
     if (!catalog.data || !graph) return null
-    const s = schema.data?.schema
+    const s = schema.data?.resolved ?? schema.data?.schema
     return {
       catalog: catalog.data,
       schema: s,

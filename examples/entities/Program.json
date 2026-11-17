@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "title": "Program",
+  "required": ["code", "name", "minAge", "minCfu", "maxCfu", "courses"],
+  "properties": {
+    "code": { "type": "string" },
+    "name": { "type": "string" },
+    "minAge": { "type": "integer", "minimum": 0, "description": "Età minima per iscriversi" },
+    "minCfu": { "type": "integer", "minimum": 0 },
+    "maxCfu": { "type": "integer", "minimum": 0 },
+    "courses": {
+      "type": "array",
+      "description": "Corsi offerti dal programma",
+      "items": { "$ref": "entity:Course" }
+    }
+  }
+}

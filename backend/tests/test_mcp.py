@@ -171,6 +171,27 @@ async def test_describe_to_draft(clean_db: str) -> None:
             )
             assert moved["validation"]["valid"]
 
+            # several entities: a composite one references Order as a field type
+            await ai.call_tool(
+                "create_entity",
+                {
+                    "workspace": "shop",
+                    "key": "Basket",
+                    "name": "Carrello",
+                    "json_schema": {
+                        "type": "object",
+                        "properties": {
+                            "orders": {"type": "array", "items": {"$ref": "entity:Order"}}
+                        },
+                    },
+                },
+            )
+            basket = data(
+                await ai.call_tool("get_entity", {"workspace": "shop", "entity": "Basket"})
+            )
+            assert basket["references"] == [{"entity": "Order", "version": 2, "latest": 2}]
+            assert "entity:Order@2" in basket["resolvedSchema"]["$defs"]
+
             # API errors reach the model as tool errors it can read
             dup = await ai.call_tool("create_workspace", {"slug": "shop", "name": "Again"})
             assert dup.is_error and "already exists" in dup.content[0].text

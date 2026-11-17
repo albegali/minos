@@ -1,0 +1,184 @@
+{
+  "rgdVersion": "1.0",
+  "ruleset": "aurora.enrollment",
+  "version": "0.1.0",
+  "schemaRef": { "entity": "Enrollment", "version": 1 },
+  "settings": { "mode": "collect_all", "locale": "it" },
+  "constants": {},
+  "nodes": [
+    { "id": "start", "type": "start" },
+    {
+      "id": "totals",
+      "type": "set",
+      "label": "CFU del piano",
+      "assign": {
+        "totalCfu": {
+          "fn": "sum",
+          "args": [{ "ref": "$.input.program.courses" }],
+          "where": { "op": "in", "left": { "ref": "$.item.code" }, "right": { "ref": "$.input.plan.courses" } },
+          "select": { "ref": "$.item.cfu" }
+        }
+      }
+    },
+    {
+      "id": "chkStudent",
+      "type": "condition",
+      "label": "Studente attivo",
+      "condition": { "op": "==", "left": { "ref": "$.input.student.status" }, "right": "ACTIVE" },
+      "onFail": "stop",
+      "feedback": {
+        "fail": {
+          "code": "EN_STUDENT_INACTIVE",
+          "path": "student.status",
+          "message": {
+            "it": "Lo studente {{input.student.id}} non è attivo ({{input.student.status}})",
+            "en": "Student {{input.student.id}} is not active ({{input.student.status}})"
+          }
+        }
+      }
+    },
+    {
+      "id": "chkAge",
+      "type": "condition",
+      "label": "Età minima del programma",
+      "condition": {
+        "op": ">=",
+        "left": { "fn": "age", "args": [{ "ref": "$.input.student.birthDate" }] },
+        "right": { "ref": "$.input.program.minAge" }
+      },
+      "feedback": {
+        "fail": {
+          "code": "EN_AGE_MIN",
+          "path": "student.birthDate",
+          "message": {
+            "it": "Il programma {{input.program.code}} richiede almeno {{input.program.minAge}} anni",
+            "en": "Programme {{input.program.code}} requires at least {{input.program.minAge}} years of age"
+          }
+        }
+      }
+    },
+    {
+      "id": "grpPlan",
+      "type": "group",
+      "label": "Piano e programma",
+      "operator": "and",
+      "evaluate": "all",
+      "children": [
+        {
+          "rule": {
+            "fn": "all",
+            "args": [{ "ref": "$.input.plan.courses" }],
+            "select": { "op": "in", "left": { "ref": "$.item" }, "right": { "ref": "$.input.program.courses[*].code" } }
+          },
+          "feedback": {
+            "fail": {
+              "code": "EN_COURSE_NOT_OFFERED",
+              "path": "plan.courses",
+              "message": {
+                "it": "Il piano contiene corsi che il programma {{input.program.code}} non offre",
+                "en": "The plan has courses that programme {{input.program.code}} does not offer"
+              },
+              "data": {
+                "notOffered": {
+                  "fn": "filter",
+                  "args": [{ "ref": "$.input.plan.courses" }],
+                  "where": { "op": "not_in", "left": { "ref": "$.item" }, "right": { "ref": "$.input.program.courses[*].code" } }
+                }
+              }
+            }
+          }
+        },
+        {
+          "rule": {
+            "op": "==",
+            "left": { "fn": "count", "args": [{ "fn": "distinct", "args": [{ "ref": "$.input.plan.courses" }] }] },
+            "right": { "fn": "count", "args": [{ "ref": "$.input.plan.courses" }] }
+          },
+          "feedback": {
+            "fail": {
+              "code": "EN_COURSE_DUPLICATE",
+              "path": "plan.courses",
+              "message": { "it": "Lo stesso corso compare più volte nel piano", "en": "A course appears more than once in the plan" }
+            }
+          }
+        },
+        {
+          "rule": {
+            "fn": "all",
+            "args": [{ "ref": "$.input.program.courses" }],
+            "where": { "op": "==", "left": { "ref": "$.item.mandatory" }, "right": true },
+            "select": { "op": "in", "left": { "ref": "$.item.code" }, "right": { "ref": "$.input.plan.courses" } }
+          },
+          "feedback": {
+            "fail": {
+              "code": "EN_MANDATORY_MISSING",
+              "path": "plan.courses",
+              "message": { "it": "Mancano corsi obbligatori del programma", "en": "Mandatory courses of the programme are missing" },
+              "data": {
+                "missing": {
+                  "fn": "map",
+                  "args": [{ "ref": "$.input.program.courses" }],
+                  "where": {
+                    "op": "and",
+                    "args": [
+                      { "op": "==", "left": { "ref": "$.item.mandatory" }, "right": true },
+                      { "op": "not_in", "left": { "ref": "$.item.code" }, "right": { "ref": "$.input.plan.courses" } }
+                    ]
+                  },
+                  "select": { "ref": "$.item.code" }
+                }
+              }
+            }
+          }
+        },
+        {
+          "rule": {
+            "op": "and",
+            "args": [
+              { "op": ">=", "left": { "ref": "$.vars.totalCfu" }, "right": { "ref": "$.input.program.minCfu" } },
+              { "op": "<=", "left": { "ref": "$.vars.totalCfu" }, "right": { "ref": "$.input.program.maxCfu" } }
+            ]
+          },
+          "feedback": {
+            "fail": {
+              "code": "EN_CFU_RANGE",
+              "path": "plan.courses",
+              "message": {
+                "it": "Il piano vale {{vars.totalCfu}} CFU: il programma ne prevede da {{input.program.minCfu}} a {{input.program.maxCfu}}",
+                "en": "The plan is worth {{vars.totalCfu}} ECTS: the programme requires {{input.program.minCfu}} to {{input.program.maxCfu}}"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "endOk",
+      "type": "end",
+      "outcome": "valid",
+      "output": {
+        "student": { "ref": "$.input.student.id" },
+        "program": { "ref": "$.input.program.code" },
+        "courses": { "fn": "count", "args": [{ "ref": "$.input.plan.courses" }] },
+        "totalCfu": { "ref": "$.vars.totalCfu" }
+      }
+    }
+  ],
+  "edges": [
+    { "from": "start", "to": "totals" },
+    { "from": "totals", "to": "chkStudent" },
+    { "from": "chkStudent", "to": "chkAge", "on": "pass" },
+    { "from": "chkAge", "to": "grpPlan", "on": "pass" },
+    { "from": "grpPlan", "to": "endOk", "on": "pass" }
+  ],
+  "ui": {
+    "positions": {
+      "start": [0, 0],
+      "totals": [286, 0],
+      "chkStudent": [572, 0],
+      "chkAge": [858, 0],
+      "grpPlan": [1144, 0],
+      "endOk": [1430, 0]
+    }
+  }
+}

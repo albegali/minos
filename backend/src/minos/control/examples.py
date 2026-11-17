@@ -4,18 +4,22 @@ For every example rule set (``examples/rulesets``): the entity with a schema inf
 example inputs (``examples/inputs/<entity lower case>-*.json``), the rule set with its tests
 (``examples/tests/<ruleset>.tests.json``), a first published version gated by those tests and
 promoted to ``prod``. Pinned sub-rulesets are published before the rule sets that use them.
+
+An entity with a schema written by hand (``examples/entities/<entity>.json``) uses it instead of
+the inferred one. Those schemas can use other entities as field types (``{"$ref":
+"entity:Course"}``); they are saved after the entities they reference.
 """
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from minos.schema import infer_schema
+from minos.schema import find_refs, infer_schema, pin_refs, resolve_refs
 
 from . import service as svc
 from .errors import NotFound
@@ -29,6 +33,11 @@ ENTITY_NAMES: Final = {
     "StudyPlan": "Piano di studi",
     "Order": "Ordine",
     "LoanApplication": "Richiesta di finanziamento",
+    "Student": "Studente",
+    "Course": "Corso",
+    "Program": "Programma",
+    "Plan": "Piano individuale",
+    "Enrollment": "Iscrizione",
 }
 
 
@@ -37,10 +46,47 @@ class Examples:
     graphs: list[dict[str, Any]]  # dependencies first
     samples: dict[str, list[Any]]  # entity key -> example inputs
     tests: dict[str, list[dict[str, Any]]]  # ruleset key -> test cases
+    # entity key -> schema written by hand, referenced entities first
+    schemas: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def entities(self) -> list[str]:
+        """Every entity key, each after the entities its schema references."""
+        return [*(e for e in self.samples if e not in self.schemas), *self.schemas]
+
+    def resolved_schemas(self) -> dict[str, dict[str, Any]]:
+        """The schema each entity gets once saved (version 1), in its resolved form."""
+        out: dict[str, dict[str, Any]] = {}
+        for key in self.entities():
+            schema = self.schemas.get(key)
+            if schema is None:
+                out[key] = infer_schema(self.samples[key], title=key)
+                continue
+            refs = find_refs(schema)
+            pinned = pin_refs(schema, {e: 1 for e, _ in refs})
+            out[key] = resolve_refs(pinned, {(e, v or 1): out[e] for e, v in refs})
+        return out
 
 
 def _read(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _by_reference(schemas: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """``schemas`` ordered so that every entity comes after the ones it references."""
+    ordered: dict[str, dict[str, Any]] = {}
+
+    def visit(key: str, path: tuple[str, ...]) -> None:
+        if key in ordered or key not in schemas:
+            return
+        if key in path:
+            raise ValueError(f"example entities reference each other: {' -> '.join(path)}")
+        for ref, _ in find_refs(schemas[key]):
+            visit(ref, (*path, key))
+        ordered[key] = schemas[key]
+
+    for key in sorted(schemas):
+        visit(key, ())
+    return ordered
 
 
 def load_examples(root: Path) -> Examples:
@@ -61,7 +107,8 @@ def load_examples(root: Path) -> Examples:
     for key in by_key:
         visit(key)
 
-    entities = {g["schemaRef"]["entity"] for g in ordered}
+    schemas = _by_reference({p.stem: _read(p) for p in sorted((root / "entities").glob("*.json"))})
+    entities = {g["schemaRef"]["entity"] for g in ordered} - set(schemas)
     samples = {
         e: [_read(p) for p in sorted((root / "inputs").glob(f"{e.lower()}-*.json"))]
         for e in sorted(entities)
@@ -70,7 +117,7 @@ def load_examples(root: Path) -> Examples:
     for key in by_key:
         path = root / "tests" / f"{key}.tests.json"
         tests[key] = _read(path) if path.is_file() else []
-    return Examples(ordered, samples, tests)
+    return Examples(ordered, samples, tests, schemas)
 
 
 async def seed_examples(
@@ -78,30 +125,41 @@ async def seed_examples(
     examples: Examples,
     workspace: str = WORKSPACE,
     name: str = WORKSPACE_NAME,
-) -> list[str] | None:
-    """Create ``workspace`` with every example published in ``prod``.
+) -> list[str]:
+    """Publish in ``prod`` of ``workspace`` (created if missing) every example it lacks.
 
-    Returns the published ``ruleset@version`` list, or ``None`` when the workspace already
-    exists (nothing is touched, so changes made in the Studio survive restarts).
+    Entities and rule sets that already exist, by key, are left alone, so changes made in the
+    Studio survive restarts while examples added to the repository still arrive. Returns the
+    published ``ruleset@version`` list (empty when nothing was missing).
     """
     try:
-        await svc.get_workspace(s, workspace)
-        return None
+        ws = await svc.get_workspace(s, workspace)
     except NotFound:
-        pass
-    ws = await svc.create_workspace(s, ACTOR, workspace, name)
+        ws = await svc.create_workspace(s, ACTOR, workspace, name)
 
     entities = {}
-    for key, samples in examples.samples.items():
+    for key in examples.entities():
+        try:
+            entities[key] = await svc.get_entity(s, ws, key)
+            continue
+        except NotFound:
+            pass
         entity = await svc.create_entity(s, ACTOR, ws, key, ENTITY_NAMES.get(key, key), None)
-        if samples:
-            schema = infer_schema(samples, title=key)
+        schema = examples.schemas.get(key)
+        if schema is None and examples.samples.get(key):
+            schema = infer_schema(examples.samples[key], title=key)
+        if schema is not None:
             await svc.add_schema_version(s, ACTOR, ws, entity, schema, "examples")
         entities[key] = entity
 
     published = []
     for graph in examples.graphs:
         key = graph["ruleset"]
+        try:
+            await svc.get_ruleset(s, ws, key)
+            continue
+        except NotFound:
+            pass
         entity = entities[graph["schemaRef"]["entity"]]
         rs = await svc.create_ruleset(s, ACTOR, ws, entity, key, key, None, graph)
         for case in examples.tests.get(key, []):

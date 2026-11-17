@@ -11,7 +11,8 @@
     "name": "Name",
     "key": "Key",
     "invalidJson": "Invalid JSON: {message}",
-    "language": "Language"
+    "language": "Language",
+    "remove": "Remove"
   },
   "shell": {
     "connecting": "Connecting to the API…",
@@ -74,7 +75,18 @@
     "samples": "Samples (an object or a list of objects)",
     "samplesHint": "More samples make optional the fields that do not appear everywhere.",
     "preview": "Schema preview",
-    "jsonSchema": "JSON Schema (draft 2020-12)"
+    "jsonSchema": "JSON Schema (draft 2020-12)",
+    "compose": "Compose from entities",
+    "composeHint": "Fields whose type is another entity: a rule set on this entity reads every part directly ($.input.<field>...). Fields that are not entities stay as they are.",
+    "composeTable": "Fields typed with an entity",
+    "entity": "Entity",
+    "list": "List",
+    "addField": "Add field",
+    "uses": "Uses",
+    "usedBy": "Used by",
+    "staleRefs": "Newer versions available: {list}.",
+    "updateRefs": "Update references",
+    "jsonSchemaHint": "Another entity as the type of a field: {\"$ref\": \"entity:Course\"}, pinned to its latest version when saved."
   },
   "demo": {
     "noExamples": "No examples.",

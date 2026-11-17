@@ -57,13 +57,47 @@ MINOS_DATABASE_URL=... uv run python -m minos.cli seed-examples
 ```
 
 Creates the `esempi` workspace with every example in the repo (Aurora study plan, e-commerce
-order, loan): entities with the schema derived from the sample inputs, rule sets with their tests,
+order, loan, enrollment): entities with the schema derived from the sample inputs, or written in
+`entities/<key>.json` (these can use other entities as field types), rule sets with their tests,
 version `0.1.0` published (the tests act as the gate) and moved to `prod`. If the workspace already
-exists it touches nothing, so changes made in the Studio are kept. `--workspace` picks another
-name, `--dir` another folder (`rulesets/`, `inputs/`, `tests/`). The Docker image runs it on every
+exists it only adds the examples it lacks: existing entities and rule sets (by key) are left
+alone, so changes made in the Studio are kept. `--workspace` picks another
+name, `--dir` another folder (`rulesets/`, `inputs/`, `tests/`, optionally `entities/`). The Docker image runs it on every
 start (`MINOS_SEED_EXAMPLES=false` to start empty).
 
 Errors are `application/problem+json` (`status`, `title`, `detail` plus specific fields).
+
+### Entities made of other entities
+
+When the input combines several objects (a student, their study plan, the program and its
+courses), create one entity per kind of object, then one for the whole input that uses them as
+field types:
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "student": { "$ref": "entity:Student" },
+    "plan": { "$ref": "entity:StudyPlan" },
+    "program": { "$ref": "entity:Program" }
+  },
+  "required": ["student", "plan", "program"]
+}
+```
+
+`Program` can itself hold `"courses": {"type": "array", "items": {"$ref": "entity:Course"}}`.
+A rule set on this entity reads every part directly (`$.input.student.birthDate`,
+`$.input.program.courses[*].cfu`); no `subruleset` is needed.
+
+- When the schema is saved, `entity:Course` is pinned to Course's latest version and stored as
+  `entity:Course@2`. A version written explicitly is kept. A new version of Course does not change
+  the schemas that use it: `references[].latest` shows that it exists, and saving the schema again
+  with unpinned references moves them forward (*Update references* in the Studio).
+- Only `title` and `description` may sit next to a reference (`422` otherwise), as well as for an
+  unknown entity or version.
+- `resolved` embeds the referenced versions under `$defs["entity:<key>@<version>"]`. Execution
+  validates the input against it, the Swagger shows it, and bundles export it, so a bundle imports
+  where the referenced entities do not exist.
 
 ## Execution API
 
@@ -118,8 +152,9 @@ All paths under `/v1`. `{ws}` is the workspace slug, `{rs}` the rule set key.
 | `GET /workspaces/{ws}/audit?limit=100` | Change log |
 | `POST /schemas/infer` | `{"samples": [...], "title"?}` → JSON Schema 2020-12, without saving it |
 | `GET/POST /workspaces/{ws}/entities` | Entities |
-| `GET/POST .../entities/{entity}/schemas` | Schema versions: `{"schema": {...}}` or `{"samples": [...]}`; a schema identical to the latest does not create a version |
-| `GET .../entities/{entity}/schemas/{version}` | One version with its document |
+| `GET .../entities/{entity}` | One entity with `usedBy`: the entities whose latest schema references it |
+| `GET/POST .../entities/{entity}/schemas` | Schema versions: `{"schema": {...}}` or `{"samples": [...]}`; a schema identical to the latest does not create a version. In a schema, `{"$ref": "entity:<key>"}` makes another entity the type of a field (see below) |
+| `GET .../entities/{entity}/schemas/{version}` | One version: `schema` (as written), `resolved` (standalone, what rules read) and `references` (`{entity, version, latest}`) |
 | `GET/POST /workspaces/{ws}/rulesets` | Rule sets: `{"key", "name", "entity", "graph"?}`; the draft starts from the given graph or from start → end |
 | `GET .../rulesets/{rs}` | Metadata, entity, latest version, `aliases` (version in force today per environment) and `schedule` (full schedule) |
 | `GET/PUT .../rulesets/{rs}/draft` | Draft with `ETag`; `PUT` with `If-Match` for optimistic locking (`412` if changed); optional `schemaVersion` |

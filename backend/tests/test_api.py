@@ -31,10 +31,11 @@ def client() -> Iterator[TestClient]:
 
 
 def test_health_and_listing(client: TestClient) -> None:
-    assert client.get("/v1/health").json() == {"status": "ok", "deployments": 5}
+    assert client.get("/v1/health").json() == {"status": "ok", "deployments": 6}
     assert client.get("/v1/ready").json() == {"status": "ready"}
     listing = client.get("/v1/deployments").json()
     assert [d["ruleset"] for d in listing] == [
+        "aurora.enrollment",
         "aurora.studyplan.common",
         "aurora.studyplan.emba",
         "aurora.studyplan.full",
@@ -116,7 +117,7 @@ def test_rulesets_dir_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MINOS_REQUIRE_AUTH", "false")
     monkeypatch.delenv("MINOS_DATABASE_URL", raising=False)
     with TestClient(create_app()) as client:
-        assert client.get("/v1/health").json()["deployments"] == 5
+        assert client.get("/v1/health").json()["deployments"] == 6
 
 
 def test_zero_config_serves_examples_without_auth(monkeypatch: pytest.MonkeyPatch) -> None:

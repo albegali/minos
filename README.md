@@ -30,7 +30,7 @@ assistant write them from a description.
 | --- | --- |
 | [`backend/`](backend/) | Python 3.14: engine (`minos.engine`), schemas (`minos.schema`), control plane (`minos.control`, `minos.db`), FastAPI API (`minos.api`), MCP server (`minos.mcp`), tests, benchmarks |
 | [`frontend/`](frontend/) | Minos Studio: React 19, Fluent UI 2, React Flow; Vitest and Playwright tests |
-| [`examples/`](examples/) | Example rule sets from three domains (study plan, e-commerce order, loan; illustrative values), inputs and test suites |
+| [`examples/`](examples/) | Example rule sets from four domains (study plan, enrollment over several entities, e-commerce order, loan; illustrative values), entity schemas, inputs and test suites |
 | [`docs/spec.md`](docs/spec.md) | Functional specification, architecture, API and roadmap |
 | [`docs/rgd-format.md`](docs/rgd-format.md) | Rule Graph Document 1.0 format reference |
 | [`docs/studio.md`](docs/studio.md) | Minos Studio quick guide |
