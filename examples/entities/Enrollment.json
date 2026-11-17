@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "title": "Enrollment",
+  "description": "Richiesta di iscrizione: lo studente, il programma con i suoi corsi e il piano scelto",
+  "required": ["student", "program", "plan"],
+  "properties": {
+    "student": { "$ref": "entity:Student" },
+    "program": { "$ref": "entity:Program" },
+    "plan": { "$ref": "entity:Plan" }
+  }
+}

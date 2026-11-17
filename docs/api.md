@@ -57,10 +57,12 @@ MINOS_DATABASE_URL=... uv run python -m minos.cli seed-examples
 ```
 
 Creates the `esempi` workspace with every example in the repo (Aurora study plan, e-commerce
-order, loan): entities with the schema derived from the sample inputs, rule sets with their tests,
+order, loan, enrollment): entities with the schema derived from the sample inputs, or written in
+`entities/<key>.json` (these can use other entities as field types), rule sets with their tests,
 version `0.1.0` published (the tests act as the gate) and moved to `prod`. If the workspace already
-exists it touches nothing, so changes made in the Studio are kept. `--workspace` picks another
-name, `--dir` another folder (`rulesets/`, `inputs/`, `tests/`). The Docker image runs it on every
+exists it only adds the examples it lacks: existing entities and rule sets (by key) are left
+alone, so changes made in the Studio are kept. `--workspace` picks another
+name, `--dir` another folder (`rulesets/`, `inputs/`, `tests/`, optionally `entities/`). The Docker image runs it on every
 start (`MINOS_SEED_EXAMPLES=false` to start empty).
 
 Errors are `application/problem+json` (`status`, `title`, `detail` plus specific fields).

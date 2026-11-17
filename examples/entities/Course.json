@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "title": "Course",
+  "required": ["code", "title", "cfu", "mandatory"],
+  "properties": {
+    "code": { "type": "string" },
+    "title": { "type": "string" },
+    "cfu": { "type": "integer", "minimum": 1 },
+    "mandatory": { "type": "boolean", "description": "Obbligatorio nel programma" },
+    "term": { "type": "integer", "minimum": 1, "maximum": 4 }
+  }
+}

@@ -417,12 +417,13 @@ Every node type is described by a JSON manifest served by `GET /v1/node-types`: 
 
 ## Examples
 
-The engine is generic: the repository holds complete examples, with test suites, for three domains (`examples/`):
+The engine is generic: the repository holds complete examples, with test suites, for four domains (`examples/`):
 
 | Rule set | Domain | What it shows |
 | --- | --- | --- |
 | `aurora.studyplan.*` | University study plan | Rule groups, nested aggregations, switch, sub rule set at a pinned version, price-list table |
 | `shop.order` | E-commerce order | Computed totals, per-line checks listing the non-compliant items, shipping table, coupon with a warning |
+| `aurora.enrollment` | University enrollment | Input made of several entities (student, programme with its courses, plan; `examples/entities`): rules that compare them with each other |
 | `bank.loan.eligibility` | Loan eligibility | Instalment and instalment-to-income ratio, `collect` table of rejection reasons, risk band |
 
 ### Detailed example: Aurora Business School study plan

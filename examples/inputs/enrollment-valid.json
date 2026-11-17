@@ -1,0 +1,86 @@
+{
+  "student": {
+    "id": "S2027-00456",
+    "firstName": "Giulia",
+    "lastName": "Rossi",
+    "birthDate": "2001-05-14",
+    "status": "ACTIVE"
+  },
+  "program": {
+    "code": "MSC-DS",
+    "name": "MSc in Data Science for Management",
+    "minAge": 21,
+    "minCfu": 60,
+    "maxCfu": 72,
+    "courses": [
+      {
+        "code": "DS101",
+        "title": "Foundations of Data Science",
+        "cfu": 12,
+        "mandatory": true,
+        "term": 1
+      },
+      {
+        "code": "DS102",
+        "title": "Data Engineering",
+        "cfu": 12,
+        "mandatory": true,
+        "term": 1
+      },
+      {
+        "code": "ML201",
+        "title": "Machine Learning",
+        "cfu": 12,
+        "mandatory": true,
+        "term": 2
+      },
+      {
+        "code": "CAP300",
+        "title": "Capstone Project",
+        "cfu": 12,
+        "mandatory": true,
+        "term": 4
+      },
+      {
+        "code": "STA110",
+        "title": "Applied Statistics",
+        "cfu": 6,
+        "mandatory": false,
+        "term": 1
+      },
+      {
+        "code": "VIS120",
+        "title": "Data Visualization",
+        "cfu": 6,
+        "mandatory": false,
+        "term": 2
+      },
+      {
+        "code": "NLP210",
+        "title": "Natural Language Processing",
+        "cfu": 12,
+        "mandatory": false,
+        "term": 3
+      },
+      {
+        "code": "ETH130",
+        "title": "Data Ethics and Governance",
+        "cfu": 6,
+        "mandatory": false,
+        "term": 3
+      }
+    ]
+  },
+  "plan": {
+    "academicYear": "2027/2028",
+    "submittedAt": "2027-09-20T10:15:00Z",
+    "courses": [
+      "DS101",
+      "DS102",
+      "ML201",
+      "CAP300",
+      "NLP210",
+      "ETH130"
+    ]
+  }
+}

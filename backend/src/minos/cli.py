@@ -5,8 +5,8 @@
     python -m minos.cli seed-examples                # load the examples into workspace "esempi"
 
 All read ``MINOS_DATABASE_URL``. ``seed-examples`` reads the examples from ``--dir``, else
-``MINOS_EXAMPLES_DIR``, else the repository's ``examples`` directory; it does nothing when the
-workspace already exists.
+``MINOS_EXAMPLES_DIR``, else the repository's ``examples`` directory; it only adds the examples
+the workspace lacks, leaving existing entities and rule sets alone.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ async def create_admin_key(url: str, name: str) -> str:
     return key
 
 
-async def seed(url: str, root: Path, workspace: str) -> list[str] | None:
+async def seed(url: str, root: Path, workspace: str) -> list[str]:
     examples = load_examples(root)
     engine = make_engine(url)
     try:
@@ -88,8 +88,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"no examples in {root}", file=sys.stderr)
             return 2
         published = asyncio.run(seed(url, root, args.workspace))
-        if published is None:
-            print(f"workspace {args.workspace!r} already exists: examples not loaded")
+        if not published:
+            print(f"workspace {args.workspace!r} already has every example: nothing to add")
         else:
             print(f"workspace {args.workspace!r}: published {', '.join(published)} in prod")
     else:

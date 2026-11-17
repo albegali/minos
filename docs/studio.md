@@ -69,5 +69,8 @@ Leaving with unsaved changes asks for confirmation.
 
 To start from something concrete open the **Esempi** workspace: with `docker compose up` (or after
 `python -m minos.cli seed-examples`) it holds every example in the repository (study plan,
-e-commerce order, loan) already published to `prod`, with their tests, free to edit. `/demo`
+e-commerce order, loan, enrollment) already published to `prod`, with their tests, free to edit.
+`aurora.enrollment` runs on an input made of several entities: **Iscrizione** joins a
+**Studente**, a **Programma** with its list of **Corsi** and the student's **Piano individuale**,
+and its tests (also listed in the simulator) cover each error. `/demo`
 instead shows them read-only with their inputs and the simulator, even without a database.

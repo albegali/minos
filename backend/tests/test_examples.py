@@ -8,10 +8,11 @@ from typing import Any
 
 import pytest
 
+from minos.control.examples import load_examples
 from minos.control.service import resolver_from
 from minos.control.testing import compare
 from minos.engine import ExecuteOptions, compile_ruleset
-from minos.schema import infer_schema
+from minos.schema import InputValidator
 
 from .conftest import EXAMPLES
 
@@ -24,10 +25,9 @@ def samples_for(entity: str) -> list[Any]:
     return [json.loads(p.read_text()) for p in files]
 
 
-SCHEMAS = {
-    g["schemaRef"]["entity"]: infer_schema(samples_for(g["schemaRef"]["entity"]))
-    for g in GRAPHS.values()
-}
+# The schemas the entities get when the examples are loaded: inferred from the example inputs,
+# or written by hand in examples/entities (resolved, with the entities they reference).
+SCHEMAS = load_examples(EXAMPLES).resolved_schemas()
 RESOLVE = resolver_from(
     {(g["ruleset"], g["version"]): (g, SCHEMAS[g["schemaRef"]["entity"]]) for g in GRAPHS.values()}
 )
@@ -53,8 +53,26 @@ def test_example_suites(ruleset: str, case: dict[str, Any]) -> None:
     assert compare(case["expected"], result) == []
 
 
-def test_every_entity_has_example_inputs() -> None:
-    assert all(samples_for(entity) for entity in SCHEMAS)
+def test_every_ruleset_entity_has_example_inputs() -> None:
+    entities = {g["schemaRef"]["entity"] for g in GRAPHS.values()}
+    assert all(samples_for(entity) for entity in entities)
+
+
+def test_composite_example_inputs_match_their_schema() -> None:
+    # Enrollment is made of Student, Program (with its Course list) and Plan.
+    schema = SCHEMAS["Enrollment"]
+    assert set(schema["$defs"]) == {
+        "entity:Student@1",
+        "entity:Program@1",
+        "entity:Course@1",
+        "entity:Plan@1",
+    }
+    validator = InputValidator(schema)
+    for sample in samples_for("Enrollment"):
+        assert validator.errors(sample) == []
+    broken = samples_for("Enrollment")[0]
+    broken["program"]["courses"][0]["cfu"] = "dodici"
+    assert [e["path"] for e in validator.errors(broken)] == ["/program/courses/0/cfu"]
 
 
 def test_every_example_ruleset_has_a_suite() -> None:

@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "title": "Plan",
+  "required": ["academicYear", "courses"],
+  "properties": {
+    "academicYear": { "type": "string", "pattern": "^[0-9]{4}/[0-9]{4}$" },
+    "submittedAt": { "type": "string", "format": "date-time" },
+    "courses": {
+      "type": "array",
+      "description": "Codici dei corsi scelti",
+      "items": { "type": "string" }
+    }
+  }
+}
