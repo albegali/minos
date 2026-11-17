@@ -1,5 +1,6 @@
 import { Button, Dropdown, Option, ToggleButton } from '@fluentui/react-components'
 import { Add16Regular, Delete16Regular } from '@fluentui/react-icons'
+import { useState } from 'react'
 
 import type { OperatorSpec } from '../api/types'
 import { useI18n } from '../i18n'
@@ -13,6 +14,7 @@ import {
   isRef,
   type OpExpr,
   operands,
+  parseList,
   RANGE,
   toggleNot,
   UNARY,
@@ -107,33 +109,38 @@ function Comparison({ value, onChange }: { value: OpExpr; onChange: (e: Expr) =>
 /** Values for `in` / `not in`: a comma-separated list or a field holding a list. */
 function ListValue({ value, onChange, hint }: { value: Expr; onChange: (e: Expr) => void; hint: ValueHint }) {
   const { t } = useI18n()
+  const items = Array.isArray(value) ? value : []
+  const numeric = hint.types?.some((type) => type === 'number' || type === 'integer') ?? false
+  // Controlled, with the text as typed ("IT, " while adding a code): a list changed from
+  // outside (another condition removed, undo) replaces the text, so the box never shows, nor
+  // writes back, another condition's values.
+  const [draft, setDraft] = useState<{ text: string; value: Expr[] }>(() => ({ text: items.join(', '), value: items }))
   if (isRef(value)) {
     return <ExpressionEditor value={value} onChange={onChange} modes={['field', 'value']} compact />
   }
-  const items = Array.isArray(value) ? value : []
-  const numeric = hint.types?.some((type) => type === 'number' || type === 'integer')
+  const text = sameList(draft.value, items) ? draft.text : items.join(', ')
   return (
     <div className="inline">
       <input
         aria-label={t('condition.listValues')}
         className="list-input"
-        defaultValue={items.join(', ')}
+        value={text}
         placeholder={t('condition.listPlaceholder')}
-        onBlur={(e) =>
-          onChange(
-            e.target.value
-              .split(',')
-              .map((s) => s.trim())
-              .filter(Boolean)
-              .map((s) => (numeric && !Number.isNaN(Number(s)) ? Number(s) : s)),
-          )
-        }
+        onChange={(e) => {
+          const parsed = parseList(e.target.value, numeric)
+          setDraft({ text: e.target.value, value: parsed })
+          onChange(parsed)
+        }}
       />
       <Button size="small" appearance="subtle" onClick={() => onChange({ ref: '' })}>
         {t('condition.fromField')}
       </Button>
     </div>
   )
+}
+
+function sameList(a: Expr[], b: Expr[]): boolean {
+  return a.length === b.length && a.every((x, i) => x === b[i])
 }
 
 function Group({ value, onChange, depth }: { value: OpExpr; onChange: (e: Expr) => void; depth: number }) {

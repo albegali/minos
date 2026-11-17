@@ -57,7 +57,9 @@
     "rulesets": "Rule set",
     "noRulesets": "Nessun rule set: creane uno dopo aver definito un'entità.",
     "entities": "Entità e schemi",
-    "noEntities": "Nessuna entità."
+    "noEntities": "Nessuna entità.",
+    "importOverwrite": "Il rule set {ruleset} esiste già qui: l'import ne sostituisce il draft e i {count} test del bundle con lo stesso nome. Continuare?",
+    "importDependencies": "Importato. Il rule set usa questi rule set annidati, che vanno importati e pubblicati anche qui: {list}"
   },
   "entity": {
     "title": "Entità {entity}",
@@ -150,7 +152,8 @@
     "canvas": "Grafo delle regole",
     "emptyHint": "Trascina un nodo dalla palette sul canvas, collega le uscite agli ingressi e seleziona un nodo per configurarlo.",
     "panels": "Pannelli",
-    "issues": "Problemi"
+    "issues": "Problemi",
+    "validateFailed": "Bozza salvata, ma non è stato possibile validarla: {error}"
   },
   "canvas": {
     "groupSummary": "{count} regole · {operator}",
@@ -373,7 +376,8 @@
     "saveAsTestTitle": "Salva come test",
     "saveAsTest": "Salva questa simulazione come test",
     "saveAsTestHint": "L'esito, i codici dei messaggi e l'output attuali diventano il risultato atteso.",
-    "testName": "Nome del test"
+    "testName": "Nome del test",
+    "staleResult": "Il rule set è cambiato dopo questa simulazione: rieseguila per salvarla come test."
   },
   "tests": {
     "intro": "I test vengono eseguiti a ogni pubblicazione: se uno fallisce, la versione non viene creata.",
@@ -412,7 +416,8 @@
     "when": "Quando",
     "now": "Da subito, senza data di inizio (sostituisce la versione attuale)",
     "fromDate": "Da una data: le chiamate con data di riferimento successiva useranno questa versione",
-    "effectiveFrom": "In vigore dal"
+    "effectiveFrom": "In vigore dal",
+    "unchanged": "Nessuna modifica dalla versione {version}: non è stata pubblicata una nuova versione."
   },
   "diff": {
     "added": "{path}: aggiunto {value}",

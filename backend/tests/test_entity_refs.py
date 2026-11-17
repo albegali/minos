@@ -282,6 +282,46 @@ async def test_rule_set_over_several_entities(
     assert r.status_code == 201, r.text
     r = await c.post("/v1/workspaces/u2/rulesets/enrollment/validate", headers=h)
     assert r.json()["valid"] is True
+    # ...and it brings the referenced entities along, still linked (CTL-03)
+    listed = [e["key"] for e in bundle["entities"]]
+    assert sorted(listed) == ["Course", "Program", "Student"]
+    assert listed.index("Course") < listed.index("Program")  # referenced ones first
+    u2 = "/v1/workspaces/u2/entities"
+    imported = (await c.get(f"{u2}/Enrollment/schemas/1", headers=h)).json()
+    assert sorted((x["entity"], x["version"]) for x in imported["references"]) == [
+        ("Program", 1),
+        ("Student", 1),
+    ]
+    assert (await c.get(f"{u2}/Course", headers=h)).json()["usedBy"] == ["Program"]
+
+    # back into the same workspace: identical versions are reused, nothing new
+    r = await c.post(f"{WS}/import", json=bundle, headers=h)
+    assert r.status_code == 200, r.text  # the rule set already exists
+    assert r.json()["schemaVersion"] == 1
+    again = (await c.get(f"{WS}/entities/Enrollment/schemas/1", headers=h)).json()
+    assert sorted(x["entity"] for x in again["references"]) == ["Program", "Student"]
+
+    # where Course@1 is another schema, the bundle's Course becomes a new version there
+    assert (await c.post("/v1/workspaces", json={"slug": "u3", "name": "U3"}, headers=h)).is_success
+    u3 = "/v1/workspaces/u3/entities"
+    await c.post(u3, json={"key": "Course", "name": "Course"}, headers=h)
+    other = {"schema": {"type": "object", "properties": {"title": {"type": "string"}}}}
+    assert (await c.post(f"{u3}/Course/schemas", json=other, headers=h)).status_code == 201
+    r = await c.post("/v1/workspaces/u3/import", json=bundle, headers=h)
+    assert r.status_code == 201, r.text
+    program3 = (await c.get(f"{u3}/Program/schemas/1", headers=h)).json()
+    assert program3["references"] == [{"entity": "Course", "version": 2, "latest": 2}]
+    r = await c.post("/v1/workspaces/u3/rulesets/enrollment/validate", headers=h)
+    assert r.json()["valid"] is True
+
+    # bundles from before (resolved schema only) still import
+    legacy = {k: v for k, v in bundle.items() if k not in ("entities", "authoredSchema")}
+    assert (await c.post("/v1/workspaces", json={"slug": "u4", "name": "U4"}, headers=h)).is_success
+    r = await c.post("/v1/workspaces/u4/import", json=legacy, headers=h)
+    assert r.status_code == 201, r.text
+    bad = dict(bundle, entities=[{"key": "Course"}])
+    r = await c.post("/v1/workspaces/u4/import", json=bad, headers=h)
+    assert r.status_code == 422
 
 
 async def test_reference_versions(
@@ -317,3 +357,21 @@ async def test_reference_versions(
     await rejected({"$ref": "entity:Course", "minProperties": 1}, "only carry annotations")
     r = await c.post(f"{WS}/entities", json={"key": "Empty", "name": "E"}, headers=h)
     await rejected({"$ref": "entity:Empty"}, "'Empty' has no schema yet")
+
+
+def test_references_under_properties_named_like_keywords() -> None:
+    # ENG-11: a property called "default" or "enum" is a field, not a data keyword
+    schema = {
+        "type": "object",
+        "properties": {
+            "default": {"$ref": "entity:Course"},
+            "enum": {"type": "array", "items": {"$ref": "entity:Course"}},
+            "plain": {"type": "string", "default": {"$ref": "entity:Ignored"}},
+        },
+    }
+    assert find_refs(schema) == [("Course", None)]
+    pinned = pin_refs(schema, {"Course": 2})
+    assert pinned["properties"]["default"] == {"$ref": "entity:Course@2"}
+    assert pinned["properties"]["enum"]["items"] == {"$ref": "entity:Course@2"}
+    with pytest.raises(SchemaError, match="no version"):
+        pin_refs(schema, {})

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 from typing import Any
 
 import pytest
@@ -130,3 +131,44 @@ def test_templates() -> None:
     assert compile_template("{{vars.a}}|{{ vars.b }}|{{vars.c}}|{{vars.d}}|{{vars.x}}!")(scope) == (
         "1|true||2.5|!"
     )
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        {"op": ["=="], "left": 1, "right": 1},
+        {"fn": ["len"], "args": ["x"]},
+        # deeper than Python's recursion allows while compiling
+        functools.reduce(lambda acc, _: {"op": "not", "arg": acc}, range(2000), True),
+    ],
+)
+def test_malformed_graphs_are_compile_errors(condition: Any) -> None:
+    # ENG-04: never an unexpected exception (HTTP 500 on validate/publish)
+    doc = graph(
+        [
+            {"id": "start", "type": "start"},
+            {"id": "c", "type": "condition", "condition": condition},
+            {"id": "ok", "type": "end", "outcome": "valid"},
+        ],
+        [{"from": "start", "to": "c"}, {"from": "c", "to": "ok", "on": "pass"}],
+    )
+    with pytest.raises(CompileError):
+        compile_ruleset(doc)
+
+
+def test_malformed_group_child_is_a_compile_error() -> None:
+    doc = graph(
+        [
+            {"id": "start", "type": "start"},
+            {
+                "id": "g",
+                "type": "group",
+                "operator": "and",
+                "children": [{"rule": True, "feedback": {"fail": {"code": "X"}}}],
+            },
+            {"id": "ok", "type": "end", "outcome": "valid"},
+        ],
+        [{"from": "start", "to": "g"}, {"from": "g", "to": "ok", "on": "pass"}],
+    )
+    with pytest.raises(CompileError):
+        compile_ruleset(doc)

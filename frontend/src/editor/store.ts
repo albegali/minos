@@ -8,11 +8,29 @@ import type { RuleGraph } from '../rgd'
 
 export type PanelTab = 'node' | 'simulate' | 'tests' | 'versions' | 'settings'
 
+/** What the simulator runs: kept here so it survives switching panel tabs. */
+export interface SimRequest {
+  input: unknown
+  referenceDate: string
+  locale: string
+}
+
+/** The request behind the current simulation, and the graph it ran on. */
+export interface Simulated extends SimRequest {
+  graph: RuleGraph | null
+}
+
+function blankRequest(graph: RuleGraph | null): SimRequest {
+  return { input: {}, referenceDate: '', locale: graph?.settings?.locale ?? 'it' }
+}
+
 const HISTORY = 100
 /** Changes closer than this are one undo step (typing in a field, nudging a value). */
 const COALESCE_MS = 600
 
 interface EditorState {
+  /** Which rule set the state belongs to (`workspace/ruleset`), set by `load`. */
+  key: string | null
   graph: RuleGraph | null
   past: RuleGraph[]
   future: RuleGraph[]
@@ -28,20 +46,25 @@ interface EditorState {
   warnings: string[]
   validated: boolean
   simulation: ExecutionResult | null
-  load: (draft: Draft) => void
+  simulated: Simulated | null
+  simRequest: SimRequest
+  load: (draft: Draft, key?: string | null) => void
   change: (update: (graph: RuleGraph) => RuleGraph, options?: { coalesce?: boolean }) => void
   undo: () => void
   redo: () => void
   setSchemaVersion: (version: number | null) => void
-  saved: (lockVersion: number) => void
+  /** The draft was saved as `graph` (and `schemaVersion`): edits made meanwhile stay dirty. */
+  saved: (lockVersion: number, graph: RuleGraph, schemaVersion: number | null) => void
   select: (id: string | null) => void
   setTab: (tab: PanelTab) => void
   setPanelOpen: (open: boolean) => void
   setValidation: (issues: Issue[], warnings: string[]) => void
-  setSimulation: (result: ExecutionResult | null) => void
+  setSimulation: (result: ExecutionResult | null, request?: SimRequest) => void
+  setSimRequest: (patch: Partial<SimRequest>) => void
 }
 
-export const useEditor = create<EditorState>((set) => ({
+export const useEditor = create<EditorState>((set, get) => ({
+  key: null,
   graph: null,
   past: [],
   future: [],
@@ -56,8 +79,11 @@ export const useEditor = create<EditorState>((set) => ({
   warnings: [],
   validated: false,
   simulation: null,
-  load: (draft) =>
+  simulated: null,
+  simRequest: blankRequest(null),
+  load: (draft, key = null) =>
     set({
+      key,
       graph: draft.graph,
       past: [],
       future: [],
@@ -70,6 +96,8 @@ export const useEditor = create<EditorState>((set) => ({
       warnings: [],
       validated: false,
       simulation: null,
+      simulated: null,
+      simRequest: blankRequest(draft.graph),
     }),
   change: (update, options) =>
     set((s) => {
@@ -108,10 +136,13 @@ export const useEditor = create<EditorState>((set) => ({
       }
     }),
   setSchemaVersion: (version) => set({ schemaVersion: version, dirty: true, validated: false }),
-  saved: (lockVersion) => set({ lockVersion, dirty: false }),
+  saved: (lockVersion, graph, schemaVersion) =>
+    set((s) => ({ lockVersion, dirty: s.graph !== graph || s.schemaVersion !== schemaVersion })),
   select: (id) => set((s) => (id ? { selected: id, tab: 'node', panelOpen: true } : { selected: null, tab: s.tab })),
   setTab: (tab) => set({ tab, panelOpen: true }),
   setPanelOpen: (panelOpen) => set({ panelOpen }),
   setValidation: (issues, warnings) => set({ issues, warnings, validated: true }),
-  setSimulation: (simulation) => set({ simulation }),
+  setSimulation: (simulation, request) =>
+    set({ simulation, simulated: simulation && request ? { ...request, graph: get().graph } : null }),
+  setSimRequest: (patch) => set((s) => ({ simRequest: { ...s.simRequest, ...patch } })),
 }))

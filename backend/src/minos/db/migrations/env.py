@@ -6,6 +6,7 @@ import asyncio
 import os
 
 from alembic import context
+from sqlalchemy import text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -30,9 +31,15 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+# Replicas that start together all run the migrations: the first takes this lock, the others
+# wait for it and then find the database already up to date.
+MIGRATION_LOCK = 0x4D494E4F53  # "MINOS"
+
+
 def _run(connection: Connection) -> None:
     context.configure(connection=connection, target_metadata=target_metadata)
     with context.begin_transaction():
+        connection.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": MIGRATION_LOCK})
         context.run_migrations()
 
 

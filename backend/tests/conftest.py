@@ -16,6 +16,15 @@ ROOT = Path(__file__).resolve().parents[2]
 EXAMPLES = ROOT / "examples"
 
 
+# Host names the test clients use: allowed like localhost (see Settings.allowed_hosts).
+TEST_HOSTS = ("localhost", "127.0.0.1", "::1", "testserver", "m", "minos")
+
+
+@pytest.fixture(autouse=True)
+def _test_hosts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("MINOS_ALLOWED_HOSTS", "testserver,m,minos")
+
+
 def load_json(relative: str) -> Any:
     return json.loads((EXAMPLES / relative).read_text())
 

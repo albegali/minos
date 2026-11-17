@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import dataclasses
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable
 from pathlib import Path
@@ -14,10 +15,15 @@ import httpx
 import pytest
 
 from minos.api.app import create_app
+from minos.api.common import MAX_REQUEST_BYTES, Principal
 from minos.api.execution import create_execution_app
 from minos.api.management import create_management_app
+from minos.api.registry import KeyCache
 from minos.cli import create_admin_key, main
+from minos.control.keys import generate_key, well_formed
 from minos.settings import Settings
+
+from .conftest import TEST_HOSTS
 
 WS = "/v1/workspaces/aurora"
 RS = f"{WS}/rulesets/studyplan-emba"
@@ -30,6 +36,7 @@ def settings(url: str, **overrides: Any) -> Settings:
         "rulesets_dir": None,
         "require_auth": True,
         "poll_interval_s": 0.2,
+        "allowed_hosts": TEST_HOSTS,
     }
     base.update(overrides)
     return Settings(**base)
@@ -82,6 +89,14 @@ async def setup_aurora(
     r = await c.post(f"{WS}/api-keys", json={"name": "dynamics", "scopes": ["exec"]}, headers=admin)
     assert r.status_code == 201, r.text
     return {"X-Api-Key": r.json()["key"]}
+
+
+async def touch_draft(c: httpx.AsyncClient, admin: dict[str, str]) -> None:
+    """Change the draft, so that the next publish has something new to freeze."""
+    draft = (await c.get(f"{RS}/draft", headers=admin)).json()
+    graph = {**draft["graph"], "constants": {**draft["graph"].get("constants", {}), "rev": 1}}
+    r = await c.put(f"{RS}/draft", json={"graph": graph}, headers=admin)
+    assert r.status_code == 200, r.text
 
 
 async def test_full_lifecycle(
@@ -174,11 +189,11 @@ async def test_full_lifecycle(
     assert r.json()["outcome"] == "invalid"
     r = await c.post(EXEC, json={"input": {**valid_plan, "courses": "nope"}}, headers=exec_key)
     assert r.status_code == 400 and r.json()["errors"][0]["path"] == "/courses"
-    r = await c.post(
-        EXEC,
-        json={"input": {**valid_plan, "courses": "nope"}, "options": {"validateSchema": False}},
-        headers=exec_key,
-    )
+    unchecked = {"input": {**valid_plan, "courses": "nope"}, "options": {"validateSchema": False}}
+    # only keys that can change the rules may skip the schema gate (SEC-02)
+    r = await c.post(EXEC, json=unchecked, headers=exec_key)
+    assert r.status_code == 403
+    r = await c.post(EXEC, json=unchecked, headers=admin)
     # without the schema gate the engine itself reports the type error
     assert r.status_code == 422 and r.json()["outcome"] == "error"
 
@@ -328,6 +343,26 @@ async def test_authorisation(
     bad = await c.post("/v1/admin/api-keys", json={"name": "x", "scopes": ["exec"]}, headers=admin)
     assert bad.status_code == 422
 
+    # a leaked admin key can be revoked like any other (SEC-03)
+    ops = r.json()
+    ops_headers = {"Authorization": f"Bearer {ops['key']}"}
+    listed = (await c.get("/v1/admin/api-keys", headers=admin)).json()
+    assert ops["id"] in [k["id"] for k in listed]
+    manage = await c.post(f"{WS}/api-keys", json={"name": "m", "scopes": ["manage"]}, headers=admin)
+    manage_headers = {"Authorization": f"Bearer {manage.json()['key']}"}
+    assert (await c.get("/v1/admin/api-keys", headers=manage_headers)).status_code == 403
+    gone = await c.delete(f"/v1/admin/api-keys/{ops['id']}", headers=admin)
+    assert gone.status_code == 204
+
+    async def ops_revoked() -> bool:
+        res = await c.get("/v1/workspaces", headers=ops_headers)
+        return res.status_code == 401
+
+    await eventually(ops_revoked)
+    # a workspace key is not an admin key, and vice versa
+    ws_key = (await c.get(f"{WS}/api-keys", headers=admin)).json()[0]["id"]
+    assert (await c.delete(f"/v1/admin/api-keys/{ws_key}", headers=admin)).status_code == 404
+
 
 @pytest.mark.parametrize(
     ("method", "path", "body", "status"),
@@ -423,6 +458,7 @@ async def test_polling_repairs_missed_notifications(
     c = client
     exec_key = await setup_aurora(c, admin, aurora_graph, [valid_plan])
     await c.post(f"{RS}/publish", json={"promoteTo": "prod"}, headers=admin)
+    await touch_draft(c, admin)
     await c.post(f"{RS}/publish", json={"bump": "patch"}, headers=admin)
     rt = c.app.state.runtime  # type: ignore[attr-defined]
 
@@ -459,6 +495,13 @@ def test_cli(
     assert main(["migrate"]) == 0
     assert main(["create-admin-key", "--name", "cli"]) == 0
     assert capsys.readouterr().out.strip().splitlines()[-1].startswith("mns_")
+    assert main(["list-admin-keys"]) == 0
+    key_id, _, _, status = capsys.readouterr().out.split()[:4]
+    assert status == "active"
+    assert main(["revoke-key", key_id]) == 0
+    assert main(["list-admin-keys"]) == 0
+    assert capsys.readouterr().out.split()[-1] == "revoked"
+    assert main(["revoke-key", "00000000-0000-0000-0000-000000000000"]) == 1
     monkeypatch.delenv("MINOS_DATABASE_URL")
     assert main(["migrate"]) == 2
 
@@ -472,7 +515,7 @@ async def test_split_apps(clean_db: str) -> None:
         mgmt.router.lifespan_context(mgmt),
         exe.router.lifespan_context(exe),
         httpx.AsyncClient(transport=httpx.ASGITransport(app=mgmt), base_url="http://m") as m,
-        httpx.AsyncClient(transport=httpx.ASGITransport(app=exe), base_url="http://e") as e,
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=exe), base_url="http://m") as e,
     ):
         r = await m.post("/v1/workspaces", json={"slug": "a", "name": "A"}, headers=headers)
         assert r.status_code == 201
@@ -508,7 +551,7 @@ async def test_node_types_and_cors(clean_db: str, admin: dict[str, str]) -> None
     )
     async with (
         exe.router.lifespan_context(exe),
-        httpx.AsyncClient(transport=httpx.ASGITransport(app=exe), base_url="http://e") as e,
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=exe), base_url="http://m") as e,
     ):
         r = await e.get("/v1/health", headers={"Origin": "http://studio.example"})
         assert r.headers["access-control-allow-origin"] == "http://studio.example"
@@ -578,6 +621,25 @@ async def test_sub_rulesets_and_decision_tables_end_to_end(
     await rt.sync.load_all()
     assert rt.registry.get("aurora", "aurora.studyplan.full") is not None
 
+    # the drift safety net carries on past a version that cannot be loaded (API-01)
+    real_key = ("aurora", "aurora.studyplan.full", "prod")
+    ghost = ("aurora", "deleted.meanwhile", "prod")
+    rt.registry.put(ghost, rt.registry.schedules()[real_key])
+    rt.registry.put(real_key, None)
+    real = rt.sync.reload_one
+
+    async def broken(ws: str, rs: str, env: str) -> None:
+        raise RuntimeError("cannot compile")
+
+    rt.sync.reload_one = broken
+    try:
+        assert await rt.sync.check_drift() == 1  # the ghost is removed all the same
+    finally:
+        rt.sync.reload_one = real
+    assert ghost not in rt.registry.schedules()
+    assert await rt.sync.check_drift() == 1  # and the next poll reloads the other one
+    assert rt.registry.get(*real_key[:2]) is not None
+
 
 async def test_files_and_database_together(
     clean_db: str, admin: dict[str, str], valid_plan: dict[str, Any]
@@ -630,6 +692,7 @@ async def test_exec_openapi_follows_publications(
     assert "SP_CFU_MIN" in doc["paths"][path]["post"]["description"]
 
     # a new version promoted to another environment gets its own operation
+    await touch_draft(c, admin)
     await c.post(f"{RS}/publish", json={"bump": "minor", "promoteTo": "test"}, headers=admin)
     await eventually(lambda: listed(f"{path}@test", "0.2.0"))
     assert await listed(path, "0.1.0")
@@ -643,3 +706,186 @@ async def test_exec_openapi_follows_publications(
     assert (await c.get(spec, headers=other)).json()["paths"] == {}
     assert (await c.get(f"{spec}?workspace=aurora", headers=other)).json()["paths"] == {}
     assert len((await c.get(f"{spec}?workspace=aurora", headers=admin)).json()["paths"]) == 2
+
+
+async def test_request_hardening(
+    client: httpx.AsyncClient,
+    admin: dict[str, str],
+) -> None:
+    c = client
+    assert (
+        await c.post("/v1/workspaces", json={"slug": "h", "name": "H"}, headers=admin)
+    ).is_success
+    # a cross-site text/plain POST cannot import (SEC-09)
+    r = await c.post(
+        "/v1/workspaces/h/import",
+        content=b'{"format": "minos-bundle/1"}',
+        headers={**admin, "Content-Type": "text/plain"},
+    )
+    assert r.status_code == 422 and "application/json" in r.json()["detail"]
+    # bodies over the limit are refused before being read (SEC-10)
+    big = b"x" * (MAX_REQUEST_BYTES + 1)
+    r = await c.post(
+        "/v1/workspaces/h/import",
+        content=big,
+        headers={**admin, "Content-Type": "application/json"},
+    )
+    assert r.status_code == 413
+    assert r.headers["content-type"] == "application/problem+json"
+
+
+def test_key_cache_keeps_valid_keys() -> None:
+    # unknown keys cannot flush the valid ones (SEC-11)
+    cache = KeyCache()
+    who = Principal("ci", None, frozenset({"admin"}))
+    cache.put("good", who)
+    for i in range(KeyCache.MAX_ENTRIES + 5):
+        cache.put(f"bad{i}", None)
+    assert cache.get("good") == (True, who)
+    assert cache.get("bad0") == (False, None)  # the oldest unknown ones went
+    assert cache.get(f"bad{KeyCache.MAX_ENTRIES + 4}") == (True, None)
+    assert well_formed(generate_key())
+    assert not well_formed("mns_nope") and not well_formed("x" * 47)
+
+
+async def test_names_dates_and_test_inputs_are_checked(
+    client: httpx.AsyncClient,
+    admin: dict[str, str],
+    aurora_graph: dict[str, Any],
+    valid_plan: dict[str, Any],
+) -> None:
+    c = client
+    await setup_aurora(c, admin, aurora_graph, [valid_plan])
+    # CTL-06: too long or malformed values are the request's fault (422), not a 500
+    r = await c.post(f"{WS}/entities", json={"key": "Long", "name": "x" * 201}, headers=admin)
+    assert r.status_code == 422
+    test = {"name": "t", "input": valid_plan, "expected": {"outcome": "valid"}}
+    r = await c.post(f"{RS}/tests", json={**test, "name": "n" * 201}, headers=admin)
+    assert r.status_code == 422
+    # CTL-10: a test input production would refuse fails the gate
+    bad = {**test, "name": "bad input", "input": {**valid_plan, "courses": "nope"}}
+    assert (await c.post(f"{RS}/tests", json=bad, headers=admin)).status_code == 201
+    r = await c.post(f"{RS}/tests/run", headers=admin)
+    (result,) = [t for t in r.json()["tests"] if t["name"] == "bad input"]
+    assert result["passed"] is False
+    assert "does not match the entity schema" in result["differences"][0]
+    r = await c.post(f"{RS}/publish", json={}, headers=admin)
+    assert r.status_code == 422
+
+
+async def test_publishing_can_require_tests(
+    clean_db: str,
+    admin: dict[str, str],
+    aurora_graph: dict[str, Any],
+    valid_plan: dict[str, Any],
+) -> None:
+    # CTL-09: with MINOS_PUBLISH_REQUIRES_TESTS an empty suite does not pass the gate
+    cfg = dataclasses.replace(settings(clean_db, require_auth=False), publish_requires_tests=True)
+    app = create_app(cfg)
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://m") as c,
+    ):
+        await setup_aurora(c, admin, aurora_graph, [valid_plan])
+        r = await c.post(f"{RS}/publish", json={}, headers=admin)
+        assert r.status_code == 422 and "at least one test" in r.json()["detail"]
+        test = {"name": "ok", "input": valid_plan, "expected": {"outcome": "valid"}}
+        assert (await c.post(f"{RS}/tests", json=test, headers=admin)).status_code == 201
+        assert (await c.post(f"{RS}/publish", json={}, headers=admin)).status_code == 201
+
+
+async def test_metrics_health_and_reserved_slug(
+    client: httpx.AsyncClient,
+    admin: dict[str, str],
+    aurora_graph: dict[str, Any],
+    valid_plan: dict[str, Any],
+) -> None:
+    c = client
+    exec_key = await setup_aurora(c, admin, aurora_graph, [valid_plan])
+    await c.post(f"{RS}/publish", json={"promoteTo": "prod"}, headers=admin)
+
+    async def deployed() -> bool:
+        res = await c.post(EXEC, json={"input": valid_plan}, headers=exec_key)
+        return res.status_code == 200
+
+    await eventually(deployed)
+    await c.post(EXEC, json={"input": {**valid_plan, "courses": 1}}, headers=exec_key)
+    # FN-05: Prometheus counters, admin only
+    assert (await c.get("/v1/metrics", headers=exec_key)).status_code == 403
+    text = (await c.get("/v1/metrics", headers=admin)).text
+    assert 'minos_executions_total{outcome="valid"}' in text
+    assert 'minos_rejected_total{reason="invalid_input"} 1' in text
+    assert "minos_listening 1" in text
+    # API-12: health says when a deployment cannot be reloaded
+    rt = c.app.state.runtime  # type: ignore[attr-defined]
+    assert (await c.get("/v1/health")).json()["status"] == "ok"
+    rt.sync.failing.add(("aurora", "studyplan-emba", "prod"))
+    health = (await c.get("/v1/health")).json()
+    assert health["status"] == "degraded" and "studyplan-emba" in health["problems"][0]
+    rt.sync.failing.clear()
+    # API-06: an unknown version is a 404, asked again without a database query
+    url = "/v1/exec/aurora/studyplan-emba/versions/9.9.9"
+    assert (await c.post(url, json={"input": valid_plan}, headers=exec_key)).status_code == 404
+    assert ("aurora", "studyplan-emba", "9.9.9") in rt.sync._missing_versions
+    # API-02: the file-served namespace cannot be taken by a workspace
+    r = await c.post("/v1/workspaces", json={"slug": "local", "name": "L"}, headers=admin)
+    assert r.status_code == 422 and "reserved" in r.json()["detail"]
+
+
+async def test_publishing_an_unchanged_draft_is_idempotent(
+    client: httpx.AsyncClient,
+    admin: dict[str, str],
+    aurora_graph: dict[str, Any],
+    valid_plan: dict[str, Any],
+) -> None:
+    # FN-02: a retried publish (CI timeout) creates no duplicate version
+    c = client
+    await setup_aurora(c, admin, aurora_graph, [valid_plan])
+    first = await c.post(f"{RS}/publish", json={}, headers=admin)
+    assert first.status_code == 201 and first.json()["created"] is True
+    again = await c.post(f"{RS}/publish", json={"promoteTo": "prod"}, headers=admin)
+    assert again.status_code == 200
+    assert again.json()["version"] == first.json()["version"]
+    assert again.json()["created"] is False and again.json()["promotedTo"] == "prod"
+    assert len((await c.get(f"{RS}/versions", headers=admin)).json()) == 1
+    await touch_draft(c, admin)
+    assert (await c.post(f"{RS}/publish", json={}, headers=admin)).status_code == 201
+
+
+async def test_tests_can_be_replaced_and_versions_withdrawn(
+    client: httpx.AsyncClient,
+    admin: dict[str, str],
+    aurora_graph: dict[str, Any],
+    valid_plan: dict[str, Any],
+) -> None:
+    c = client
+    exec_key = await setup_aurora(c, admin, aurora_graph, [valid_plan])
+    # FN-13: a wrong test is fixed in place
+    wrong = {"name": "x", "input": valid_plan, "expected": {"outcome": "invalid"}}
+    r = await c.put(f"{RS}/tests/plan%20ok", json=wrong, headers=admin)
+    assert r.status_code == 201 and r.json() == {"name": "plan ok", "created": True}
+    assert (await c.post(f"{RS}/publish", json={}, headers=admin)).status_code == 422
+    right = {**wrong, "expected": {"outcome": "valid"}}
+    r = await c.put(f"{RS}/tests/plan%20ok", json=right, headers=admin)
+    assert r.status_code == 200 and r.json()["created"] is False
+    tests = (await c.get(f"{RS}/tests", headers=admin)).json()
+    assert [(t["name"], t["expected"]) for t in tests] == [("plan ok", {"outcome": "valid"})]
+
+    # FN-01: a version in use cannot be withdrawn; once unused it stops being executable
+    v1 = (await c.post(f"{RS}/publish", json={"promoteTo": "prod"}, headers=admin)).json()
+    await touch_draft(c, admin)
+    v2 = (await c.post(f"{RS}/publish", json={}, headers=admin)).json()
+    r = await c.post(f"{RS}/versions/{v1['version']}/archive", headers=admin)
+    assert r.status_code == 409 and "prod" in r.json()["detail"]
+    url = f"/v1/exec/aurora/studyplan-emba/versions/{v2['version']}"
+    assert (await c.post(url, json={"input": valid_plan}, headers=exec_key)).status_code == 200
+    r = await c.post(f"{RS}/versions/{v2['version']}/archive", headers=admin)
+    assert r.status_code == 200 and r.json()["status"] == "archived"
+
+    async def withdrawn() -> bool:
+        res = await c.post(url, json={"input": valid_plan}, headers=exec_key)
+        return res.status_code == 404
+
+    await eventually(withdrawn)
+    body = {"version": v2["version"]}
+    assert (await c.put(f"{RS}/aliases/test", json=body, headers=admin)).status_code == 409

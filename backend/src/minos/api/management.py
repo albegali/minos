@@ -16,6 +16,7 @@ import orjson
 from fastapi import APIRouter, FastAPI, Header, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from sqlalchemy.exc import DataError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from minos import __version__
@@ -23,7 +24,14 @@ from minos.control import service as svc
 from minos.control.bundle import export_bundle, import_bundle
 from minos.control.diff import diff_graphs
 from minos.control.errors import ControlError, Invalid, Unauthorized
-from minos.db import Entity, RulesetVersion, SchemaVersion, make_engine, make_sessionmaker
+from minos.db import (
+    ApiClient,
+    Entity,
+    RulesetVersion,
+    SchemaVersion,
+    make_engine,
+    make_sessionmaker,
+)
 from minos.engine import ExecuteOptions
 from minos.engine.catalog import catalog
 from minos.schema import infer_schema
@@ -34,6 +42,7 @@ from .common import (
     Principal,
     api_key_from,
     install_cors,
+    install_limits,
     json_response,
     problem,
 )
@@ -163,7 +172,22 @@ def _exec_options(raw: dict[str, Any]) -> ExecuteOptions:
 # --------------------------------------------------------------------------- router
 
 
-def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: bool) -> APIRouter:
+def _key_out(c: ApiClient) -> dict[str, Any]:
+    return {
+        "id": str(c.id),
+        "name": c.name,
+        "prefix": c.key_prefix,
+        "scopes": c.scopes,
+        "createdAt": c.created_at.isoformat(),
+        "revoked": c.revoked_at is not None,
+    }
+
+
+def management_router(
+    sessions: async_sessionmaker[AsyncSession],
+    require_auth: bool,
+    require_tests: bool = False,
+) -> APIRouter:
     router = APIRouter(prefix="/v1")
 
     async def principal(request: Request) -> Principal:
@@ -207,25 +231,29 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
             client, key = await svc.create_api_client(s, who.actor, None, body.name, body.scopes)
         return json_response({"id": str(client.id), "key": key, "scopes": client.scopes}, 201)
 
+    @router.get("/admin/api-keys")
+    async def list_admin_keys(request: Request) -> Response:
+        who = await principal(request)
+        who.require("admin")
+        async with sessions() as s:
+            items = await svc.list_api_clients(s, None)
+        return json_response([_key_out(c) for c in items])
+
+    @router.delete("/admin/api-keys/{key_id}", status_code=204)
+    async def revoke_admin_key(key_id: uuid.UUID, request: Request) -> Response:
+        who = await principal(request)
+        who.require("admin")
+        async with sessions.begin() as s:
+            await svc.revoke_api_client(s, who.actor, None, key_id)
+        return Response(status_code=204)
+
     @router.get("/workspaces/{ws}/api-keys")
     async def list_keys(ws: str, request: Request) -> Response:
         who = await principal(request)
         async with sessions() as s:
             w = await workspace(s, who, ws)
             items = await svc.list_api_clients(s, w)
-        return json_response(
-            [
-                {
-                    "id": str(c.id),
-                    "name": c.name,
-                    "prefix": c.key_prefix,
-                    "scopes": c.scopes,
-                    "createdAt": c.created_at.isoformat(),
-                    "revoked": c.revoked_at is not None,
-                }
-                for c in items
-            ]
-        )
+        return json_response([_key_out(c) for c in items])
 
     @router.post("/workspaces/{ws}/api-keys", status_code=201)
     async def create_key(ws: str, body: ApiKeyIn, request: Request) -> Response:
@@ -461,14 +489,23 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
         async with sessions.begin() as s:
             w = await workspace(s, who, ws)
             r = await svc.get_ruleset(s, w, rs)
-            version, tests = await svc.publish(
-                s, who.actor, w, r, body.bump, body.notes, body.promoteTo
+            version, tests, created = await svc.publish(
+                s,
+                who.actor,
+                w,
+                r,
+                body.bump,
+                body.notes,
+                body.promoteTo,
+                require_tests=require_tests,
             )
         out = _version_out(version)
         out["tests"] = tests
+        out["created"] = created
         if body.promoteTo:
             out["promotedTo"] = body.promoteTo
-        return json_response(out, 201)
+        # 200: nothing changed since this version, which is returned (and promoted if asked)
+        return json_response(out, 201 if created else 200)
 
     @router.get("/workspaces/{ws}/rulesets/{rs}/versions")
     async def versions(ws: str, rs: str, request: Request) -> Response:
@@ -485,6 +522,14 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
             w = await workspace(s, who, ws)
             v = await svc.get_version(s, await svc.get_ruleset(s, w, rs), semver)
         return json_response(_version_out(v, full=True))
+
+    @router.post("/workspaces/{ws}/rulesets/{rs}/versions/{semver}/archive")
+    async def archive(ws: str, rs: str, semver: str, request: Request) -> Response:
+        who = await principal(request)
+        async with sessions.begin() as s:
+            w = await workspace(s, who, ws)
+            v = await svc.archive_version(s, who.actor, w, await svc.get_ruleset(s, w, rs), semver)
+        return json_response(_version_out(v))
 
     @router.get("/workspaces/{ws}/rulesets/{rs}/aliases")
     async def aliases(ws: str, rs: str, request: Request) -> Response:
@@ -568,6 +613,11 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
     @router.post("/workspaces/{ws}/import")
     async def import_(ws: str, request: Request) -> Response:
         who = await principal(request)
+        media = request.headers.get("content-type", "").split(";")[0].strip().lower()
+        if media != "application/json":
+            # A cross-site form or text/plain POST needs no CORS preflight: refusing it keeps
+            # other websites from importing into an open installation (CSRF).
+            raise Invalid("the bundle must be sent as application/json")
         try:
             bundle = orjson.loads(await request.body())
         except orjson.JSONDecodeError as exc:
@@ -608,6 +658,18 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
             )
         return json_response({"name": t.name}, 201)
 
+    @router.put("/workspaces/{ws}/rulesets/{rs}/tests/{name}")
+    async def put_test(ws: str, rs: str, name: str, body: TestIn, request: Request) -> Response:
+        """Create or replace a test (the name in the path wins over the body's)."""
+        who = await principal(request)
+        async with sessions.begin() as s:
+            w = await workspace(s, who, ws)
+            r = await svc.get_ruleset(s, w, rs)
+            t, created = await svc.replace_test(
+                s, who.actor, w, r, name, body.input, body.expected, body.referenceDate
+            )
+        return json_response({"name": t.name, "created": created}, 201 if created else 200)
+
     @router.delete("/workspaces/{ws}/rulesets/{rs}/tests/{name}", status_code=204)
     async def delete_test(ws: str, rs: str, name: str, request: Request) -> Response:
         who = await principal(request)
@@ -632,6 +694,12 @@ def install_error_handlers(app: FastAPI) -> None:
     async def control_error(request: Request, exc: ControlError) -> Response:
         return problem(exc.status, exc.title, exc.detail, **exc.extra)
 
+    @app.exception_handler(DataError)
+    async def data_error(request: Request, exc: DataError) -> Response:
+        # Safety net for values the service layer did not check (too long, out of range):
+        # the request is wrong, not the server.
+        return problem(422, "Unprocessable Content", "a value is too long or out of range")
+
 
 def create_management_app(settings: Settings | None = None) -> FastAPI:
     cfg = settings or Settings.from_env()
@@ -646,7 +714,7 @@ def create_management_app(settings: Settings | None = None) -> FastAPI:
         await engine.dispose()
 
     app = FastAPI(title="Minos Management API", version=__version__, lifespan=lifespan)
-    app.include_router(management_router(sessions, cfg.require_auth))
+    app.include_router(management_router(sessions, cfg.require_auth, cfg.publish_requires_tests))
 
     @app.get("/v1/info")
     def info() -> Response:
@@ -662,4 +730,5 @@ def create_management_app(settings: Settings | None = None) -> FastAPI:
 
     install_error_handlers(app)
     install_cors(app, cfg)
+    install_limits(app, cfg)
     return app

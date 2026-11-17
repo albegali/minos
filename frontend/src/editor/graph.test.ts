@@ -113,3 +113,25 @@ describe('graph operations', () => {
     expect(issueNode('edges[2]')).toBeNull()
   })
 })
+
+describe('layout of a cyclic draft', () => {
+  it('terminates and places every node (UI-04)', async () => {
+    const { layered } = await import('../rgd')
+    const graph = {
+      rgdVersion: '1.0',
+      ruleset: 't.cycle',
+      nodes: [
+        { id: 'start', type: 'start' },
+        { id: 'a', type: 'condition', condition: true },
+        { id: 'b', type: 'condition', condition: true },
+      ],
+      edges: [
+        { from: 'start', to: 'a' },
+        { from: 'a', to: 'b', on: 'pass' },
+        { from: 'b', to: 'a', on: 'pass' },
+      ],
+    } as unknown as Parameters<typeof layered>[0]
+    const positions = layered(graph)
+    expect(Object.keys(positions).sort()).toEqual(['a', 'b', 'start'])
+  })
+})

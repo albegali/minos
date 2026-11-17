@@ -6,8 +6,9 @@ import type { JsonSchema } from '../api/types'
 
 type Schema = Record<string, unknown>
 
-const AUTHORED = /^entity:([A-Za-z0-9][A-Za-z0-9_.-]*)(?:@(\d+))?$/
-const RESOLVED = /^#\/\$defs\/entity:([A-Za-z0-9][A-Za-z0-9_.-]*)@(\d+)$/
+// Same grammar as the backend (schema/refs.py): key up to 100 characters, versions from 1.
+const AUTHORED = /^entity:([A-Za-z0-9][A-Za-z0-9_.-]{0,99})(?:@([1-9][0-9]*))?$/
+const RESOLVED = /^#\/\$defs\/entity:([A-Za-z0-9][A-Za-z0-9_.-]{0,99})@([1-9][0-9]*)$/
 
 export interface EntityLink {
   entity: string
@@ -25,13 +26,23 @@ export function entityOf(schema: unknown): EntityLink | undefined {
 
 /** Copy of `schema` with every entity reference unpinned, so that saving it moves each one to
  * the referenced entity's latest version. */
+// Same rules as backend/src/minos/schema/refs.py: data keywords are skipped, but the names
+// inside these maps are the user's (a property may be called "default").
+const DATA_KEYS = new Set(['enum', 'const', 'default', 'examples'])
+const SCHEMA_MAPS = new Set(['properties', 'patternProperties', '$defs', 'definitions', 'dependentSchemas'])
+
 export function unpinRefs(schema: JsonSchema): JsonSchema {
   const walk = (node: unknown, key?: string): unknown => {
-    if (key && ['enum', 'const', 'default', 'examples'].includes(key)) return node
+    if (key && DATA_KEYS.has(key)) return node
     if (Array.isArray(node)) return node.map((n) => walk(n))
     if (!node || typeof node !== 'object') return node
     const out: Schema = {}
-    for (const [k, v] of Object.entries(node as Schema)) out[k] = walk(v, k)
+    for (const [k, v] of Object.entries(node as Schema)) {
+      out[k] =
+        SCHEMA_MAPS.has(k) && v && typeof v === 'object' && !Array.isArray(v)
+          ? Object.fromEntries(Object.entries(v as Schema).map(([name, sub]) => [name, walk(sub)]))
+          : walk(v, k)
+    }
     const link = entityOf(node)
     if (link && typeof out.$ref === 'string' && out.$ref.startsWith('entity:')) out.$ref = `entity:${link.entity}`
     return out

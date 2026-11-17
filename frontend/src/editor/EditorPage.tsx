@@ -27,12 +27,13 @@ import {
 } from '@fluentui/react-icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { ReactFlowProvider } from '@xyflow/react'
-import { type ReactElement, useCallback, useEffect, useMemo, useState } from 'react'
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useBlocker, useParams } from 'react-router'
 
 import { ApiError, errorMessage } from '../api/client'
 import { type Key, useI18n } from '../i18n'
 import { translateApiText } from '../i18n/api'
+import type { Draft } from '../api/types'
 import { downloadJson, exportBundle, keys, saveDraft, useCatalog, useDraft, useRuleset, useSchema, useSchemas, validateDraft } from '../api/hooks'
 import { Canvas, Palette } from './Canvas'
 import { type FieldScope, ScopeContext } from './FieldPicker'
@@ -69,7 +70,12 @@ export function EditorPage() {
   const qc = useQueryClient()
   const { t } = useI18n()
 
-  const graph = useEditor((s) => s.graph)
+  const editorKey = `${ws}/${rs}`
+  const loadedKey = useEditor((s) => s.key)
+  // Another rule set's graph may still be in the store (its draft failed to load, or is
+  // loading): never show it, nor save it, under this one's URL.
+  const storedGraph = useEditor((s) => s.graph)
+  const graph = loadedKey === editorKey ? storedGraph : null
   const load = useEditor((s) => s.load)
   const dirty = useEditor((s) => s.dirty)
   const lockVersion = useEditor((s) => s.lockVersion)
@@ -91,11 +97,20 @@ export function EditorPage() {
   const schemas = useSchemas(ws, entity ?? '')
   const schema = useSchema(ws, entity ?? '', schemaVersion ?? schemas.data?.[0]?.version)
   const [saveError, setSaveError] = useState<unknown>(null)
+  const [validateError, setValidateError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    if (draft.data) load(draft.data)
-  }, [draft.data, load])
+    if (!draft.data) return
+    const s = useEditor.getState()
+    if (s.key === editorKey && s.graph) {
+      // Same rule set already open: unsaved edits are never overwritten by a refetch (a
+      // conflicting save gets a 412 instead), and the version just saved is not reloaded
+      // (that would drop undo history and selection).
+      if (s.dirty || s.lockVersion === draft.data.lockVersion) return
+    }
+    load(draft.data, editorKey)
+  }, [draft.data, load, editorKey])
 
   const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname)
   useEffect(() => {
@@ -118,21 +133,48 @@ export function EditorPage() {
     return v
   }, [ws, rs])
 
-  const save = useCallback(async (): Promise<boolean> => {
+  // One save at a time: a second request (Ctrl+S twice, Ctrl+S while a panel saves) waits
+  // for the first, then saves what changed meanwhile, with the new lock version.
+  const saving = useRef<Promise<boolean> | null>(null)
+
+  const saveOnce = useCallback(async (): Promise<boolean> => {
     const s = useEditor.getState()
-    if (!s.graph) return false
+    if (!s.graph || s.key !== editorKey) return false
     if (!s.dirty) return true
+    const { graph: sent, schemaVersion: sentSchema } = s
     setSaveError(null)
     try {
-      const lock = await saveDraft(ws, rs, s.graph, s.lockVersion, s.schemaVersion)
-      s.saved(lock)
-      await validate()
-      return true
+      const lock = await saveDraft(ws, rs, sent, s.lockVersion, sentSchema)
+      useEditor.getState().saved(lock, sent, sentSchema)
+      // Keep the cached draft in step with what was saved: a later refetch or remount then
+      // starts from it, not from the version loaded before.
+      qc.setQueryData<Draft>(keys.draft(ws, rs), (old) =>
+        old ? { ...old, graph: sent, lockVersion: lock, schemaVersion: sentSchema } : old,
+      )
     } catch (e) {
       setSaveError(e)
       return false
     }
-  }, [ws, rs, validate])
+    // The draft is saved: a failing validation is reported as such, not as a failed save.
+    try {
+      await validate()
+      setValidateError(null)
+    } catch (e) {
+      setValidateError(e)
+    }
+    return true
+  }, [ws, rs, validate, editorKey, qc])
+
+  const save = useCallback(async (): Promise<boolean> => {
+    while (saving.current) await saving.current
+    const run = saveOnce()
+    saving.current = run
+    try {
+      return await run
+    } finally {
+      saving.current = null
+    }
+  }, [saveOnce])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -140,7 +182,11 @@ export function EditorPage() {
       const key = e.key.toLowerCase()
       if (key === 's') {
         e.preventDefault()
-        void save()
+        // Some fields (names, branch labels, table cells) commit on blur: blur the one being
+        // typed in first, then save on the next tick, once its change is in the store.
+        const active = document.activeElement
+        if (active instanceof HTMLElement && active.closest('input, textarea')) active.blur()
+        setTimeout(() => void save(), 0)
         return
       }
       // Inside a text field the browser's own undo applies to the text.
@@ -309,11 +355,20 @@ export function EditorPage() {
                 onClick={async () => {
                   setSaveError(null)
                   await qc.invalidateQueries({ queryKey: keys.draft(ws, rs) })
+                  // Unsaved edits are kept on refetch; here the user chose to drop them.
+                  const fresh = qc.getQueryData<Draft>(keys.draft(ws, rs))
+                  if (fresh) load(fresh, editorKey)
                 }}
               >
                 {t('editor.reload')}
               </Button>
             )}
+          </MessageBar>
+        )}
+
+        {validateError !== null && (
+          <MessageBar intent="warning">
+            <MessageBarBody>{t('editor.validateFailed', { error: errorMessage(validateError) })}</MessageBarBody>
           </MessageBar>
         )}
 

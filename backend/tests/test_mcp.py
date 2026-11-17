@@ -151,6 +151,28 @@ async def test_describe_to_draft(clean_db: str) -> None:
             assert rs["tests"] == ["ordine vuoto"]
             assert rs["draft"]["graph"]["constants"] == {"minTotal": 10, "reviewAbove": 5000}
 
+            # API-03: a save made meanwhile (e.g. in the Studio) is not overwritten
+            lock = rs["draft"]["lockVersion"]
+            ok = await ai.call_tool(
+                "update_ruleset", {**args, "graph": example_graph(), "lock_version": lock}
+            )
+            assert not ok.is_error
+            late = await ai.call_tool(
+                "update_ruleset", {**args, "graph": example_graph(), "lock_version": lock}
+            )
+            assert late.is_error and "412" in late.content[0].text
+
+            # FN-07: a wrong test is fixed in place
+            again = {
+                **args,
+                "name": "ordine vuoto",
+                "input": EMPTY,
+                "expected": {"outcome": "invalid", "feedbackCodes": ["ORD_EMPTY", "ORD_MIN"]},
+            }
+            assert (await ai.call_tool("add_test", again)).is_error  # already exists
+            assert not (await ai.call_tool("add_test", {**again, "replace": True})).is_error
+            assert data(await ai.call_tool("run_tests", args))["passed"]
+
             # schema change: a new field becomes usable once the draft moves to it
             await ai.call_tool(
                 "update_entity_schema",

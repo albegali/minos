@@ -9,6 +9,7 @@ characters are kept in clear (``key_prefix``) so that people can recognise a key
 from __future__ import annotations
 
 import hashlib
+import re
 import secrets
 from typing import Final
 
@@ -20,6 +21,15 @@ SCOPES: Final = frozenset({"admin", "manage", "exec"})
 
 def generate_key() -> str:
     return PREFIX + secrets.token_urlsafe(32)
+
+
+_SHAPE: Final = re.compile(r"mns_[A-Za-z0-9_-]{43}")
+
+
+def well_formed(key: str) -> bool:
+    """Whether ``key`` has the shape of a key this installation issues (checked before any
+    database lookup)."""
+    return _SHAPE.fullmatch(key) is not None
 
 
 def hash_key(key: str) -> str:

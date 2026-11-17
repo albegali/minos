@@ -57,7 +57,9 @@
     "rulesets": "Rule sets",
     "noRulesets": "No rule sets: create one after defining an entity.",
     "entities": "Entities and schemas",
-    "noEntities": "No entities."
+    "noEntities": "No entities.",
+    "importOverwrite": "Rule set {ruleset} already exists here: importing replaces its draft and the {count} tests of the bundle with the same names. Continue?",
+    "importDependencies": "Imported. The rule set uses these sub rule sets, which must be imported and published here too: {list}"
   },
   "entity": {
     "title": "Entity {entity}",
@@ -150,7 +152,8 @@
     "canvas": "Rule graph",
     "emptyHint": "Drag a node from the palette onto the canvas, connect outputs to inputs and select a node to configure it.",
     "panels": "Panels",
-    "issues": "Problems"
+    "issues": "Problems",
+    "validateFailed": "Draft saved, but it could not be validated: {error}"
   },
   "canvas": {
     "groupSummary": "{count} rules · {operator}",
@@ -373,7 +376,8 @@
     "saveAsTestTitle": "Save as test",
     "saveAsTest": "Save this simulation as a test",
     "saveAsTestHint": "The current outcome, message codes and output become the expected result.",
-    "testName": "Test name"
+    "testName": "Test name",
+    "staleResult": "The rule set changed after this simulation: run it again to save it as a test."
   },
   "tests": {
     "intro": "Tests run on every publication: if one fails, the version is not created.",
@@ -412,7 +416,8 @@
     "when": "When",
     "now": "Right away, with no start date (replaces the current version)",
     "fromDate": "From a date: calls with a later reference date will use this version",
-    "effectiveFrom": "In force from"
+    "effectiveFrom": "In force from",
+    "unchanged": "Nothing changed since version {version}: no new version was published."
   },
   "diff": {
     "added": "{path}: added {value}",

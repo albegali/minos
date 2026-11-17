@@ -65,3 +65,20 @@ describe('decision table cells', () => {
     expect(formatOutput({ ref: '$.a' })).toBe('$.a')
   })
 })
+
+describe('expression cells', () => {
+  it('survive editing: shown as JSON, read back whole (UI-13)', async () => {
+    const { formatCell, parseCell, formatOutput, parseOutput } = await import('./cells')
+    const expr = { op: '+', args: [{ ref: '$.input.a' }, 1] }
+    expect(parseCell(formatCell(expr))).toEqual(expr)
+    expect(parseOutput(formatOutput(expr))).toEqual(expr)
+    expect(parseCell('{not json, a, b')).toEqual(['{not json', 'a', 'b'])
+  })
+
+  it('reads plain numbers only', async () => {
+    const { parseValue } = await import('./cells')
+    expect(parseValue('0x10')).toBe('0x10')
+    expect(parseValue('2.5')).toBe(2.5)
+    expect(parseValue('Infinity')).toBe('Infinity')
+  })
+})

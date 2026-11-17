@@ -1,9 +1,15 @@
 """Bundles: a rule set with its entity schema and tests in one JSON file.
 
 Used to move rule sets between installations, keep them in Git, or share them. Pinned
-sub-rulesets are listed under ``dependencies`` but not included: import them first. The schema
-is the resolved one: entities it references travel embedded under ``$defs``, so the bundle
-imports into a workspace that does not have them.
+sub-rulesets are listed under ``dependencies`` but not included: import them first.
+
+The schema travels twice: ``schema`` is the resolved, standalone form (readable on its own),
+``authoredSchema`` the form as written, with ``entity:K@v`` references. Every entity it
+references, directly or not, is listed in ``entities`` (referenced ones first) with its authored
+schema. On import each of them is matched to an identical version of the target workspace, or
+added as a new version there, and the references are renumbered accordingly: the imported
+entity keeps its links to the others. Bundles without ``entities`` (older ones) import the
+resolved schema.
 """
 
 from __future__ import annotations
@@ -11,11 +17,13 @@ from __future__ import annotations
 import datetime as dt
 from typing import Any, Final
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from minos import __version__
 from minos.db import Entity, Ruleset, SchemaVersion, Workspace
 from minos.engine.compiler import dependencies
+from minos.schema import SchemaError, find_refs, repin_refs
 
 from . import service as svc
 from .errors import Invalid, NotFound
@@ -28,7 +36,8 @@ async def export_bundle(
 ) -> dict[str, Any]:
     """Bundle the draft (``version=None``) or a published version."""
     entity = await s.get(Entity, rs.entity_id)
-    assert entity is not None
+    if entity is None:  # pragma: no cover - foreign key
+        raise NotFound("entity of the rule set not found")
     if version is None:
         draft = await svc.get_draft(s, rs)
         graph, schema_id, source = draft.graph, draft.schema_version_id, "draft"
@@ -37,6 +46,7 @@ async def export_bundle(
         graph, schema_id, source = v.graph, v.schema_version_id, v.semver
     schema = await s.get(SchemaVersion, schema_id) if schema_id else None
     tests = await svc.list_tests(s, rs)
+    referenced = await _referenced_entities(s, ws, schema.json_schema) if schema else []
     return {
         "format": FORMAT,
         "exportedAt": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
@@ -45,6 +55,8 @@ async def export_bundle(
         "ruleset": {"key": rs.key, "name": rs.name, "description": rs.description},
         "entity": {"key": entity.key, "name": entity.name, "description": entity.description},
         "schema": schema.resolved_schema if schema else None,
+        "authoredSchema": schema.json_schema if schema else None,
+        "entities": referenced,
         "graph": graph,
         "tests": [
             {
@@ -57,6 +69,77 @@ async def export_bundle(
         ],
         "dependencies": [{"ruleset": k, "version": v} for k, v in dependencies(graph)],
     }
+
+
+async def _referenced_entities(
+    s: AsyncSession, ws: Workspace, schema: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """The entity versions ``schema`` references, directly or not, referenced ones first."""
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
+
+    async def visit(doc: dict[str, Any]) -> None:
+        for key, version in find_refs(doc):
+            if version is None or (key, version) in seen:
+                continue
+            seen.add((key, version))
+            entity = await svc.get_entity(s, ws, key)
+            sv = await svc.get_schema_version(s, entity, version)
+            await visit(sv.json_schema)
+            out.append(
+                {
+                    "key": key,
+                    "name": entity.name,
+                    "description": entity.description,
+                    "version": version,
+                    "schema": sv.json_schema,
+                }
+            )
+
+    await visit(schema)
+    return out
+
+
+async def _get_or_create_entity(
+    s: AsyncSession, actor: str, ws: Workspace, meta: dict[str, Any], key: str
+) -> tuple[Entity, bool]:
+    try:
+        return await svc.get_entity(s, ws, key), False
+    except NotFound:
+        entity = await svc.create_entity(
+            s, actor, ws, key, meta.get("name") or key, meta.get("description")
+        )
+        return entity, True
+
+
+async def _import_entities(
+    s: AsyncSession, actor: str, ws: Workspace, entities: list[Any]
+) -> dict[tuple[str, int], int]:
+    """Bring the referenced entity versions of a bundle into ``ws``: reuse an identical
+    version, or add one. Returns ``(key, version in the bundle) -> version in ws``."""
+    versions: dict[tuple[str, int], int] = {}
+    for item in entities:
+        if not isinstance(item, dict):
+            raise Invalid("bundle: every item of 'entities' must be an object")
+        key, version, schema = item.get("key"), item.get("version"), item.get("schema")
+        if not isinstance(key, str) or not isinstance(version, int) or not isinstance(schema, dict):
+            raise Invalid("bundle: every entity needs 'key', 'version' and 'schema'")
+        try:
+            authored = repin_refs(schema, versions)
+        except SchemaError as exc:
+            raise Invalid(f"bundle: entity {key!r}: {exc}") from exc
+        entity, _ = await _get_or_create_entity(s, actor, ws, item, key)
+        same = await s.scalar(
+            select(SchemaVersion.version).where(
+                SchemaVersion.entity_id == entity.id,
+                SchemaVersion.hash == svc.canonical_hash(authored),
+            )
+        )
+        if same is None:
+            sv = await svc.add_schema_version(s, actor, ws, entity, authored, "import")
+            same = sv.version
+        versions[(key, version)] = same
+    return versions
 
 
 def _require(bundle: Any, key: str, kind: type) -> Any:
@@ -84,23 +167,25 @@ async def import_bundle(s: AsyncSession, actor: str, ws: Workspace, bundle: Any)
     if not isinstance(key, str) or not isinstance(entity_key, str):
         raise Invalid("bundle: ruleset.key and entity.key are required")
 
-    try:
-        entity = await svc.get_entity(s, ws, entity_key)
-        entity_created = False
-    except NotFound:
-        entity = await svc.create_entity(
-            s,
-            actor,
-            ws,
-            entity_key,
-            entity_meta.get("name") or entity_key,
-            entity_meta.get("description"),
-        )
-        entity_created = True
+    referenced = bundle.get("entities")
+    authored = bundle.get("authoredSchema")
+    if referenced is not None and not isinstance(referenced, list):
+        raise Invalid("bundle: 'entities' must be a list")
+    # Referenced entities first: the schema below points at their versions in this workspace.
+    versions = await _import_entities(s, actor, ws, referenced or [])
+    entity, entity_created = await _get_or_create_entity(s, actor, ws, entity_meta, entity_key)
 
     schema_version = None
-    if isinstance(bundle.get("schema"), dict):
-        sv = await svc.add_schema_version(s, actor, ws, entity, bundle["schema"], "import")
+    schema: Any
+    if isinstance(authored, dict) and referenced is not None:
+        try:
+            schema = repin_refs(authored, versions)
+        except SchemaError as exc:
+            raise Invalid(f"bundle: {exc}") from exc
+    else:
+        schema = bundle.get("schema")
+    if isinstance(schema, dict):
+        sv = await svc.add_schema_version(s, actor, ws, entity, schema, "import")
         schema_version = sv.version
 
     try:

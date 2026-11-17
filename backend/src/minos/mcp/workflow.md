@@ -34,7 +34,10 @@ set is published or live, give them the Studio link to review it.
    Omit `ui`: the Studio lays the graph out.
 4. **Fix until valid.** `create_ruleset` and `update_ruleset` save the draft and return the
    validation result. Fix every issue (unknown fields, type mismatches, unconnected ports) with
-   `update_ruleset` until `valid` is true.
+   `update_ruleset` until `valid` is true. To change an existing rule set, read it with
+   `get_ruleset` and pass its `draft.lockVersion` to `update_ruleset`: if a person saved the
+   draft meanwhile, the update fails instead of overwriting their work. A wrong test is fixed
+   with `add_test(..., replace=true)`.
 5. **Prove it.** `simulate_ruleset` with a passing and a failing input; check `outcome`,
    `feedback` and `result`. Save the meaningful cases with `add_test` (they gate publication)
    and `run_tests`.

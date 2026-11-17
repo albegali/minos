@@ -63,7 +63,9 @@ unconnected required ports, edges into the start, cycles. Unreachable nodes prod
 
 The children of a `group` are expressions or rules with their own feedback:
 `{ "rule": <expression>, "feedback": { "fail": {...} } }`. With `evaluate: "all"` every child is
-evaluated (useful to collect every error); `not` means NOT(AND(children)).
+evaluated (useful to collect every error); `not` means NOT(AND(children)). A child's `fail`
+feedback explains why the group failed, so it is emitted only when the group fails: when an `or`
+alternative (or a `not`) makes the group pass, the children that failed report nothing.
 
 ### Decision table
 
@@ -113,7 +115,8 @@ before validating or publishing the rule set that uses it.
   to `passWhen`); an `error` stops the execution with outcome `error`.
 - `target`: `{ "outcome", "result" }`, or the list of these with `forEach`, in `$.vars`.
 - The sub rule set's messages flow into the result with `nodeId` = `<node>/<nested node>` and,
-  with `forEach`, the item's `index`.
+  with `forEach`, the item's `index`: all of them when the node fails, only those of the passing
+  runs when it passes (with `passWhen: any` the failing items do not count).
 
 A "dispatcher" (choosing the rule set based on a field) is an ordinary rule set with a `switch`
 followed by `subruleset` nodes.
@@ -132,8 +135,11 @@ Default when `onFail` is missing: `branch` if the `fail` port is connected, othe
 `fail_fast` and `continue` in `collect_all`.
 
 Final outcome: that of the `end` reached; an `end` declared `valid` becomes `invalid` if there are
-violations or feedback with severity `error`, and `warning` if there are only warnings. An
-evaluation error (e.g. comparing incompatible types) ends with outcome `error`.
+violations or feedback with severity `error`, and `warning` if there are only warnings. With
+`branch`, a failing node still emits its `fail` feedback: give it severity `info` (or none) when
+the failure is only a routing decision. An evaluation error (e.g. comparing incompatible types,
+or a value of an unexpected type when schema validation is off) ends with outcome `error`; its
+message is cut to 300 characters.
 
 ## Type-check on publication
 
@@ -169,20 +175,20 @@ JSON literals; lists of expressions; `{"literal": <any JSON>}` for literal objec
 
 | Operators | Notes |
 | --- | --- |
-| `==` `!=` | `null` and a missing field are equivalent |
+| `==` `!=` | JSON equality: `1` equals `1.0` but not `true`; lists and objects by content. `null` and a missing field are equivalent |
 | `<` `<=` `>` `>=` | `false` if one side is missing; error if the types are not comparable |
 | `between` | `right: [min, max]`, bounds included |
-| `date_before` `date_after` `date_between` | Compares the date part (ISO `YYYY-MM-DD...`) |
+| `date_before` `date_after` `date_between` | Compares the date part: the date written in an ISO date or date-time, in its own offset; any other text is an evaluation error |
 | `in` `not_in` | `right` a literal list or a reference to a list |
-| `contains` `starts_with` `ends_with` `regex` | `regex` requires a literal pattern |
+| `contains` `starts_with` `ends_with` `regex` | `regex` requires a literal pattern, in [RE2 syntax](https://github.com/google/re2/wiki/Syntax) (no backreferences or lookarounds; matching time is linear) and finds a match anywhere in the text (anchor it with `^...$`) |
 | `exists` `is_null` `is_not_null` | `exists` tells a missing field from `null` |
 | `and` `or` `not` `if` | `if`: `args: [condition, then, else]` |
-| `+` `-` `*` `/` `%` | `null` if an operand is missing |
+| `+` `-` `*` `/` `%` | On numbers (`+` also joins texts or lists); `null` if an operand is missing |
 
 | Functions | Notes |
 | --- | --- |
-| `sum` `count` `min` `max` `avg` `any` `all` `distinct` `filter` `map` | One array argument; optional `where` (filter) and `select` (projection) with `$.item` |
-| `len` `lower` `upper` `trim` `coalesce` `round` `abs` `floor` | |
+| `sum` `count` `min` `max` `avg` `any` `all` `distinct` `filter` `map` | One array argument; optional `where` (filter) and `select` (projection) with `$.item`. For `any`/`all` with `where` and no `select`, `where` is the test: whether any / every item satisfies it |
+| `len` `lower` `upper` `trim` `coalesce` `round` `abs` `floor` | `round(x, digits)` rounds half away from zero on the decimal value as written (`round(2.675, 2)` = 2.68) |
 | `date` `today` `days_between` `age` | `today` and `age` use `meta.referenceDate` (settable per request) |
 
 ## Execution result

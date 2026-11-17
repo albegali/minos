@@ -97,7 +97,15 @@ def compile_ruleset(
             raise CompileError(
                 f"{first['msg']} ({exc.error_count()} error(s))", loc or None
             ) from exc
-    compiled = _Compiler(graph, graph_hash(raw), resolve).build()
+    try:
+        compiled = _Compiler(graph, graph_hash(raw), resolve).build()
+    except ValidationError as exc:  # a group child that is not a valid rule
+        first = exc.errors()[0]
+        raise CompileError(f"{first['msg']} ({exc.error_count()} error(s))") from exc
+    except RecursionError as exc:
+        raise CompileError("expressions are nested too deeply") from exc
+    except TypeError as exc:  # e.g. {"op": ["=="]}: an operator or function name that is not text
+        raise CompileError(f"malformed expression: {exc}") from exc
     issues = typecheck(graph, dict(schema) if schema is not None else None)
     if issues:
         raise TypeCheckError(issues)
@@ -386,10 +394,9 @@ class _Compiler:
 
         def run(scope: Scope, state: ExecutionState) -> tuple[NodeOutcome, str, Any]:
             results: list[bool] = []
-            for ev, cp, cf in frozen:
+            for ev, _, _ in frozen:
                 ok = bool(ev(scope))
                 results.append(ok)
-                state.emit(cp if ok else cf, scope, nid)
                 if not evaluate_all and ((op == "or" and ok) or (op != "or" and not ok)):
                     break
             if op == "or":
@@ -398,6 +405,13 @@ class _Compiler:
                 passed = all(results) and len(results) == len(frozen)
             else:  # not: NOT(AND(children))
                 passed = not (all(results) and len(results) == len(frozen))
+            # A child's fail feedback explains why the group failed: when the group passes
+            # anyway (an `or` alternative, a `not`), it is not emitted.
+            for (_, cp, cf), ok in zip(frozen, results, strict=False):
+                if ok:
+                    state.emit(cp, scope, nid)
+                elif not passed:
+                    state.emit(cf, scope, nid)
             state.emit(fb_pass if passed else fb_fail, scope, nid)
             return (PASS, PASS, results) if passed else (FAIL, FAIL, results)
 
@@ -475,6 +489,9 @@ def _subruleset_fn(
     fb_pass: CompiledFeedback | None,
     fb_fail: CompiledFeedback | None,
 ) -> NodeFn:
+    """The child's feedback is copied for the runs that decide the node's outcome: all of them
+    when the node fails, only the passing ones when it passes (with ``passWhen: any`` the
+    failing items do not count)."""
     label = f"{child.ruleset}@{child.version}"
 
     def call(scope: Scope, data: Any, index: int | None, state: ExecutionState) -> dict[str, Any]:
@@ -485,24 +502,33 @@ def _subruleset_fn(
                 locale=state.locale,
                 reference_date=meta["referenceDate"],
                 request_id=meta["requestId"],
+                deadline=state.deadline,  # one budget for the whole execution
             ),
         )
         if result["outcome"] == "error":
             where = f" (element {index})" if index is not None else ""
             messages = "; ".join(f["message"] for f in result["feedback"])
             raise EvaluationError(f"sub-ruleset {label}{where} failed: {messages}")
+        copied = []
         for fb in result["feedback"]:
-            copied = {**fb, "nodeId": f"{nid}/{fb['nodeId']}"}
+            entry = {**fb, "nodeId": f"{nid}/{fb['nodeId']}"}
             if index is not None:
-                copied["index"] = index
-            state.feedback.append(copied)
-        return {"outcome": result["outcome"], "result": result["result"]}
+                entry["index"] = index
+            copied.append(entry)
+        return {"outcome": result["outcome"], "result": result["result"], "feedback": copied}
+
+    def report(runs: list[dict[str, Any]], passed: bool, state: ExecutionState) -> None:
+        for r in runs:
+            ok = r["outcome"] in ("valid", "warning")
+            if ok or not passed:
+                state.feedback.extend(r["feedback"])
 
     def run(scope: Scope, state: ExecutionState) -> tuple[NodeOutcome, str, Any]:
         if for_each is None:
             single = call(scope, input_(scope), None, state)
             passed = single["outcome"] in ("valid", "warning")
-            output: Any = single
+            runs = [single]
+            output: Any = {"outcome": single["outcome"], "result": single["result"]}
         else:
             items = for_each(scope)
             if items is None or items is MISSING:
@@ -522,7 +548,8 @@ def _subruleset_fn(
                     scope["item"] = previous
             oks = [r["outcome"] in ("valid", "warning") for r in runs]
             passed = all(oks) if pass_when == "all" else any(oks)
-            output = runs
+            output = [{"outcome": r["outcome"], "result": r["result"]} for r in runs]
+        report(runs, passed, state)
         if target is not None:
             scope["vars"][target] = output
         state.emit(fb_pass if passed else fb_fail, scope, nid)

@@ -13,10 +13,13 @@ Configuration through environment variables:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `MINOS_DATABASE_URL` | — | `postgresql+asyncpg://user:pass@host:5432/db` |
-| `MINOS_REQUIRE_AUTH` | `false` | `true` to require API keys |
+| `MINOS_REQUIRE_AUTH` | `false` | `true` to require API keys; any value other than `true/false/1/0/yes/no/on/off` stops the start-up |
 | `MINOS_CORS_ORIGINS` | — | Allowed browser origins, comma-separated |
 | `MINOS_RULESETS_DIR` | — | RGD files served as workspace `local`, environment `prod` |
-| `MINOS_POLL_INTERVAL_S` | `30` | Periodic alias check (safety net for lost NOTIFYs) |
+| `MINOS_POLL_INTERVAL_S` | `30` | Periodic alias check (safety net for lost NOTIFYs), at least 1 |
+| `MINOS_EXEC_TIME_LIMIT_MS` | `1000` | Wall-clock budget of one execution, sub rule sets included (`422` beyond it) |
+| `MINOS_PUBLISH_REQUIRES_TESTS` | `false` | `true` to refuse publishing a rule set without tests (recommended in production) |
+| `MINOS_ALLOWED_HOSTS` | (local names) | Open installations (no API keys) answer only to `localhost`, `127.0.0.1`, `::1` and these comma-separated names (`421` otherwise; `*` for any), against DNS rebinding |
 | `MINOS_EXAMPLES_DIR` | the repo's `examples/` | Examples loaded by `minos.cli seed-examples` |
 | `MINOS_SEED_EXAMPLES` | `true` only in the Docker image | Loads the examples on the container's first start |
 | `MINOS_STUDIO_URL` | `http://localhost:8080` | Studio address in the links returned by the MCP server |
@@ -31,7 +34,7 @@ whether to ask for a key and whether to open the demo.
 
 ## Authentication (optional)
 
-By default the installation is **open**: no key required. With `MINOS_REQUIRE_AUTH=true` you need
+By default the installation is **open**: no key required (`compose.yaml` publishes the ports on `127.0.0.1` only). With `MINOS_REQUIRE_AUTH=true` you need
 `Authorization: Bearer mns_...` or `X-Api-Key: mns_...`, with these scopes (ADR 0005):
 
 | Scope | Reach | Allows |
@@ -48,6 +51,8 @@ MINOS_DATABASE_URL=... uv run python -m minos.cli migrate
 
 ```bash
 MINOS_DATABASE_URL=... uv run python -m minos.cli create-admin-key --name ops
+MINOS_DATABASE_URL=... uv run python -m minos.cli list-admin-keys
+MINOS_DATABASE_URL=... uv run python -m minos.cli revoke-key <id>   # any key, admin or workspace
 ```
 
 ## Ready-made examples
@@ -66,6 +71,12 @@ name, `--dir` another folder (`rulesets/`, `inputs/`, `tests/`, optionally `enti
 start (`MINOS_SEED_EXAMPLES=false` to start empty).
 
 Errors are `application/problem+json` (`status`, `title`, `detail` plus specific fields).
+
+### References allowed in schemas
+
+A schema is self-contained: `$ref` may point inside it (`#/$defs/...`) or at another entity
+(`entity:Key`, see below). Any other reference (`http://...`, `file://...`, `other.json`) is
+rejected with `422`, and the server never downloads schemas.
 
 ### Entities made of other entities
 
@@ -96,8 +107,8 @@ A rule set on this entity reads every part directly (`$.input.student.birthDate`
 - Only `title` and `description` may sit next to a reference (`422` otherwise), as well as for an
   unknown entity or version.
 - `resolved` embeds the referenced versions under `$defs["entity:<key>@<version>"]`. Execution
-  validates the input against it, the Swagger shows it, and bundles export it, so a bundle imports
-  where the referenced entities do not exist.
+  validates the input against it and the Swagger shows it. Bundles carry the referenced entities
+  too, so a bundle imports where they do not exist and the imported entity keeps its references.
 
 ## Execution API
 
@@ -106,7 +117,8 @@ A rule set on this entity reads every part directly (`$.input.student.birthDate`
 | `POST /v1/exec/{ws}/{ruleset}` | Runs the `prod` alias (the version in force on the reference date) |
 | `POST /v1/exec/{ws}/{ruleset}@{env}` | Runs the `env` alias (`test`, `dev`, ...) |
 | `POST /v1/exec/{ws}/{ruleset}/versions/{semver}` | Runs a pinned version (loaded on the first request, then cached) |
-| `GET /v1/health` · `GET /v1/ready` | Probes; `ready` after the initial load |
+| `GET /v1/health` · `GET /v1/ready` | Probes; `ready` after the initial load. `health` is always `200`, with `status: degraded` and `problems` when the worker is not listening for changes (polling only) or a deployment failed to reload (the previous version keeps serving) |
+| `GET /v1/metrics` | Prometheus text: executions by outcome, engine time, requests refused (too large, invalid input, limits), deployments, reloads and their failures, NOTIFY connection (admin key) |
 | `GET /v1/deployments` | Aliases loaded in the worker, with version and hash (admin key) |
 | `GET /v1/exec/openapi.json[?workspace=<ws>]` | OpenAPI 3.1 of the deployed rule sets (see below) |
 | `GET /v1/exec/docs[?workspace=<ws>]` | Swagger UI on the same document |
@@ -134,11 +146,20 @@ Body: `{"input": {...}, "options": {"trace": "none|summary|full", "locale": "it"
 
 - `referenceDate` (default: today, UTC) is the rules' "reference" date: it feeds `today()` and
   `age()` and picks the version when the environment has scheduled versions.
+- `validateSchema: false` skips the input check against the entity schema: with API keys on, only
+  an `admin` or `manage` key may ask for it (`403` otherwise). Values of an unexpected type then
+  end with outcome `error`.
 - `200` with the outcome in the body (`valid`, `invalid`, `warning`); `422` if execution fails or
-  exceeds `maxSteps`; `400` if the input does not match the entity schema (`errors` list with JSON
+  exceeds `maxSteps` or the time limit; `400` if the input does not match the entity schema (`errors` list with JSON
   pointers); `401`/`403` for keys; `404` if the rule set or the alias is not deployed.
 - Headers: `X-Ruleset-Version`, `X-Ruleset-Hash`, `X-Request-Id` (echo of the one received),
   `Server-Timing: engine;dur=<ms>`.
+
+## Limits
+
+Request bodies over 10 MB get `413` on every endpoint (the execution input is limited to 1 MB).
+`POST .../import` accepts only `Content-Type: application/json`. API keys that do not have the
+shape Minos issues (`mns_` plus 43 characters) are refused without a database lookup.
 
 ## Management API
 
@@ -148,7 +169,7 @@ All paths under `/v1`. `{ws}` is the workspace slug, `{rs}` the rule set key.
 | --- | --- |
 | `GET/POST /workspaces` | List (filtered by key) and create (admin) |
 | `GET/POST /workspaces/{ws}/api-keys` · `DELETE .../api-keys/{id}` | Workspace keys; the plaintext key is returned only on creation |
-| `POST /admin/api-keys` | Global admin key |
+| `GET/POST /admin/api-keys` · `DELETE .../api-keys/{id}` | Global admin keys (admin): list, create, revoke |
 | `GET /workspaces/{ws}/audit?limit=100` | Change log |
 | `POST /schemas/infer` | `{"samples": [...], "title"?}` → JSON Schema 2020-12, without saving it |
 | `GET/POST /workspaces/{ws}/entities` | Entities |
@@ -160,15 +181,16 @@ All paths under `/v1`. `{ws}` is the workspace slug, `{rs}` the rule set key.
 | `GET/PUT .../rulesets/{rs}/draft` | Draft with `ETag`; `PUT` with `If-Match` for optimistic locking (`412` if changed); optional `schemaVersion` |
 | `POST .../rulesets/{rs}/validate` | Compiles and type-checks: `{"valid", "issues": [{"where", "message"}], "warnings"}` |
 | `POST .../rulesets/{rs}/simulate` | Runs the draft (`full` trace by default) |
-| `GET/POST .../rulesets/{rs}/tests` · `DELETE .../tests/{name}` · `POST .../tests/run` | The rule set's test cases |
-| `POST .../rulesets/{rs}/publish` | `{"bump": "major|minor|patch", "notes"?, "promoteTo"?}`; fails with `422` if the draft does not compile or a test does not pass |
+| `GET/POST .../rulesets/{rs}/tests` · `PUT/DELETE .../tests/{name}` · `POST .../tests/run` | The rule set's test cases; `PUT` creates or replaces one. Test inputs are checked against the entity schema, as executions are |
+| `POST .../rulesets/{rs}/publish` | `{"bump": "major|minor|patch", "notes"?, "promoteTo"?}`; fails with `422` if the draft does not compile or a test does not pass (or there are none, with `MINOS_PUBLISH_REQUIRES_TESTS`). A draft identical to the latest version publishes nothing: `200` with that version and `created: false` (promoted if asked), so retries are harmless |
+| `POST .../rulesets/{rs}/versions/{v}/archive` | Withdraws a version: it can no longer be promoted nor executed by number; `409` while an environment points at it |
 | `GET .../rulesets/{rs}/versions[/{semver}]` | Published (immutable) versions |
 | `GET .../rulesets/{rs}/aliases` | Schedule per environment: `{"prod": [{"version": "1.0.0", "effectiveFrom": null}, {"version": "2.0.0", "effectiveFrom": "2027-08-01"}]}` |
 | `PUT .../aliases/{env}` | `{"version": "2.0.0", "effectiveFrom"?: "2027-08-01"}`: without a date it replaces the undated entry; with a date it adds or updates that entry. Workers update through NOTIFY |
 | `DELETE .../aliases/{env}` | Removes the environment; `?effectiveFrom=YYYY-MM-DD` removes only that entry, `?effectiveFrom=always` the undated one |
 | `GET .../rulesets/{rs}/diff?from=<v>&to=<v\|draft>` | Added, removed and changed nodes (field by field), edges, settings and constants; canvas positions are ignored |
 | `GET .../rulesets/{rs}/export[?version=<v>]` | `minos-bundle/1` JSON bundle: rule set, entity schema, tests, dependencies (the draft if `version` is missing) |
-| `POST /workspaces/{ws}/import` | Imports a bundle: creates or updates entity, schema (if different), rule set (as a draft, never published automatically) and tests (replaced by name); the sub rule sets listed in `dependencies` must be imported and published first |
+| `POST /workspaces/{ws}/import` | Imports a bundle: creates or updates entity, schema (if different), rule set (as a draft, never published automatically) and tests (replaced by name); the entities the schema references (`entities`) are matched to identical versions or added as new ones, keeping the references; the sub rule sets listed in `dependencies` must be imported and published first |
 
 ### Test cases
 

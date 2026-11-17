@@ -155,6 +155,9 @@ export function useAddSchema(w: string, e: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.schemas(w, e) })
       void qc.invalidateQueries({ queryKey: ['entity', w] }) // "used by" of the referenced ones
+      // Versions are immutable, but their `references[].latest` is not: every schema of the
+      // workspace may now have a newer version to move to.
+      void qc.invalidateQueries({ queryKey: ['schema', w] })
     },
   })
 }
@@ -206,7 +209,7 @@ export const publish = (
   w: string,
   r: string,
   body: { bump: 'major' | 'minor' | 'patch'; notes?: string; promoteTo?: string },
-) => api<Version & { promotedTo?: string }>(`${rs(w, r)}/publish`, { method: 'POST', body })
+) => api<Version & { promotedTo?: string; created?: boolean }>(`${rs(w, r)}/publish`, { method: 'POST', body })
 
 export const setAlias = (w: string, r: string, env: string, version: string, effectiveFrom?: string | null) =>
   api<{ env: string; version: string }>(`${rs(w, r)}/aliases/${encodeURIComponent(env)}`, {

@@ -141,6 +141,8 @@ export function Canvas({ graph, catalog }: { graph: RuleGraph; catalog: Catalog 
           ...(old ?? {}),
           id: n.id,
           type: 'rule' as const,
+          // Not just filtered out on removal: a deletable Start would still lose its edges.
+          deletable: n.type !== 'start',
           position: old?.dragging ? old.position : { x, y },
           selected: n.id === selected,
           data: {
@@ -242,7 +244,15 @@ export function Canvas({ graph, catalog }: { graph: RuleGraph; catalog: Catalog 
         onEdgesChange(changes)
         for (const c of changes) if (c.type === 'remove') change((g) => disconnect(g, c.id))
       }}
-      onNodeDragStop={(_, node) => change((g) => setPosition(g, node.id, [Math.round(node.position.x), Math.round(node.position.y)]))}
+      onNodeDragStop={(_, node, dragged) =>
+        // Every node moved together (a multi-selection), not only the one grabbed.
+        change((g) =>
+          (dragged.length > 0 ? dragged : [node]).reduce(
+            (acc, n) => setPosition(acc, n.id, [Math.round(n.position.x), Math.round(n.position.y)]),
+            g,
+          ),
+        )
+      }
       onConnect={onConnect}
       isValidConnection={isValidConnection}
       onNodeClick={(_, node) => select(node.id)}

@@ -3,6 +3,7 @@
 # Studio: http://localhost:8080 · API: http://localhost:8000/v1 · no login (open installation)
 # On start the examples missing from workspace "esempi" are published there (MINOS_SEED_EXAMPLES=false
 # to start empty); /demo shows them read-only with the simulator.
+# The ports listen on this machine only: before exposing them, set MINOS_REQUIRE_AUTH=true.
 services:
   db:
     image: postgres:17-alpine
@@ -32,7 +33,7 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000" # open installation: this machine only
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/v1/ready')"]
       interval: 3s
@@ -48,7 +49,7 @@ services:
       api:
         condition: service_healthy
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
 
 volumes:
   minos-data:

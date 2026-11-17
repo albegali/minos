@@ -91,12 +91,15 @@ export type EnsureSaved = () => Promise<boolean>
 export function SimulatePanel({ ws, rs, ensureSaved }: { ws: string; rs: string; ensureSaved: EnsureSaved }) {
   const tests = useTests(ws, rs)
   const simulation = useEditor((s) => s.simulation)
+  const simulated = useEditor((s) => s.simulated)
   const setSimulation = useEditor((s) => s.setSimulation)
-  const [input, setInput] = useState<unknown>({})
-  const [referenceDate, setReferenceDate] = useState('')
-  const [locale, setLocale] = useState('it')
+  const graph = useEditor((s) => s.graph)
+  // The form lives in the editor store: it survives switching to a node and back.
+  const { input, referenceDate, locale } = useEditor((s) => s.simRequest)
+  const setSimRequest = useEditor((s) => s.setSimRequest)
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
+  const [inputValid, setInputValid] = useState(true)
   const [testName, setTestName] = useState('')
   const qc = useQueryClient()
   const { t } = useI18n()
@@ -108,7 +111,7 @@ export function SimulatePanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
       if (!(await ensureSaved())) return
       const options: Record<string, unknown> = { trace: 'full', locale }
       if (referenceDate) options.referenceDate = referenceDate
-      setSimulation(await simulateDraft(ws, rs, input, options))
+      setSimulation(await simulateDraft(ws, rs, input, options), { input, referenceDate, locale })
     } catch (e) {
       setError(e)
       setSimulation(null)
@@ -125,10 +128,7 @@ export function SimulatePanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
             placeholder={t('simulate.chooseTest')}
             onOptionSelect={(_, d) => {
               const test = tests.data?.find((x) => x.name === d.optionValue)
-              if (test) {
-                setInput(test.input)
-                setReferenceDate(test.referenceDate ?? '')
-              }
+              if (test) setSimRequest({ input: test.input, referenceDate: test.referenceDate ?? '' })
             }}
           >
             {tests.data.map((test) => (
@@ -139,19 +139,25 @@ export function SimulatePanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
           </Dropdown>
         </Field>
       )}
-      <JsonField label={t('simulate.input')} value={input} onValid={setInput} rows={12} />
+      <JsonField
+        label={t('simulate.input')}
+        value={input}
+        onValid={(v) => setSimRequest({ input: v })}
+        onValidity={setInputValid}
+        rows={12}
+      />
       <div className="inline">
         <Field label={t('simulate.referenceDate')}>
-          <Input type="date" value={referenceDate} onChange={(_, d) => setReferenceDate(d.value)} />
+          <Input type="date" value={referenceDate} onChange={(_, d) => setSimRequest({ referenceDate: d.value })} />
         </Field>
         <Field label={t('common.language')}>
-          <Dropdown value={locale} selectedOptions={[locale]} onOptionSelect={(_, d) => setLocale(d.optionValue ?? 'it')}>
+          <Dropdown value={locale} selectedOptions={[locale]} onOptionSelect={(_, d) => setSimRequest({ locale: d.optionValue ?? 'it' })}>
             <Option value="it">it</Option>
             <Option value="en">en</Option>
           </Dropdown>
         </Field>
       </div>
-      <Button appearance="primary" onClick={run} disabled={busy}>
+      <Button appearance="primary" onClick={run} disabled={busy || !inputValid}>
         {busy ? t('simulate.running') : t('simulate.run')}
       </Button>
       <ErrorBar error={error} />
@@ -162,16 +168,21 @@ export function SimulatePanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
         <>
           <ResultView result={simulation} />
           <Text size={200}>{t('simulate.selectNode')}</Text>
+          {simulated && simulated.graph !== graph && <Text size={200}>{t('simulate.staleResult')}</Text>}
           <FormDialog
             title={t('simulate.saveAsTestTitle')}
             submitLabel={t('common.save')}
             canSubmit={Boolean(testName.trim())}
-            trigger={<Button>{t('simulate.saveAsTest')}</Button>}
+            trigger={
+              <Button disabled={!simulated || simulated.graph !== graph}>{t('simulate.saveAsTest')}</Button>
+            }
             onSubmit={async () => {
+              if (!simulated) return
+              // What was actually simulated, not what the form holds now.
               await addTest(ws, rs, {
                 name: testName.trim(),
-                input,
-                referenceDate: referenceDate || null,
+                input: simulated.input,
+                referenceDate: simulated.referenceDate || null,
                 expected: {
                   outcome: simulation.outcome,
                   feedbackCodes: simulation.feedback.map((f) => f.code),
@@ -297,9 +308,11 @@ export function VersionsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
           try {
             const v = await publish(ws, rs, { bump, notes: notes || undefined, promoteTo: promoteTo || undefined })
             setMessage(
-              promoteTo
-                ? t('versions.publishedPromoted', { version: v.version, env: promoteTo })
-                : t('versions.published', { version: v.version }),
+              v.created === false
+                ? t('versions.unchanged', { version: v.version })
+                : promoteTo
+                  ? t('versions.publishedPromoted', { version: v.version, env: promoteTo })
+                  : t('versions.published', { version: v.version }),
             )
             await refresh()
           } catch (e) {

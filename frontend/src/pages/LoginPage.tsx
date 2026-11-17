@@ -2,6 +2,7 @@ import { Button, Card, Field, Input, MessageBar, MessageBarBody, Text } from '@f
 import { type FormEvent, useState } from 'react'
 import { Link, Navigate, useLocation, useNavigate } from 'react-router'
 
+import { BASE } from '../api/client'
 import { useServerInfo } from '../api/hooks'
 
 import { useAuth } from '../auth/store'
@@ -25,7 +26,7 @@ export function LoginPage() {
     setBusy(true)
     setError(null)
     try {
-      const res = await fetch('/v1/workspaces', { headers: { Authorization: `Bearer ${key.trim()}` } })
+      const res = await fetch(`${BASE}/v1/workspaces`, { headers: { Authorization: `Bearer ${key.trim()}` } })
       if (res.status === 404) {
         setError(t('login.noManagement'))
       } else if (!res.ok) {

@@ -22,7 +22,7 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import asyncpg
 import orjson
@@ -30,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from minos.api.common import Principal
+from minos.control.keys import well_formed
 from minos.control.service import resolver_for, resolver_from
 from minos.db import (
     ALWAYS,
@@ -168,6 +169,9 @@ class RulesetRegistry:
         self._schedules = {**fresh, **kept}
         self.generation += 1
 
+    def drop_version(self, key: Key) -> None:
+        self._versions.pop(key, None)
+
     def put_version(self, key: Key, deployment: Deployment) -> None:
         if len(self._versions) > 1000:  # bounded: fixed-version calls are the exception
             self._versions = {}
@@ -193,25 +197,43 @@ class RulesetRegistry:
 class KeyCache:
     """API key -> principal, cached so the execution hot path rarely touches the database."""
 
+    MAX_ENTRIES: Final = 10_000
+
     def __init__(self, ttl_s: float = 60.0, negative_ttl_s: float = 5.0) -> None:
         self.ttl_s = ttl_s
         self.negative_ttl_s = negative_ttl_s
-        self._items: dict[str, tuple[Principal | None, float]] = {}
+        # Valid and unknown keys are kept apart: a flood of unknown keys can only push out
+        # other unknown keys, never the valid ones.
+        self._valid: dict[str, tuple[Principal, float]] = {}
+        self._unknown: dict[str, float] = {}
 
     def get(self, key_hash: str) -> tuple[bool, Principal | None]:
-        hit = self._items.get(key_hash)
-        if hit is None or hit[1] < time.monotonic():
-            return False, None
-        return True, hit[0]
+        now = time.monotonic()
+        hit = self._valid.get(key_hash)
+        if hit is not None and hit[1] >= now:
+            return True, hit[0]
+        expires = self._unknown.get(key_hash)
+        if expires is not None and expires >= now:
+            return True, None
+        return False, None
 
     def put(self, key_hash: str, principal: Principal | None) -> None:
-        ttl = self.ttl_s if principal else self.negative_ttl_s
-        if len(self._items) > 10_000:
-            self._items = {}
-        self._items[key_hash] = (principal, time.monotonic() + ttl)
+        now = time.monotonic()
+        if principal is not None:
+            _bounded_put(self._valid, key_hash, (principal, now + self.ttl_s), self.MAX_ENTRIES)
+        else:
+            _bounded_put(self._unknown, key_hash, now + self.negative_ttl_s, self.MAX_ENTRIES)
 
     def evict(self, key_hash: str) -> None:
-        self._items.pop(key_hash, None)
+        self._valid.pop(key_hash, None)
+        self._unknown.pop(key_hash, None)
+
+
+def _bounded_put[V](items: dict[str, V], key: str, value: V, limit: int) -> None:
+    items.pop(key, None)
+    while len(items) >= limit:
+        items.pop(next(iter(items)))  # oldest first
+    items[key] = value
 
 
 _ALIAS_QUERY = (
@@ -263,6 +285,11 @@ class DbSync:
         self._listener: asyncpg.Connection | None = None
         self._tasks: list[asyncio.Task[None]] = []
         self.reloads = 0  # observable in tests and metrics
+        self.reload_failures = 0
+        self.failing: set[Key] = set()
+        """Deployments whose last reload failed (they keep serving the previous version)."""
+        self._reload_locks: dict[Key, asyncio.Lock] = {}
+        self._missing_versions: dict[tuple[str, str, str], float] = {}
 
     async def start(self) -> None:
         await self.load_all()
@@ -307,26 +334,47 @@ class DbSync:
         return tuple(out)
 
     async def reload_one(self, ws: str, rs: str, env: str) -> None:
-        q = _ALIAS_QUERY.where(Workspace.slug == ws, Ruleset.key == rs, RulesetAlias.env == env)
-        async with self.sessions() as s:
-            rows = (await s.execute(q)).all()
-        self.registry.put((ws, rs, env), await self._schedule(ws, list(rows)) if rows else None)
-        self.reloads += 1
+        # One reload per key at a time: each reads the database inside the lock, so the last
+        # one to finish installs the latest state, never an older snapshot.
+        lock = self._reload_locks.setdefault((ws, rs, env), asyncio.Lock())
+        async with lock:
+            q = _ALIAS_QUERY.where(Workspace.slug == ws, Ruleset.key == rs, RulesetAlias.env == env)
+            async with self.sessions() as s:
+                rows = (await s.execute(q)).all()
+            try:
+                schedule = await self._schedule(ws, list(rows)) if rows else None
+            except Exception:
+                self.failing.add((ws, rs, env))
+                raise
+            self.registry.put((ws, rs, env), schedule)
+            self.failing.discard((ws, rs, env))
+            self.reloads += 1
 
     async def load_version(self, ws: str, rs: str, semver: str) -> Deployment | None:
         cached = self.registry.get_version(ws, rs, semver)
         if cached is not None:
             return cached
+        missing_until = self._missing_versions.get((ws, rs, semver))
+        if missing_until is not None and missing_until > time.monotonic():
+            return None  # asked again within seconds: no database query
         q = (
             select(RulesetVersion.graph, SchemaVersion.resolved_schema)
             .join(Ruleset, Ruleset.id == RulesetVersion.ruleset_id)
             .join(Workspace, Workspace.id == Ruleset.workspace_id)
             .outerjoin(SchemaVersion, SchemaVersion.id == RulesetVersion.schema_version_id)
-            .where(Workspace.slug == ws, Ruleset.key == rs, RulesetVersion.semver == semver)
+            .where(
+                Workspace.slug == ws,
+                Ruleset.key == rs,
+                RulesetVersion.semver == semver,
+                RulesetVersion.status != "archived",
+            )
         )
         async with self.sessions() as s:
             row = (await s.execute(q)).first()
         if row is None:
+            if len(self._missing_versions) >= KeyCache.MAX_ENTRIES:
+                self._missing_versions.clear()
+            self._missing_versions[(ws, rs, semver)] = time.monotonic() + 5
             return None
         async with self.sessions() as s:
             resolve = await resolver_for(s, ws, row.graph)
@@ -335,6 +383,8 @@ class DbSync:
         return dep
 
     async def authenticate(self, key: str, key_hash: str) -> Principal | None:
+        if not well_formed(key):
+            return None  # no database query, no cache entry for random strings
         hit, principal = self.keys.get(key_hash)
         if hit:
             return principal
@@ -351,6 +401,11 @@ class DbSync:
         return principal
 
     # ------------------------------------------------------------------ notifications
+
+    @property
+    def listening(self) -> bool:
+        """Whether NOTIFY messages arrive (otherwise only the periodic poll applies changes)."""
+        return self._listener is not None and not self._listener.is_closed()
 
     async def _listen(self) -> None:
         try:
@@ -369,6 +424,8 @@ class DbSync:
             self._spawn(self.reload_one(event["workspace"], event["ruleset"], event["env"]))
         elif event.get("kind") == "apikey":
             self.keys.evict(event.get("keyHash", ""))
+        elif event.get("kind") == "version":  # archived: no longer executable by number
+            self.registry.drop_version((event["workspace"], event["ruleset"], event["semver"]))
 
     def _spawn(self, coro: Any) -> None:
         task = asyncio.get_running_loop().create_task(coro)
@@ -379,6 +436,7 @@ class DbSync:
         with contextlib.suppress(ValueError):
             self._tasks.remove(task)
         if not task.cancelled() and task.exception() is not None:
+            self.reload_failures += 1
             log.error("reload failed", exc_info=task.exception())
 
     # ------------------------------------------------------------------ safety net
@@ -389,6 +447,8 @@ class DbSync:
             rows = (await s.execute(_HASH_QUERY)).all()
         wanted: dict[Key, list[tuple[dt.date, str]]] = {}
         for ws, rs, env, start, digest in rows:
+            if ws == LOCAL_WORKSPACE:  # served from files; the slug is reserved
+                continue
             wanted.setdefault((ws, rs, env), []).append((start, digest))
         current = {
             key: sorted((start, dep.hash) for start, dep in schedule)
@@ -397,11 +457,18 @@ class DbSync:
         }
         stale = [k for k, v in wanted.items() if current.get(k) != sorted(v)]
         gone = [k for k in current if k not in wanted]
-        for ws, rs, env in stale:
-            await self.reload_one(ws, rs, env)
         for key in gone:
             self.registry.put(key, None)
-        return len(stale) + len(gone)
+        fixed = len(gone)
+        for ws, rs, env in stale:
+            # One version that cannot be loaded must not keep the others stale.
+            try:
+                await self.reload_one(ws, rs, env)
+                fixed += 1
+            except Exception:
+                self.reload_failures += 1
+                log.exception("cannot reload %s/%s@%s", ws, rs, env)
+        return fixed
 
     async def _poll_forever(self) -> None:
         while True:

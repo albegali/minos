@@ -25,4 +25,14 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # Schemas that reference other entities cannot be read without their resolved form, and
+    # upgrading again could not rebuild it: refuse instead of leaving broken rule sets.
+    refs = op.get_bind().scalar(
+        sa.text("SELECT count(*) FROM schema_version WHERE json_schema::text LIKE '%\"entity:%'")
+    )
+    if refs:
+        raise RuntimeError(
+            f"{refs} schema version(s) reference other entities: the previous release cannot "
+            "use them. Remove those versions (or restore a backup) before downgrading."
+        )
     op.drop_column("schema_version", "resolved_schema")

@@ -303,6 +303,8 @@ def test_sub_ruleset_for_each_element() -> None:
     anyone = run(parent(forEach={"ref": "$.input.courses"}, passWhen="any"), data, resolve=resolve)
     assert anyone["exit"]["nodeId"] == "ok"
     assert [x["outcome"] for x in anyone["result"]["r"]] == ["valid", "invalid", "valid"]
+    # the failing element does not count when one is enough (ENG-02)
+    assert (anyone["outcome"], anyone["feedback"]) == ("valid", [])
     assert (
         run(parent(forEach={"ref": "$.input.none"}), {}, resolve=resolve)["exit"]["nodeId"] == "ok"
     )
@@ -355,3 +357,20 @@ def test_sub_ruleset_typecheck() -> None:
         compile_ruleset(typo, schema, resolve)
     with pytest.raises(TypeCheckError, match="only be used inside"):
         compile_ruleset(parent(input={"ref": "$.item"}), schema, resolve)
+
+
+def test_first_stops_at_the_first_matching_row() -> None:
+    # a later row that cannot be evaluated for this input does not matter (ENG-08)
+    rules = [
+        {"when": ["EMBA", None], "then": {"fee": 1, "band": "a"}},
+        {"when": [None, {"op": ">", "value": 5}], "then": {"fee": 2, "band": "b"}},
+    ]
+    r = run(table(rules), {"program": "EMBA", "cfu": "sixty"})
+    assert r["outcome"] == "valid"
+    assert r["result"]["r"] == {"fee": 1, "band": "a"}
+
+
+def test_collect_without_matches_is_an_empty_list() -> None:
+    rules = [{"when": ["EMBA", None], "then": {"fee": 1, "band": "a"}}]
+    r = run(table(rules, hit="collect"), {"program": "MSC", "cfu": 1})
+    assert r["exit"]["nodeId"] == "ko"

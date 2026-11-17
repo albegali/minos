@@ -57,12 +57,22 @@ def parse_ref(value: Any) -> EntityRef | None:
     return m.group(1), int(m.group(2)) if m.group(2) else None
 
 
+# Keywords whose value maps names to sub-schemas: the names are the user's (a property may well
+# be called "default" or "enum"), so they are never mistaken for keywords.
+_SCHEMA_MAPS: Final = frozenset(
+    {"properties", "patternProperties", "$defs", "definitions", "dependentSchemas"}
+)
+
+
 def _subschemas(node: Any) -> Iterator[dict[str, Any]]:
     """Every dict reachable from ``node`` through schema positions (data keywords skipped)."""
     if isinstance(node, dict):
         yield node
         for k, v in node.items():
-            if k not in _DATA_KEYS:
+            if k in _SCHEMA_MAPS and isinstance(v, dict):
+                for sub in v.values():
+                    yield from _subschemas(sub)
+            elif k not in _DATA_KEYS:
                 yield from _subschemas(v)
     elif isinstance(node, list):
         for v in node:
@@ -96,7 +106,20 @@ def pin_refs(schema: dict[str, Any], latest: Mapping[str, int]) -> dict[str, Any
     for node in _subschemas(out):
         ref = parse_ref(node.get("$ref"))
         if ref is not None and ref[1] is None:
+            if ref[0] not in latest:
+                raise SchemaError(f"no version of entity {ref[0]!r} to pin the reference to")
             node["$ref"] = def_key(ref[0], latest[ref[0]])
+    return out
+
+
+def repin_refs(schema: dict[str, Any], versions: Mapping[tuple[str, int], int]) -> dict[str, Any]:
+    """Copy of a pinned ``schema`` with ``entity:K@v`` moved to ``entity:K@versions[(K, v)]``
+    (used when a schema moves to a workspace where the same entities have other numbers)."""
+    out = copy.deepcopy(schema)
+    for node in _subschemas(out):
+        ref = parse_ref(node.get("$ref"))
+        if ref is not None and ref[1] is not None and ref in versions:
+            node["$ref"] = def_key(ref[0], versions[(ref[0], ref[1])])
     return out
 
 

@@ -49,3 +49,36 @@ describe('expression helpers', () => {
     expect(toggleNot(toggleNot(c))).toEqual(c)
   })
 })
+
+describe('typing values', () => {
+  it('reads decimals while they are typed', () => {
+    // "3." is an intermediate state of "3.5": the box keeps the text, the value is 3 (UI-01)
+    expect(parseLiteral('3.')).toBe(3)
+    expect(parseLiteral('3.5')).toBe(3.5)
+    expect(parseLiteral('-0.25')).toBe(-0.25)
+    expect(parseLiteral('.5')).toBe(0.5)
+    expect(parseLiteral('1e3')).toBe(1000)
+  })
+
+  it('keeps as text what only JavaScript reads as a number', () => {
+    expect(parseLiteral('0x10')).toBe('0x10')
+    expect(parseLiteral('Infinity')).toBe('Infinity')
+    expect(parseLiteral(' ')).toBe(' ')
+  })
+
+  it('accepts a decimal comma for numeric fields only', () => {
+    expect(parseLiteral('3,5', ['number'])).toBe(3.5)
+    expect(parseLiteral('3,5', ['integer'])).toBe(3.5)
+    expect(parseLiteral('3,5')).toBe('3,5')
+    expect(parseLiteral('20100', ['string'])).toBe('20100')
+  })
+})
+
+describe('typing lists', () => {
+  it('splits on commas, numbers only for numeric fields (UI-08)', async () => {
+    const { parseList } = await import('./expr')
+    expect(parseList('IT, FR,', false)).toEqual(['IT', 'FR'])
+    expect(parseList('1, 2.5, x', true)).toEqual([1, 2.5, 'x'])
+    expect(parseList('20100, 0x10', false)).toEqual(['20100', '0x10'])
+  })
+})

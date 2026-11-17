@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from .errors import CompileError, EvaluationError
-from .expressions import Evaluator, clean, compile_expr, to_date
+from .expressions import Evaluator, clean, compile_expr, json_key, same, to_date
 from .refs import MISSING, Scope
 
 type Cell = Callable[[Any, Scope], bool]
@@ -91,9 +91,9 @@ def _compile_test(op: str, raw: Any, where: str) -> Cell:
 
     value = compile_expr(raw, f"{where}.value")
     if op == "==":
-        return lambda v, s: clean(v) == clean(value(s))
+        return lambda v, s: same(v, value(s))
     if op == "!=":
-        return lambda v, s: clean(v) != clean(value(s))
+        return lambda v, s: not same(v, value(s))
     if op in _ORDER:
         cmp = _ORDER[op]
 
@@ -114,7 +114,7 @@ def _compile_test(op: str, raw: Any, where: str) -> Cell:
             r = value(s)
             if not isinstance(r, list):
                 raise EvaluationError(f"cell {op}: expected a list, got {r!r}")
-            return (clean(v) in r) != negate
+            return (json_key(v) in {json_key(x) for x in r}) != negate
 
         return member
     if op in ("date_before", "date_after"):
@@ -128,7 +128,16 @@ def _compile_test(op: str, raw: Any, where: str) -> Cell:
 
         return date_cmp
     if op == "contains":
-        return lambda v, s: isinstance(v, (list, str)) and value(s) in v
+
+        def contains(v: Any, s: Scope) -> bool:
+            needle = value(s)
+            if isinstance(v, str):
+                return isinstance(needle, str) and needle in v
+            if isinstance(v, list):
+                return json_key(needle) in {json_key(x) for x in v}
+            return False
+
+        return contains
     # starts_with
     return lambda v, s: isinstance(v, str) and isinstance(r := value(s), str) and v.startswith(r)
 
@@ -151,18 +160,21 @@ class DecisionTable:
     def evaluate(self, scope: Scope) -> tuple[list[int], Any]:
         """Return ``(matched row indexes, result)``; result is ``None`` when nothing matched."""
         values = [ev(scope) for ev in self.inputs]
-        matched = [
-            row
-            for row in self.rows
-            if all(cell is None or cell(values[i], scope) for i, cell in enumerate(row.cells))
-        ]
+
+        def matches(row: _Row) -> bool:
+            return all(cell is None or cell(values[i], scope) for i, cell in enumerate(row.cells))
+
+        if self.hit_policy == "first":
+            # Rows after the first match are never evaluated: a row that could not even be
+            # evaluated for this input (e.g. a number test on a text) does not matter.
+            hit = next((row for row in self.rows if matches(row)), None)
+            return ([hit.index], self._out(hit, scope)) if hit else ([], None)
+        matched = [row for row in self.rows if matches(row)]
         indexes = [r.index for r in matched]
         if not matched:
-            return indexes, None
+            return indexes, [] if self.hit_policy == "collect" else None
         if self.hit_policy == "collect":
             return indexes, [self._out(r, scope) for r in matched]
-        if self.hit_policy == "first":
-            return indexes[:1], self._out(matched[0], scope)
         if self.hit_policy == "priority":
             best = max(matched, key=lambda r: (r.priority, -r.index))
             return [best.index], self._out(best, scope)
