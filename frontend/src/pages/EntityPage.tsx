@@ -9,7 +9,6 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router'
 
-import { errorMessage } from '../api/client'
 import { inferSchema, useAddSchema, useSchema, useSchemas } from '../api/hooks'
 import type { JsonSchema } from '../api/types'
 import { ErrorBar, JsonField } from '../components/forms'
@@ -71,7 +70,7 @@ export function EntityPage() {
   const mode: Mode = chosenMode === 'view' && versions.data?.length === 0 ? 'samples' : chosenMode
   const [samples, setSamples] = useState<unknown>([{}])
   const [preview, setPreview] = useState<JsonSchema | undefined>()
-  const [previewError, setPreviewError] = useState<string | null>(null)
+  const [previewError, setPreviewError] = useState<unknown>(null)
   const [manual, setManual] = useState<unknown>(null)
 
   useEffect(() => {
@@ -83,7 +82,7 @@ export function EntityPage() {
           setPreview(s)
           setPreviewError(null)
         })
-        .catch((e: unknown) => setPreviewError(errorMessage(e)))
+        .catch((e: unknown) => setPreviewError(e))
     }, 300)
     return () => clearTimeout(handle)
   }, [samples, mode, entity])
@@ -155,7 +154,7 @@ export function EntityPage() {
           />
           <div className="stack">
             <Text weight="semibold">{t('entity.preview')}</Text>
-            {previewError && <ErrorBar error={new Error(previewError)} />}
+            <ErrorBar error={previewError} />
             <FieldTree schema={preview} />
           </div>
         </div>

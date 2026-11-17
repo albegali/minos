@@ -32,6 +32,7 @@ import { useBlocker, useParams } from 'react-router'
 
 import { ApiError, errorMessage } from '../api/client'
 import { type Key, useI18n } from '../i18n'
+import { translateApiText } from '../i18n/api'
 import { downloadJson, exportBundle, keys, saveDraft, useCatalog, useDraft, useRuleset, useSchema, useSchemas, validateDraft } from '../api/hooks'
 import { Canvas, Palette } from './Canvas'
 import { type FieldScope, ScopeContext } from './FieldPicker'
@@ -383,7 +384,7 @@ export function EditorPage() {
             />
             {warnings.map((w) => (
               <Text key={w} size={200} className="muted">
-                {w}
+                {translateApiText(w)}
               </Text>
             ))}
           </div>

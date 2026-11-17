@@ -14,6 +14,7 @@ import { edgesOnPath, type NodeStatus, type RuleGraph, toFlow } from '../rgd'
 import { BrandLockup } from '../components/Brand'
 import { LanguageSwitch } from '../components/LanguageSwitch'
 import { useI18n } from '../i18n'
+import { exitReasonText, feedbackText, translateApiText } from '../i18n/api'
 import { RuleNode } from '../RuleNode'
 
 // Every example of the repository, bundled at build time. Inputs belong to the entity of
@@ -111,7 +112,7 @@ function DemoView({ graph, onRuleset }: { graph: RuleGraph; onRuleset: (key: str
       })
       const body: unknown = await res.json()
       if (!res.ok && res.status !== 422) {
-        throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`)
+        throw new Error(translateApiText((body as { detail?: string }).detail ?? `HTTP ${res.status}`))
       }
       setResult(body as ExecutionResult)
     } catch (e) {
@@ -185,14 +186,14 @@ function DemoView({ graph, onRuleset }: { graph: RuleGraph; onRuleset: (key: str
               <p className="muted">
                 {rich('demo.exit', {
                   node: <code>{result.exit.nodeId}</code>,
-                  reason: result.exit.reason,
+                  reason: exitReasonText(result.exit.reason),
                   us: result.timing.engineUs,
                 })}
               </p>
               <ul className="feedback">
                 {result.feedback.map((f, i) => (
                   <li key={`${f.code}-${i}`} className={`sev-${f.severity}`}>
-                    <code>{f.code}</code> {f.message}
+                    <code>{f.code}</code> {feedbackText(f)}
                   </li>
                 ))}
               </ul>

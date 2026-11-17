@@ -45,6 +45,7 @@ import {
 import type { Change, ExecutionResult, GraphDiff, Issue, TestRun } from '../api/types'
 import { ErrorBar, FormDialog, JsonField } from '../components/forms'
 import { type Key, type Params, useI18n } from '../i18n'
+import { exitReasonText, feedbackText, translateApiText } from '../i18n/api'
 import { useEditor } from './store'
 
 const OUTCOMES = new Set(['valid', 'invalid', 'warning', 'error'])
@@ -66,14 +67,14 @@ export function ResultView({ result }: { result: ExecutionResult }) {
       <div className="inline">
         <OutcomeBadge outcome={result.outcome} />
         <Text size={200} className="muted">
-          {t('result.exit', { node: result.exit.nodeId, reason: result.exit.reason, us: result.timing.engineUs })}
+          {t('result.exit', { node: result.exit.nodeId, reason: exitReasonText(result.exit.reason), us: result.timing.engineUs })}
         </Text>
       </div>
       {result.feedback.length === 0 && <Text size={200}>{t('result.noMessages')}</Text>}
       <ul className="feedback">
         {result.feedback.map((f, i) => (
           <li key={`${f.code}-${i}`} className={`sev-${f.severity}`}>
-            <code>{f.code}</code> {f.message}
+            <code>{f.code}</code> {feedbackText(f)}
             {f.data && <pre className="mini">{JSON.stringify(f.data)}</pre>}
           </li>
         ))}
@@ -249,7 +250,7 @@ export function TestsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string; en
               {r && !r.passed && (
                 <ul className="diffs">
                   {r.differences.map((d) => (
-                    <li key={d}>{d}</li>
+                    <li key={d}>{translateApiText(d)}</li>
                   ))}
                 </ul>
               )}
@@ -335,7 +336,7 @@ export function VersionsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
           <ul className="diffs">
             {(problem.problem.tests as TestRun['tests']).filter((r) => !r.passed).map((r) => (
               <li key={r.name}>
-                {r.name}: {r.differences.join('; ')}
+                {r.name}: {r.differences.map((d) => translateApiText(d)).join('; ')}
               </li>
             ))}
           </ul>
@@ -645,6 +646,7 @@ export function SettingsPanel({ ws, entity }: { ws: string; entity: string | und
 }
 
 export function IssueList({ issues, onSelect }: { issues: Issue[]; onSelect?: (where: string) => void }) {
+  useI18n() // re-render in the new language
   return (
     <ul className="issues">
       {issues.map((i, n) => (
@@ -656,7 +658,7 @@ export function IssueList({ issues, onSelect }: { issues: Issue[]; onSelect?: (w
           ) : (
             <code>{i.where}</code>
           )}{' '}
-          {i.message}
+          {translateApiText(i.message)}
         </li>
       ))}
     </ul>
@@ -684,7 +686,7 @@ export function NodeIO({ nodeId }: { nodeId: string }) {
           {entry.output !== undefined && entry.output !== null && <pre className="mini">{JSON.stringify(entry.output, null, 2)}</pre>}
           {feedback.map((f, i) => (
             <Text key={i} size={200}>
-              <code>{f.code}</code> {f.message}
+              <code>{f.code}</code> {feedbackText(f)}
             </Text>
           ))}
         </>

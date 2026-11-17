@@ -1,6 +1,7 @@
 // Minimal typed client for the Management and Execution APIs.
 
 import { useAuth } from '../auth/store'
+import { translateApiText } from '../i18n/api'
 
 export interface Problem {
   status: number
@@ -61,9 +62,12 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   return (await request<T>(path, options)).data
 }
 
-/** Human-readable message for any error thrown by the client or by fetch. */
+/**
+ * Human-readable message for any error thrown by the client or by fetch, in the Studio
+ * language when the backend message is a known one.
+ */
 export function errorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.problem.detail || error.message
+  if (error instanceof ApiError) return translateApiText(error.problem.detail || error.message)
   if (error instanceof Error) return error.message
   return String(error)
 }

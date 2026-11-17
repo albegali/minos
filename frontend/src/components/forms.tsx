@@ -20,6 +20,7 @@ import { errorMessage } from '../api/client'
 import { useI18n } from '../i18n'
 
 export function ErrorBar({ error }: { error: unknown }) {
+  useI18n() // re-render in the new language
   if (!error) return null
   return (
     <MessageBar intent="error">
