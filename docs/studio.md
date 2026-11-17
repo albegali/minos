@@ -2,7 +2,9 @@
 
 Minos Studio is the web rule editor. On an open installation (the default, for example with
 `docker compose up`) you go straight in; if the API requires keys, the Studio asks for an API key
-with scope `manage` or `admin`. The typical path, without writing JSON:
+with scope `manage` or `admin`. The Studio speaks English and Italian: the menu at the top right
+switches language (the choice is remembered in the browser; the first time it follows the
+browser language). The typical path, without writing JSON:
 
 1. **Entity and schema.** In the workspace, *New entity*, then paste one or more sample objects:
    the schema is inferred as you type (types, nested objects, lists, dates, required fields). With
