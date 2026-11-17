@@ -1,7 +1,7 @@
-# Rule Graph Document (RGD) · formato 1.0
+# Rule Graph Document (RGD) · format 1.0
 
-Un rule set è un documento JSON che descrive un grafo orientato aciclico di nodi. Il modello
-autoritativo è `backend/src/minos/engine/model.py`; esempio completo in
+A rule set is a JSON document describing a directed acyclic graph of nodes. The authoritative model
+is `backend/src/minos/engine/model.py`; full example in
 [`examples/rulesets/aurora.studyplan.emba.json`](../examples/rulesets/aurora.studyplan.emba.json).
 
 ```json
@@ -18,55 +18,54 @@ autoritativo è `backend/src/minos/engine/model.py`; esempio completo in
 }
 ```
 
-| Campo | Significato |
+| Field | Meaning |
 | --- | --- |
-| `ruleset` | Chiave del rule set, usata nell'URL `POST /v1/exec/{ruleset}` (minuscole, `.`, `-`, `_`) |
-| `settings.mode` | `fail_fast` (default) o `collect_all`: cambia il comportamento di default su fallimento |
-| `settings.locale` | Lingua di default dei messaggi |
-| `settings.maxSteps` | Limite di passi per esecuzione (errore 422 se superato) |
-| `constants` | Valori copiati in `$.vars` all'inizio di ogni esecuzione |
-| `ui` | Solo per l'editor (posizioni, note): escluso dall'hash di versione |
+| `ruleset` | Rule set key, used in the URL `POST /v1/exec/{ruleset}` (lowercase, `.`, `-`, `_`) |
+| `settings.mode` | `fail_fast` (default) or `collect_all`: changes the default behaviour on failure |
+| `settings.locale` | Default message language |
+| `settings.maxSteps` | Step limit per execution (error 422 when exceeded) |
+| `constants` | Values copied into `$.vars` at the start of every execution |
+| `ui` | Editor only (positions, notes): excluded from the version hash |
 
 ## Context
 
-Ogni espressione legge da uno scope JSON:
+Every expression reads from a JSON scope:
 
-| Radice | Contenuto |
+| Root | Contents |
 | --- | --- |
-| `$.input` | L'oggetto ricevuto, in sola lettura |
-| `$.vars` | Costanti e variabili scritte dai nodi `set` |
-| `$.nodes.<id>` | `{ "outcome": "pass" \| "fail", "output": ... }` dei nodi già eseguiti |
+| `$.input` | The received object, read-only |
+| `$.vars` | Constants and variables written by `set` nodes |
+| `$.nodes.<id>` | `{ "outcome": "pass" \| "fail", "output": ... }` of the nodes already executed |
 | `$.meta` | `ruleset`, `version`, `referenceDate`, `requestId`, `locale` |
-| `$.item` | L'elemento corrente dentro `where` / `select` |
-| `$.outer` | In un'aggregazione annidata, l'elemento dell'aggregazione esterna |
+| `$.item` | The current item inside `where` / `select` |
+| `$.outer` | In a nested aggregation, the item of the outer aggregation |
 
-Sintassi dei riferimenti: `.chiave`, `["chiave con spazi"]`, `[n]` (anche negativo), `[*]`
-(espande un array: il risultato è una lista).
+Reference syntax: `.key`, `["key with spaces"]`, `[n]` (negative too), `[*]` (expands an array:
+the result is a list).
 
-## Nodi
+## Nodes
 
-| Tipo | Campi | Porte in uscita |
+| Type | Fields | Output ports |
 | --- | --- | --- |
 | `start` | | `next` |
-| `condition` | `condition`, `onFail?`, `feedback?` | `pass` (obbligatoria), `fail` |
-| `group` | `operator` (`and`/`or`/`not`), `evaluate` (`short_circuit`/`all`), `children`, `onFail?`, `feedback?` | `pass` (obbligatoria), `fail` |
-| `set` | `assign: { nome: espressione }` scrive in `$.vars` | `next` |
-| `switch` | `cases: [{ name, when }]`, il primo vero vince | ogni `name` + `default` (tutte obbligatorie) |
+| `condition` | `condition`, `onFail?`, `feedback?` | `pass` (required), `fail` |
+| `group` | `operator` (`and`/`or`/`not`), `evaluate` (`short_circuit`/`all`), `children`, `onFail?`, `feedback?` | `pass` (required), `fail` |
+| `set` | `assign: { name: expression }` writes to `$.vars` | `next` |
+| `switch` | `cases: [{ name, when }]`, the first true one wins | every `name` + `default` (all required) |
 | `feedback` | `feedback`, `when?` | `next` |
-| `decision_table` | `hitPolicy`, `inputs`, `outputs`, `rules`, `target`, `onFail?`, `feedback?` | `pass` (una riga vale, obbligatoria), `fail` |
-| `subruleset` | `ruleset`, `version` (fissata), `input?`, `forEach?`, `passWhen?`, `target?`, `onFail?`, `feedback?` | `pass` (obbligatoria), `fail` |
-| `end` | `outcome` (`valid`/`invalid`/`warning`), `output?: { chiave: espressione }` | nessuna |
+| `decision_table` | `hitPolicy`, `inputs`, `outputs`, `rules`, `target`, `onFail?`, `feedback?` | `pass` (a row matches, required), `fail` |
+| `subruleset` | `ruleset`, `version` (pinned), `input?`, `forEach?`, `passWhen?`, `target?`, `onFail?`, `feedback?` | `pass` (required), `fail` |
+| `end` | `outcome` (`valid`/`invalid`/`warning`), `output?: { key: expression }` | none |
 
-Gli archi sono `{ "from": id, "to": id, "on": porta }` (`on` di default `next`). Il compiler
-rifiuta: id duplicati, start mancante o multiplo, nessun end, porte inesistenti o collegate due
-volte, porte obbligatorie scollegate, archi verso lo start, cicli. I nodi non raggiungibili
-producono un warning.
+Edges are `{ "from": id, "to": id, "on": port }` (`on` defaults to `next`). The compiler rejects:
+duplicate ids, a missing or repeated start, no end, nonexistent ports or ports connected twice,
+unconnected required ports, edges into the start, cycles. Unreachable nodes produce a warning.
 
-I figli di un `group` sono espressioni oppure regole con feedback proprio:
-`{ "rule": <espressione>, "feedback": { "fail": {...} } }`. Con `evaluate: "all"` ogni figlio
-viene valutato (utile per raccogliere tutti gli errori); `not` vale NOT(AND(figli)).
+The children of a `group` are expressions or rules with their own feedback:
+`{ "rule": <expression>, "feedback": { "fail": {...} } }`. With `evaluate: "all"` every child is
+evaluated (useful to collect every error); `not` means NOT(AND(children)).
 
-### Tabella decisionale
+### Decision table
 
 ```json
 {
@@ -84,67 +83,67 @@ viene valutato (utile per raccogliere tutti gli errori); `not` vale NOT(AND(figl
 }
 ```
 
-Una cella per colonna di input: `null` (qualsiasi), un valore (uguaglianza), una lista (uno tra),
-`{"op": ..., "value": ...}` con `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `not_in`, `between`,
-`date_before`, `date_after`, `date_between`, `contains`, `starts_with` (il valore può essere
-un'espressione), oppure un'espressione (uguaglianza con il suo valore). Gli output sono valori o
-espressioni.
+One cell per input column: `null` (any), a value (equality), a list (one of),
+`{"op": ..., "value": ...}` with `==`, `!=`, `<`, `<=`, `>`, `>=`, `in`, `not_in`, `between`,
+`date_before`, `date_after`, `date_between`, `contains`, `starts_with` (the value can be an
+expression), or an expression (equality with its value). Outputs are values or expressions.
 
-| Hit policy | Risultato in `$.vars.<target>` |
+| Hit policy | Result in `$.vars.<target>` |
 | --- | --- |
-| `first` | la prima riga che vale |
-| `unique` | l'unica riga che vale; più righe → errore di esecuzione |
-| `priority` | la riga con `priority` più alta (a parità, la prima) |
-| `any` | le righe che valgono devono concordare; altrimenti errore |
-| `collect` | la lista delle righe che valgono |
+| `first` | the first matching row |
+| `unique` | the only matching row; several rows → execution error |
+| `priority` | the row with the highest `priority` (on a tie, the first) |
+| `any` | the matching rows must agree; otherwise an error |
+| `collect` | the list of matching rows |
 
-Se nessuna riga vale, il nodo fallisce (porta `fail`, con le stesse regole `onFail` delle
-condizioni). Nello Studio le celle si scrivono in forma breve: vuoto o `-`, `EMBA`, `A, B`,
-`>= 60`, `30..59`, `2027-01-01..2027-12-31`, `!= X`, `$.vars.nome`.
+If no row matches, the node fails (`fail` port, with the same `onFail` rules as conditions). In
+the Studio cells are written in short form: empty or `-`, `EMBA`, `A, B`, `>= 60`, `30..59`,
+`2027-01-01..2027-12-31`, `!= X`, `$.vars.name`.
 
-### Rule set annidato
+### Sub rule set
 
-Esegue un altro rule set dello stesso workspace a **versione fissata** (`version` è obbligatoria:
-la versione pubblicata è immutabile, quindi il risultato resta riproducibile). La versione deve
-essere pubblicata prima di validare o pubblicare il rule set che la usa.
+Runs another rule set of the same workspace at a **pinned version** (`version` is required: a
+published version is immutable, so the result stays reproducible). The version must be published
+before validating or publishing the rule set that uses it.
 
-- `input` (default `$.input`): l'oggetto passato al rule set annidato.
-- `forEach`: una lista; il rule set gira una volta per elemento (`$.item`, che è anche l'`input`
-  di default). `passWhen` = `all` (default) o `any`.
-- Esito: il nodo passa se il rule set annidato è `valid` o `warning` (con `forEach`, secondo
-  `passWhen`); un `error` interrompe l'esecuzione con esito `error`.
-- `target`: `{ "outcome", "result" }`, o la lista di questi con `forEach`, in `$.vars`.
-- I messaggi del rule set annidato confluiscono nel risultato con `nodeId` = `<nodo>/<nodo
-  annidato>` e, con `forEach`, `index` dell'elemento.
+- `input` (default `$.input`): the object passed to the sub rule set.
+- `forEach`: a list; the rule set runs once per item (`$.item`, which is also the default
+  `input`). `passWhen` = `all` (default) or `any`.
+- Outcome: the node passes if the sub rule set is `valid` or `warning` (with `forEach`, according
+  to `passWhen`); an `error` stops the execution with outcome `error`.
+- `target`: `{ "outcome", "result" }`, or the list of these with `forEach`, in `$.vars`.
+- The sub rule set's messages flow into the result with `nodeId` = `<node>/<nested node>` and,
+  with `forEach`, the item's `index`.
 
-Un "dispatcher" (scegliere il rule set in base a un campo) è un normale rule set con uno `switch`
-seguito da nodi `subruleset`.
+A "dispatcher" (choosing the rule set based on a field) is an ordinary rule set with a `switch`
+followed by `subruleset` nodes.
 
-## Fallimento, uscita ed esito
+## Failure, exit and outcome
 
-Politica `onFail` di un nodo `condition`, `group`, `decision_table` o `subruleset` che fallisce:
+`onFail` policy of a failing `condition`, `group`, `decision_table` or `subruleset` node:
 
-| Politica | Effetto | Conta come violazione |
+| Policy | Effect | Counts as a violation |
 | --- | --- | --- |
-| `stop` | L'esecuzione termina subito con esito `invalid` (`exit.reason = "stop"`) | Sì |
-| `continue` | Prosegue sulla porta `fail` se collegata, altrimenti su `pass` | Sì |
-| `branch` | Segue la porta `fail` (obbligatoria): è solo controllo di flusso | No |
+| `stop` | Execution ends immediately with outcome `invalid` (`exit.reason = "stop"`) | Yes |
+| `continue` | Continues on the `fail` port if connected, otherwise on `pass` | Yes |
+| `branch` | Follows the `fail` port (required): flow control only | No |
 
-Default se `onFail` manca: `branch` se la porta `fail` è collegata, altrimenti `stop` in
-`fail_fast` e `continue` in `collect_all`.
+Default when `onFail` is missing: `branch` if the `fail` port is connected, otherwise `stop` in
+`fail_fast` and `continue` in `collect_all`.
 
-Esito finale: quello dell'`end` raggiunto; un `end` dichiarato `valid` diventa `invalid` se ci sono
-violazioni o feedback con severità `error`, e `warning` se ci sono solo warning. Un errore di
-valutazione (es. confronto tra tipi incompatibili) termina con esito `error`.
+Final outcome: that of the `end` reached; an `end` declared `valid` becomes `invalid` if there are
+violations or feedback with severity `error`, and `warning` if there are only warnings. An
+evaluation error (e.g. comparing incompatible types) ends with outcome `error`.
 
-## Type-check alla pubblicazione
+## Type-check on publication
 
-Validazione e pubblicazione compilano il grafo con lo schema dell'entità e rifiutano (tutti insieme):
-riferimenti `$.input` / `$.item` / `$.outer` inesistenti nello schema, variabili né costanti né
-assegnate da un nodo `set`, nodi o chiavi `meta` inesistenti, aggregazioni su campi che non sono
-array (o non numerici per `sum`/`min`/`max`/`avg`), confronti con letterali di tipo incompatibile.
-Valgono anche per i segnaposto `{{...}}` dei messaggi. Le proprietà non dichiarate di un oggetto
-con `properties` sono considerate inesistenti, salvo `additionalProperties`.
+Validation and publication compile the graph against the entity schema and reject (all at once):
+`$.input` / `$.item` / `$.outer` references that do not exist in the schema, variables that are
+neither constants nor assigned by a `set` node, nonexistent nodes or `meta` keys, aggregations over
+fields that are not arrays (or not numeric for `sum`/`min`/`max`/`avg`), comparisons with literals
+of an incompatible type. The same applies to the `{{...}}` placeholders in messages. Undeclared
+properties of an object with `properties` are treated as nonexistent, unless
+`additionalProperties` allows them.
 
 ## Feedback
 
@@ -158,35 +157,35 @@ con `properties` sono considerate inesistenti, salvo `additionalProperties`.
 }
 ```
 
-Su `condition` e `group` (e sui figli dei gruppi) si definiscono `feedback.pass` e
-`feedback.fail`. I segnaposto `{{...}}` sono riferimenti senza `$.`. Lingua: quella richiesta,
-poi quella di default del rule set, poi la prima disponibile.
+On `condition` and `group` (and on group children) you define `feedback.pass` and
+`feedback.fail`. `{{...}}` placeholders are references without `$.`. Language: the requested one,
+then the rule set's default, then the first available.
 
-## Espressioni
+## Expressions
 
-Letterali JSON; liste di espressioni; `{"literal": <qualsiasi JSON>}` per oggetti letterali;
-`{"ref": "$...."}`; operatori `{"op": ..., "left": ..., "right": ...}` (oppure `"args": [...]` o
-`"arg"`); funzioni `{"fn": ..., "args": [...]}`.
+JSON literals; lists of expressions; `{"literal": <any JSON>}` for literal objects;
+`{"ref": "$...."}`; operators `{"op": ..., "left": ..., "right": ...}` (or `"args": [...]` or
+`"arg"`); functions `{"fn": ..., "args": [...]}`.
 
-| Operatori | Note |
+| Operators | Notes |
 | --- | --- |
-| `==` `!=` | `null` e campo assente sono equivalenti |
-| `<` `<=` `>` `>=` | `false` se un lato è assente; errore se i tipi non sono confrontabili |
-| `between` | `right: [min, max]`, estremi inclusi |
-| `date_before` `date_after` `date_between` | Confronto sulla parte data (ISO `YYYY-MM-DD...`) |
-| `in` `not_in` | `right` lista letterale o riferimento a una lista |
-| `contains` `starts_with` `ends_with` `regex` | `regex` richiede un pattern letterale |
-| `exists` `is_null` `is_not_null` | `exists` distingue campo assente da `null` |
-| `and` `or` `not` `if` | `if`: `args: [condizione, allora, altrimenti]` |
-| `+` `-` `*` `/` `%` | `null` se un operando è assente |
+| `==` `!=` | `null` and a missing field are equivalent |
+| `<` `<=` `>` `>=` | `false` if one side is missing; error if the types are not comparable |
+| `between` | `right: [min, max]`, bounds included |
+| `date_before` `date_after` `date_between` | Compares the date part (ISO `YYYY-MM-DD...`) |
+| `in` `not_in` | `right` a literal list or a reference to a list |
+| `contains` `starts_with` `ends_with` `regex` | `regex` requires a literal pattern |
+| `exists` `is_null` `is_not_null` | `exists` tells a missing field from `null` |
+| `and` `or` `not` `if` | `if`: `args: [condition, then, else]` |
+| `+` `-` `*` `/` `%` | `null` if an operand is missing |
 
-| Funzioni | Note |
+| Functions | Notes |
 | --- | --- |
-| `sum` `count` `min` `max` `avg` `any` `all` `distinct` `filter` `map` | Un argomento array; opzionali `where` (filtro) e `select` (proiezione) con `$.item` |
+| `sum` `count` `min` `max` `avg` `any` `all` `distinct` `filter` `map` | One array argument; optional `where` (filter) and `select` (projection) with `$.item` |
 | `len` `lower` `upper` `trim` `coalesce` `round` `abs` `floor` | |
-| `date` `today` `days_between` `age` | `today` e `age` usano `meta.referenceDate` (impostabile per richiesta) |
+| `date` `today` `days_between` `age` | `today` and `age` use `meta.referenceDate` (settable per request) |
 
-## Risultato di un'esecuzione
+## Execution result
 
 ```json
 {
@@ -203,5 +202,5 @@ Letterali JSON; liste di espressioni; `{"literal": <qualsiasi JSON>}` per oggett
 }
 ```
 
-`trace` è `null` con `options.trace = "none"`, la lista degli step con `summary`, e include output e
-microsecondi per nodo con `full`.
+`trace` is `null` with `options.trace = "none"`, the list of steps with `summary`, and includes
+output and microseconds per node with `full`.

@@ -1,24 +1,24 @@
-# 0004 · UI kit dell'editor
+# 0004 · Editor UI kit
 
-- Stato: Accettata (F2)
-- Data: 2026-11-16
+- Status: Accepted (F2)
+- Date: 2026-11-16
 
-## Contesto
+## Context
 
-L'editor deve poter essere ospitato in Dynamics 365 (web resource o iframe) e in altri portali.
+The editor must be embeddable in Dynamics 365 (web resource or iframe) and in other portals.
 
-## Decisione
+## Decision
 
-**Fluent UI 2** (`@fluentui/react-components` v9): coerenza visiva con Dynamics e Power
-Platform, accessibilità curata, temi chiaro e scuro (seguono `prefers-color-scheme`).
+**Fluent UI 2** (`@fluentui/react-components` v9): visual consistency with Dynamics and the Power
+Platform, careful accessibility, light and dark themes (following `prefers-color-scheme`).
 
-Scartata shadcn/ui + Tailwind: più flessibile, ma l'aspetto non è Microsoft e i componenti
-vanno mantenuti nel repo.
+Rejected: shadcn/ui + Tailwind. More flexible, but it does not look like Microsoft and the
+components have to be maintained in the repo.
 
-## Conseguenze
+## Consequences
 
-- Il canvas resta React Flow con stili propri; il resto dell'interfaccia usa i componenti e i
-  token di Fluent (`--colorNeutral…`).
-- Fluent copia la `className` del `FluentProvider` sui contenitori dei portali (dialog, menu):
-  le classi di layout vanno su un elemento interno, non sul provider.
-- Il bundle supera i 500 kB minificati: da suddividere (code splitting per rotta) in F3.
+- The canvas stays on React Flow with its own styles; the rest of the interface uses Fluent
+  components and tokens (`--colorNeutral…`).
+- Fluent copies the `FluentProvider` `className` onto portal containers (dialogs, menus): layout
+  classes belong on an inner element, not on the provider.
+- The bundle exceeds 500 kB minified: to be split (per-route code splitting) in F3.

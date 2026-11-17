@@ -1,247 +1,247 @@
-# Minos — Specifiche e Roadmap
+# Minos — Specification and Roadmap
 
-Versione 0.1 · 16 novembre 2026 · albegali
+Version 0.1 · 16 November 2026 · albegali
 
-## Sintesi e obiettivi
+## Summary and goals
 
-Costruiamo un motore di regole "JSON-in / JSON-out" che valuta un oggetto contro un grafo di regole versionato, con editor visuale stile n8n e API sincrone sotto i 10 ms (p99) lato motore. La scelta chiave: le regole si disegnano e si salvano su PostgreSQL, ma si **compilano** e si eseguono interamente **in memoria** nei worker API, quindi il database non è mai sul percorso caldo.
+We are building a "JSON-in / JSON-out" rule engine that evaluates an object against a versioned rule graph, with an n8n-style visual editor and synchronous APIs under 10 ms (p99) on the engine side. The key choice: rules are designed and saved in PostgreSQL, but they are **compiled** and executed entirely **in memory** in the API workers, so the database is never on the hot path.
 
-**Obiettivi**
+**Goals**
 
-1. Definire più *Rule Set* indipendenti, ciascuno legato a un'entità e al suo schema (es. `StudyPlan`, `Enrollment`).
-2. Comporre regole in un grafo: condizioni, gruppi AND/OR/NOT annidati, tabelle decisionali, rami, uscite anticipate.
-3. Restituire a ogni step un esito (`pass` / `fail` / `skip` / `error`) e feedback strutturati, sia sul punto di uscita sia, opzionalmente, sugli step superati.
-4. Versionare in modo immutabile ogni pubblicazione, con ambienti (draft, test, prod) e rollback istantaneo.
-5. Generare lo schema da un JSON di esempio, a mano o da connettori (Dataverse, SQL, NoSQL) aggiunti in seguito.
-6. Esporre API REST per sistemi terzi (Dynamics, portali, ETL) e un editor low-code drag-and-drop.
+1. Define several independent *Rule Sets*, each bound to an entity and its schema (e.g. `StudyPlan`, `Enrollment`).
+2. Compose rules into a graph: conditions, nested AND/OR/NOT groups, decision tables, branches, early exits.
+3. Return an outcome (`pass` / `fail` / `skip` / `error`) and structured feedback for every step, both at the exit point and, optionally, on the steps that passed.
+4. Version every publication immutably, with environments (draft, test, prod) and instant rollback.
+5. Generate the schema from a sample JSON, by hand, or from connectors (Dataverse, SQL, NoSQL) added later.
+6. Expose REST APIs for third-party systems (Dynamics, portals, ETL) and a low-code drag-and-drop editor.
 
-**Fuori ambito (v1):** esecuzione di workflow lunghi o asincroni con stato (stile n8n completo), scrittura verso sistemi esterni, motore di inferenza a forward-chaining (stile Rete/Drools).
+**Out of scope (v1):** running long or asynchronous stateful workflows (full n8n style), writing to external systems, a forward-chaining inference engine (Rete/Drools style).
 
-**Glossario**
+**Glossary**
 
-| Termine | Significato |
+| Term | Meaning |
 | --- | --- |
-| Workspace | Contenitore multi-tenant (es. un ateneo, una business unit) |
-| Entità / Schema | Modello dati dell'oggetto in input, espresso in JSON Schema 2020-12, versionato |
-| Rule Set | Insieme di regole per un'entità, con un grafo e una chiave API (`ruleset_key`) |
-| Rule Graph | Grafo orientato aciclico (DAG) di nodi collegati da archi |
-| Nodo | Unità di elaborazione: input JSON, output JSON, esito |
-| Versione | Snapshot immutabile e compilato del Rule Graph più il riferimento allo schema |
-| Release / Alias | Puntatore mobile da un ambiente (`prod`, `test`) a una versione |
-| Trace | Registro step-by-step di un'esecuzione: nodi visitati, esiti, feedback, tempi |
-| Context | Documento JSON che scorre nel grafo: `input`, `vars`, `feedback`, `result` |
+| Workspace | Multi-tenant container (e.g. a university, a business unit) |
+| Entity / Schema | Data model of the input object, expressed in JSON Schema 2020-12, versioned |
+| Rule Set | Set of rules for an entity, with a graph and an API key (`ruleset_key`) |
+| Rule Graph | Directed acyclic graph (DAG) of nodes connected by edges |
+| Node | Processing unit: JSON input, JSON output, outcome |
+| Version | Immutable, compiled snapshot of the Rule Graph plus the schema reference |
+| Release / Alias | Movable pointer from an environment (`prod`, `test`) to a version |
+| Trace | Step-by-step record of an execution: visited nodes, outcomes, feedback, timings |
+| Context | JSON document flowing through the graph: `input`, `vars`, `feedback`, `result` |
 
-## Strumenti simili e cosa adottare
+## Similar tools and what to adopt
 
-Nessuno strumento esistente copre insieme Python, editor stile n8n, schema-first e feedback per step; il riferimento più vicino è GoRules, da cui prendiamo il formato a grafo JSON. L'analisi è basata sulla conoscenza pubblica dei progetti: versioni e licenze vanno riverificate al kickoff.
+No existing tool covers Python, an n8n-style editor, schema-first design and per-step feedback all together; the closest reference is GoRules, from which we take the JSON graph format. The analysis is based on public knowledge of the projects: versions and licences must be re-checked at kickoff.
 
-| Strumento | Come è implementato | Cosa prendiamo | Limite per noi |
+| Tool | How it is built | What we take | Limit for us |
 | --- | --- | --- | --- |
-| [GoRules (Zen Engine + JDM Editor)](https://github.com/gorules/zen) | Grafo JSON (JDM) con nodi Input, Decision Table, Expression, Switch, Function; core in Rust con binding Python; editor React open source | Formato a grafo JSON, decision table con hit policy, editor React basato su React Flow, simulatore nel browser | Feedback per step e schema-first non nativi; logica custom in JS |
-| [Drools / KIE + DMN](https://www.drools.org/) | Motore Rete (forward chaining) su JVM; DMN standard OMG con linguaggio FEEL | Decision table DMN e hit policy (FIRST, UNIQUE, COLLECT), concetto di decision service | JVM, curva di apprendimento alta, editor non n8n-like |
-| [json-rules-engine](https://github.com/CacheControl/json-rules-engine) | Regole in JSON con `all`/`any`/`not` annidati, fatti risolti in modo lazy, priorità, eventi | Sintassi JSON delle condizioni annidate, "fatti" calcolati on demand, eventi su successo/fallimento | Node.js, nessun grafo o editor |
-| [Microsoft RulesEngine](https://github.com/microsoft/RulesEngine) | Workflow JSON di regole con espressioni lambda C#, regole annidate, azioni OnSuccess/OnFailure | Messaggi di successo/errore per regola, regole annidate con operatore, workflow per nome | .NET; nessun editor visuale ufficiale |
-| [n8n](https://n8n.io/) | Editor a nodi (Vue), dati come array di item JSON tra nodi, nodi come plugin con descrittore dichiarativo | UX del canvas, pannello input/output per nodo, nodi come plugin con manifest, credenziali separate | Pensato per workflow e integrazioni, non per validazione sub-ms |
-| [Node-RED](https://nodered.org/) | Flow JSON, messaggi `msg` tra nodi, palette estendibile | Formato flow esportabile, palette per categorie | Runtime Node.js, nessun versioning nativo |
-| [JsonLogic](https://jsonlogic.com/) | Regole come AST JSON (`{"and":[...]}`), implementazioni in molti linguaggi | Rappresentazione AST serializzabile e portabile delle condizioni | Solo espressioni booleane, niente feedback |
-| [CEL (Common Expression Language)](https://cel.dev/) | Linguaggio di espressioni non Turing-completo, type-checked rispetto a uno schema, compilato | Type-check delle espressioni contro lo schema in fase di pubblicazione, sicurezza (niente loop infiniti) | Sintassi testuale, poco no-code |
-| [Open Policy Agent (Rego)](https://www.openpolicyagent.org/) | Policy dichiarative, bundle versionati distribuiti ai nodi, valutazione in memoria | Modello di distribuzione "bundle immutabile + cache in memoria + hot reload" | Rego è ostico per utenti business |
-| [React Flow (xyflow)](https://reactflow.dev/) | Libreria React per canvas a nodi | Base dell'editor: nodi custom, minimap, zoom, auto-layout con ELK/dagre | Solo UI |
+| [GoRules (Zen Engine + JDM Editor)](https://github.com/gorules/zen) | JSON graph (JDM) with Input, Decision Table, Expression, Switch, Function nodes; Rust core with Python bindings; open-source React editor | JSON graph format, decision tables with hit policies, React editor based on React Flow, in-browser simulator | Per-step feedback and schema-first not native; custom logic in JS |
+| [Drools / KIE + DMN](https://www.drools.org/) | Rete engine (forward chaining) on the JVM; OMG standard DMN with the FEEL language | DMN decision tables and hit policies (FIRST, UNIQUE, COLLECT), the decision service concept | JVM, steep learning curve, editor not n8n-like |
+| [json-rules-engine](https://github.com/CacheControl/json-rules-engine) | JSON rules with nested `all`/`any`/`not`, lazily resolved facts, priorities, events | JSON syntax for nested conditions, "facts" computed on demand, success/failure events | Node.js, no graph or editor |
+| [Microsoft RulesEngine](https://github.com/microsoft/RulesEngine) | JSON rule workflows with C# lambda expressions, nested rules, OnSuccess/OnFailure actions | Success/error messages per rule, nested rules with an operator, workflows by name | .NET; no official visual editor |
+| [n8n](https://n8n.io/) | Node editor (Vue), data as arrays of JSON items between nodes, nodes as plugins with a declarative descriptor | Canvas UX, per-node input/output panel, nodes as plugins with a manifest, separate credentials | Built for workflows and integrations, not sub-ms validation |
+| [Node-RED](https://nodered.org/) | JSON flows, `msg` messages between nodes, extensible palette | Exportable flow format, palette by category | Node.js runtime, no native versioning |
+| [JsonLogic](https://jsonlogic.com/) | Rules as a JSON AST (`{"and":[...]}`), implementations in many languages | Serialisable, portable AST representation of conditions | Boolean expressions only, no feedback |
+| [CEL (Common Expression Language)](https://cel.dev/) | Non-Turing-complete expression language, type-checked against a schema, compiled | Type-checking expressions against the schema at publication time, safety (no infinite loops) | Textual syntax, not very no-code |
+| [Open Policy Agent (Rego)](https://www.openpolicyagent.org/) | Declarative policies, versioned bundles distributed to nodes, in-memory evaluation | The "immutable bundle + in-memory cache + hot reload" distribution model | Rego is hard for business users |
+| [React Flow (xyflow)](https://reactflow.dev/) | React library for node canvases | Editor foundation: custom nodes, minimap, zoom, auto-layout with ELK/dagre | UI only |
 
-**Decisioni derivate dall'analisi**
+**Decisions derived from the analysis**
 
-- Formato del grafo ispirato al JDM di GoRules, esteso con esiti, feedback e gruppi logici.
-- Condizioni come AST JSON (stile JsonLogic) generato dall'editor, più un linguaggio di espressioni testuale per utenti esperti, entrambi compilati in Python.
-- Type-check delle espressioni sullo schema al momento della pubblicazione, come CEL.
-- Decision table con hit policy DMN.
-- Distribuzione come OPA: versione compilata immutabile, caricata in memoria, hot reload su notifica.
-- Editor su React Flow con UX n8n: pannello I/O per nodo, esecuzione di prova, palette a plugin.
-- Valutare `zen-engine` (binding Python di GoRules) come motore alternativo per le decision table se i benchmark del motore Python puro non bastano.
+- Graph format inspired by GoRules' JDM, extended with outcomes, feedback and logical groups.
+- Conditions as a JSON AST (JsonLogic style) generated by the editor, plus a textual expression language for expert users, both compiled to Python.
+- Type-checking of expressions against the schema at publication time, like CEL.
+- Decision tables with DMN hit policies.
+- Distribution like OPA: an immutable compiled version, loaded in memory, hot reloaded on notification.
+- Editor on React Flow with n8n UX: per-node I/O panel, trial runs, plugin palette.
+- Evaluate `zen-engine` (GoRules' Python binding) as an alternative engine for decision tables if the pure-Python engine benchmarks fall short.
 
-## Requisiti funzionali
+## Functional requirements
 
-Ogni requisito ha un codice per la tracciabilità nei ticket e nei test di accettazione.
+Every requirement has a code for traceability in tickets and acceptance tests.
 
-### Workspace, entità e rule set
+### Workspaces, entities and rule sets
 
-- **RF-01** Più workspace isolati (multi-tenant), con utenti e ruoli per workspace.
-- **RF-02** Per ogni workspace, più entità; ogni entità ha schemi versionati.
-- **RF-03** Per ogni entità, più rule set (es. `aurora.studyplan.executive-mba`, `aurora.studyplan.master-full-time`).
-- **RF-04** Un rule set può richiamarne un altro come sotto-grafo (nodo *Sub-RuleSet*), per riusare blocchi comuni come "controlli anagrafici".
-- **RF-05** Router di primo livello: un rule set "dispatcher" sceglie il rule set da eseguire in base a un campo (es. `program.code`). Realizzato con uno `switch` e nodi `subruleset`, senza un concetto dedicato.
+- **RF-01** Several isolated workspaces (multi-tenant), with users and roles per workspace.
+- **RF-02** Several entities per workspace; every entity has versioned schemas.
+- **RF-03** Several rule sets per entity (e.g. `aurora.studyplan.executive-mba`, `aurora.studyplan.master-full-time`).
+- **RF-04** A rule set can call another one as a subgraph (*Sub-RuleSet* node), to reuse common blocks such as "personal data checks".
+- **RF-05** Top-level router: a "dispatcher" rule set chooses the rule set to run based on a field (e.g. `program.code`). Built with a `switch` and `subruleset` nodes, without a dedicated concept.
 
 ### Schema
 
-- **RF-10** Schema in JSON Schema 2020-12, con oggetti annidati, array di oggetti, enum, formati (`date`, `email`), obbligatorietà, metadati UI (label, descrizione, esempio).
-- **RF-11** Inferenza da uno o più JSON di esempio: tipi, oggetti annidati, array, formati riconosciuti (date ISO, email, UUID); merge di più esempi per dedurre campi opzionali.
-- **RF-12** Editor manuale dello schema ad albero, con import/export JSON Schema.
-- **RF-13** Interfaccia `SchemaConnector` a plugin per derivare lo schema da sorgenti esterne: Dataverse (metadata API delle entità), SQL (information\_schema), MongoDB (campionamento documenti), OpenAPI. Implementazioni successive alla v1.
-- **RF-14** Versioning dello schema con diff e analisi di compatibilità: segnala quali rule set rompe una modifica (campo rimosso, tipo cambiato).
-- **RF-15** Validazione strutturale opzionale dell'input contro lo schema come primo nodo del grafo.
+- **RF-10** Schema in JSON Schema 2020-12, with nested objects, arrays of objects, enums, formats (`date`, `email`), required fields, UI metadata (label, description, example).
+- **RF-11** Inference from one or more sample JSONs: types, nested objects, arrays, recognised formats (ISO dates, email, UUID); merging several samples to infer optional fields.
+- **RF-12** Tree-based manual schema editor, with JSON Schema import/export.
+- **RF-13** Plugin-based `SchemaConnector` interface to derive the schema from external sources: Dataverse (entity metadata API), SQL (information\_schema), MongoDB (document sampling), OpenAPI. Implementations after v1.
+- **RF-14** Schema versioning with diff and compatibility analysis: reports which rule sets a change breaks (field removed, type changed).
+- **RF-15** Optional structural validation of the input against the schema as the first node of the graph.
 
-### Grafo di regole e nodi
+### Rule graph and nodes
 
-- **RF-20** Il grafo è un DAG con un nodo *Start* e uno o più nodi *End*; i cicli sono vietati e rilevati alla pubblicazione.
-- **RF-21** Tipi di nodo v1:
-  - *Condition*: una o più condizioni su path dello schema, con operatori tipizzati.
-  - *Group*: AND / OR / NOT annidabili a qualunque profondità, con modalità short-circuit o "valuta tutto".
-  - *Decision Table*: righe di regole con hit policy FIRST, UNIQUE, PRIORITY, COLLECT.
-  - *Switch*: rami multipli in base a espressioni, con ramo di default.
-  - *Expression / Set*: calcola variabili derivate (es. somma CFU) e le scrive nel context.
-  - *For Each*: applica un sotto-grafo a ogni elemento di un array (es. ogni esame del piano) con aggregazione `all` / `any` / `count`.
-  - *Lookup*: tabella di riferimento statica versionata con il rule set (es. listino prezzi per programma).
-  - *Sub-RuleSet*: invoca un altro rule set a versione fissata.
-  - *Feedback*: emette un messaggio senza cambiare il flusso.
-  - *End*: termina con esito (`valid`, `invalid`, `warning`) e mappatura dell'output.
-- **RF-22** Operatori: confronto, `in` / `not in`, `between`, `contains`, `starts_with`, `regex`, `is_null`, `exists`, date (`before`, `after`, `within_days`, `age`), array (`any`, `all`, `count`, `sum`, `min`, `max`, `distinct`).
-- **RF-23** Riferimenti tipizzati: `$.input.student.program.code`, `$.vars.totalCfu`, `$.output.<nodeId>`, costanti, parametri di ambiente (es. data di riferimento).
-- **RF-24** Funzioni estendibili tramite plugin Python registrati (whitelist), mai codice arbitrario inserito dall'utente in v1.
+- **RF-20** The graph is a DAG with one *Start* node and one or more *End* nodes; cycles are forbidden and detected at publication.
+- **RF-21** v1 node types:
+  - *Condition*: one or more conditions on schema paths, with typed operators.
+  - *Group*: AND / OR / NOT nestable to any depth, in short-circuit or "evaluate everything" mode.
+  - *Decision Table*: rule rows with FIRST, UNIQUE, PRIORITY, COLLECT hit policies.
+  - *Switch*: multiple branches based on expressions, with a default branch.
+  - *Expression / Set*: computes derived variables (e.g. total credits) and writes them to the context.
+  - *For Each*: applies a subgraph to every item of an array (e.g. every exam in the plan) with `all` / `any` / `count` aggregation.
+  - *Lookup*: static reference table versioned with the rule set (e.g. price list per programme).
+  - *Sub-RuleSet*: invokes another rule set at a pinned version.
+  - *Feedback*: emits a message without changing the flow.
+  - *End*: terminates with an outcome (`valid`, `invalid`, `warning`) and output mapping.
+- **RF-22** Operators: comparison, `in` / `not in`, `between`, `contains`, `starts_with`, `regex`, `is_null`, `exists`, dates (`before`, `after`, `within_days`, `age`), arrays (`any`, `all`, `count`, `sum`, `min`, `max`, `distinct`).
+- **RF-23** Typed references: `$.input.student.program.code`, `$.vars.totalCfu`, `$.output.<nodeId>`, constants, environment parameters (e.g. reference date).
+- **RF-24** Functions extensible through registered Python plugins (whitelist), never arbitrary user-supplied code in v1.
 
-### Flusso, uscita e feedback
+### Flow, exit and feedback
 
-- **RF-30** Ogni nodo produce un esito: `pass`, `fail`, `skip`, `error`.
-- **RF-31** Per ogni nodo si configura la politica su fallimento: `stop` (esce subito), `continue` (accumula l'errore e prosegue), `branch` (segue l'arco `onFail`).
-- **RF-32** Modalità di esecuzione per rule set: `fail_fast` (prima violazione bloccante) o `collect_all` (raccoglie tutte le violazioni, utile per i form).
-- **RF-33** Feedback strutturato: `code`, `severity` (`info`, `warning`, `error`), `message` con template e localizzazione (it, en), `path` del campo coinvolto, `nodeId`, `data` aggiuntiva.
-- **RF-34** Feedback opzionale anche su successo, abilitabile per nodo (`emitOnPass`).
-- **RF-35** Il punto di uscita è sempre riportato: `exitNodeId`, motivo, path completo dei nodi visitati.
-- **RF-36** Livello di trace richiedibile per chiamata: `none`, `summary`, `full` (con input e output di ogni nodo).
+- **RF-30** Every node produces an outcome: `pass`, `fail`, `skip`, `error`.
+- **RF-31** Every node has a configurable failure policy: `stop` (exit immediately), `continue` (record the error and go on), `branch` (follow the `onFail` edge).
+- **RF-32** Execution mode per rule set: `fail_fast` (first blocking violation) or `collect_all` (collects every violation, useful for forms).
+- **RF-33** Structured feedback: `code`, `severity` (`info`, `warning`, `error`), `message` with templates and localisation (it, en), `path` of the field involved, `nodeId`, extra `data`.
+- **RF-34** Optional feedback on success too, enabled per node (`emitOnPass`).
+- **RF-35** The exit point is always reported: `exitNodeId`, reason, full path of visited nodes.
+- **RF-36** Trace level selectable per call: `none`, `summary`, `full` (with every node's input and output).
 
-### Versioning e ciclo di vita
+### Versioning and lifecycle
 
-- **RF-40** Stati: `draft` (modificabile), `published` (immutabile, numerata semver), `deprecated`, `archived`.
-- **RF-41** Alias per ambiente (`dev`, `test`, `prod`) che puntano a una versione; promozione e rollback = spostare l'alias, senza deploy.
-- **RF-42** Validità temporale: ogni ambiente ha un calendario di versioni con data di inizio (es. regole per l'anno accademico 2027/28 dal 1° agosto); la data di riferimento della richiesta sceglie la versione.
-- **RF-43** Diff tra versioni (e con il draft); audit log di chi ha pubblicato cosa e quando.
-- **RF-44** ~~Approvazione a quattro occhi~~: non prevista finché non ci sono utenti (installazione aperta).
-- **RF-45** Import/export del rule set completo (grafo, schema, lookup, test) come bundle JSON, per Git e per migrare tra ambienti.
+- **RF-40** States: `draft` (editable), `published` (immutable, semver-numbered), `deprecated`, `archived`.
+- **RF-41** Per-environment aliases (`dev`, `test`, `prod`) pointing to a version; promotion and rollback = moving the alias, no deploy.
+- **RF-42** Effective dates: every environment has a schedule of versions with a start date (e.g. rules for academic year 2027/28 from 1 August); the request's reference date picks the version.
+- **RF-43** Diff between versions (and against the draft); audit log of who published what and when.
+- **RF-44** ~~Four-eyes approval~~: not planned while there are no users (open installation).
+- **RF-45** Import/export of the complete rule set (graph, schema, lookups, tests) as a JSON bundle, for Git and for moving between environments.
 
-### Test
+### Tests
 
-- **RF-50** Test case per rule set: input JSON e output atteso; eseguiti a ogni pubblicazione, che fallisce se un test fallisce.
-- **RF-51** Simulatore nell'editor: esegue il draft su un input e mostra il percorso evidenziato sul canvas.
-- **RF-52** Replay: rieseguire richieste reali registrate contro una nuova versione e confrontare gli esiti ("shadow run").
+- **RF-50** Test cases per rule set: JSON input and expected output; run on every publication, which fails if a test fails.
+- **RF-51** Simulator in the editor: runs the draft on an input and shows the path highlighted on the canvas.
+- **RF-52** Replay: re-run recorded real requests against a new version and compare the outcomes ("shadow run").
 
-### Integrazione
+### Integration
 
-- **RF-60** API REST di esecuzione sincrona e batch, API di gestione, OpenAPI 3.1 generata.
-- **RF-61** Autenticazione facoltativa con API key a scope (spenta di default: installazione locale aperta).
-- **RF-62** Connettori di integrazione in uscita dalla v2: custom connector per Power Platform, plugin Dataverse che invoca l'API su eventi pre-operation, webhook.
-- **RF-63** Nodo *Data Fetch* (v3): arricchisce il context leggendo da un connettore, con cache e timeout, fuori dal percorso a latenza zero.
+- **RF-60** REST APIs for synchronous and batch execution, management APIs, generated OpenAPI 3.1.
+- **RF-61** Optional authentication with scoped API keys (off by default: open local installation).
+- **RF-62** Outbound integration connectors from v2: Power Platform custom connector, Dataverse plugin that calls the API on pre-operation events, webhooks.
+- **RF-63** *Data Fetch* node (v3): enriches the context by reading from a connector, with cache and timeout, off the zero-latency path.
 
-## Requisiti non funzionali
+## Non-functional requirements
 
-Il vincolo che guida l'architettura è la latenza: il motore deve valutare un rule set tipico in meno di 1 ms, così che il tempo percepito dal chiamante sia dominato dalla rete.
+The constraint that drives the architecture is latency: the engine must evaluate a typical rule set in under 1 ms, so that the time the caller perceives is dominated by the network.
 
-| Codice | Requisito | Target v1 |
+| Code | Requirement | v1 target |
 | --- | --- | --- |
-| RNF-01 | Latenza motore (solo valutazione), rule set da \~100 nodi, input 10 KB | p50 < 0,5 ms, p99 < 2 ms |
-| RNF-02 | Latenza API end-to-end misurata sul server (parse, auth, valutazione, serializzazione) | p99 < 10 ms |
-| RNF-03 | Throughput per core | ≥ 1.500 richieste/s su rule set tipico |
-| RNF-04 | Propagazione di una nuova pubblicazione o di un cambio alias a tutti i worker | < 2 s |
-| RNF-05 | Disponibilità API di esecuzione | 99,9% mensile; l'esecuzione funziona anche con DB irraggiungibile, usando le versioni già in memoria |
-| RNF-06 | Dimensione input | max 1 MB (configurabile), profondità max 32 livelli |
-| RNF-07 | Determinismo | stesso input + stessa versione + stessa data di riferimento = stesso output |
-| RNF-08 | Sicurezza | nessun `eval` di codice utente; espressioni compilate da AST con whitelist; limiti di passi e tempo per esecuzione (es. 50 ms) |
-| RNF-09 | Autenticazione e autorizzazione | Facoltativa e spenta di default (software libero per installazioni locali, senza dati sensibili); se attiva, API key a 256 bit salvate come SHA-256, con scope (ADR 0005). Nessun login utenti né ruoli in programma |
-| RNF-10 | Dati personali | trace e log con mascheramento dei campi marcati `pii` nello schema; retention configurabile (default 30 giorni); hosting UE per GDPR |
-| RNF-11 | Osservabilità | OpenTelemetry (trace, metriche, log), metriche per rule set: chiamate, esiti, latenze, nodi più frequenti come punto di uscita |
-| RNF-12 | Accessibilità editor | WCAG 2.2 AA per pannelli e form; canvas navigabile da tastiera |
-| RNF-13 | Localizzazione | UI e messaggi di feedback in italiano e inglese |
-| RNF-14 | Qualità codice | copertura test ≥ 85% sul motore, type-check stretto (mypy/pyright, TypeScript strict), CI con benchmark di regressione |
+| RNF-01 | Engine latency (evaluation only), rule set of \~100 nodes, 10 KB input | p50 < 0.5 ms, p99 < 2 ms |
+| RNF-02 | End-to-end API latency measured on the server (parse, auth, evaluation, serialisation) | p99 < 10 ms |
+| RNF-03 | Throughput per core | ≥ 1,500 requests/s on a typical rule set |
+| RNF-04 | Propagation of a new publication or alias change to every worker | < 2 s |
+| RNF-05 | Execution API availability | 99.9% monthly; execution keeps working with the DB unreachable, using the versions already in memory |
+| RNF-06 | Input size | max 1 MB (configurable), max depth 32 levels |
+| RNF-07 | Determinism | same input + same version + same reference date = same output |
+| RNF-08 | Security | no `eval` of user code; expressions compiled from a whitelisted AST; step and time limits per execution (e.g. 50 ms) |
+| RNF-09 | Authentication and authorisation | Optional and off by default (free software for local installations, without sensitive data); when on, 256-bit API keys stored as SHA-256, with scopes (ADR 0005). No user login or roles planned |
+| RNF-10 | Personal data | traces and logs mask fields marked `pii` in the schema; configurable retention (default 30 days); EU hosting for GDPR |
+| RNF-11 | Observability | OpenTelemetry (traces, metrics, logs), per-rule-set metrics: calls, outcomes, latencies, most frequent exit nodes |
+| RNF-12 | Editor accessibility | WCAG 2.2 AA for panels and forms; keyboard-navigable canvas |
+| RNF-13 | Localisation | UI and feedback messages in Italian and English |
+| RNF-14 | Code quality | ≥ 85% test coverage on the engine, strict type-checking (mypy/pyright, TypeScript strict), CI with regression benchmarks |
 
-La latenza di rete tra chiamante e API non è controllabile: per ottenere "\~0" percepito, il servizio va distribuito nella stessa regione cloud dei chiamanti principali (es. la regione Azure di Dynamics).
+Network latency between caller and API is not under our control: to get a perceived "\~0", the service must be deployed in the same cloud region as the main callers (e.g. the Azure region of Dynamics).
 
-## Architettura e stack
+## Architecture and stack
 
-L'architettura separa un **piano di controllo** (editor, API di gestione, PostgreSQL) da un **piano di esecuzione** (worker stateless che tengono in RAM le versioni compilate). Il percorso caldo di una chiamata non tocca né il database né la rete interna.
+The architecture separates a **control plane** (editor, management API, PostgreSQL) from an **execution plane** (stateless workers that keep the compiled versions in RAM). The hot path of a call touches neither the database nor the internal network.
 
 ```mermaid
 flowchart LR
-  subgraph CP[Piano di controllo]
-    ED[Editor web React] --> MG[Management API e Compiler]
+  subgraph CP[Control plane]
+    ED[React web editor] --> MG[Management API and Compiler]
     MG --> PG[(PostgreSQL)]
   end
-  subgraph EP[Piano di esecuzione]
-    EXT[Sistemi terzi] -- POST /v1/exec --> WK[Execution API worker<br/>versioni compilate in RAM]
-    WK -. asincrono .-> LOG[(Execution log)]
+  subgraph EP[Execution plane]
+    EXT[Third-party systems] -- POST /v1/exec --> WK[Execution API worker<br/>compiled versions in RAM]
+    WK -. async .-> LOG[(Execution log)]
   end
   PG -- NOTIFY + reload --> WK
 ```
 
-Una pubblicazione scrive su PostgreSQL e invia un NOTIFY: i worker ricaricano solo la versione cambiata, mentre le chiamate dei sistemi terzi restano servite dalla RAM.
+A publication writes to PostgreSQL and sends a NOTIFY: the workers reload only the version that changed, while third-party calls keep being served from RAM.
 
-### Componenti
+### Components
 
-1. **Editor web (React)**: canvas, editor schema, simulatore, gestione versioni.
-2. **Management API (FastAPI)**: CRUD di workspace, entità, schemi, rule set, draft, test, pubblicazione, alias, utenti.
-3. **Compiler**: valida il grafo (DAG, tipi rispetto allo schema, nodi raggiungibili), esegue i test, produce un *artefatto compilato* (JSON canonico + hash SHA-256) e lo salva.
-4. **Execution API (FastAPI, processo separato)**: carica gli artefatti, li trasforma in un piano eseguibile (closure Python pre-costruite), valuta le richieste.
-5. **PostgreSQL**: fonte di verità per tutto, inclusi gli artefatti compilati (JSONB/BYTEA).
-6. **Canale di notifica**: `LISTEN/NOTIFY` di PostgreSQL in v1; Redis Pub/Sub o NATS solo se servono più regioni.
-7. **Trace store**: tabella partizionata per giorno in PostgreSQL (v1), spostabile su ClickHouse o object storage se i volumi crescono.
+1. **Web editor (React)**: canvas, schema editor, simulator, version management.
+2. **Management API (FastAPI)**: CRUD of workspaces, entities, schemas, rule sets, drafts, tests, publication, aliases, users.
+3. **Compiler**: validates the graph (DAG, types against the schema, reachable nodes), runs the tests, produces a *compiled artefact* (canonical JSON + SHA-256 hash) and saves it.
+4. **Execution API (FastAPI, separate process)**: loads the artefacts, turns them into an executable plan (prebuilt Python closures), evaluates requests.
+5. **PostgreSQL**: source of truth for everything, compiled artefacts included (JSONB/BYTEA).
+6. **Notification channel**: PostgreSQL `LISTEN/NOTIFY` in v1; Redis Pub/Sub or NATS only if several regions are needed.
+7. **Trace store**: table partitioned by day in PostgreSQL (v1), movable to ClickHouse or object storage if volumes grow.
 
-### Storage delle regole: raccomandazione
+### Rule storage: recommendation
 
-**Raccomandazione: PostgreSQL come fonte di verità + cache in memoria nei worker + invalidazione via LISTEN/NOTIFY.** È l'opzione più economica (un solo database gestito, nessun Redis obbligatorio) e la più veloce: una lettura da un dizionario Python in RAM costa nanosecondi, mentre qualunque store remoto aggiunge 0,3–1 ms per chiamata.
+**Recommendation: PostgreSQL as the source of truth + in-memory cache in the workers + invalidation via LISTEN/NOTIFY.** It is the cheapest option (a single managed database, no mandatory Redis) and the fastest: a read from a Python dictionary in RAM costs nanoseconds, while any remote store adds 0.3–1 ms per call.
 
-Come funziona: all'avvio il worker carica gli artefatti degli alias attivi; su `NOTIFY ruleset_published` ricarica solo quello cambiato e scambia il puntatore in modo atomico; un polling ogni 30 s sull'hash degli alias copre le notifiche perse. Le richieste in volo finiscono sulla versione con cui sono partite.
+How it works: on startup the worker loads the artefacts of the active aliases; on `NOTIFY ruleset_published` it reloads only the one that changed and swaps the pointer atomically; a poll of the alias hashes every 30 s covers lost notifications. In-flight requests finish on the version they started with.
 
-| Opzione | Latenza lettura regola | Costo indicativo | Valutazione |
+| Option | Rule read latency | Indicative cost | Assessment |
 | --- | --- | --- | --- |
-| **PostgreSQL + cache in RAM (raccomandata)** | \~0 (RAM), DB solo al reload | un'istanza gestita piccola, \~50–150 €/mese | Transazioni, JSONB, versioning e audit nello stesso posto; zero hop sul percorso caldo |
-| Redis come store primario | 0,2–1 ms per chiamata | +1 servizio gestito | Più lento della RAM locale, durabilità e query relazionali deboli |
-| MongoDB / Cosmos DB | 1–5 ms per chiamata se letto a ogni richiesta | medio-alto (RU/cluster) | Comodo per documenti JSON, ma serve comunque cache; meno adatto ad audit e vincoli |
-| Object storage (S3/Blob) con bundle | \~0 dopo il caricamento | molto basso | Ottimo come canale di distribuzione multi-regione (stile OPA) in fase 2; non adatto all'editing |
-| SQLite incorporato nel worker | \~0 | nullo | Buono per edge/offline, ma la sincronizzazione tra istanze va costruita |
+| **PostgreSQL + RAM cache (recommended)** | \~0 (RAM), DB only on reload | one small managed instance, \~€50–150/month | Transactions, JSONB, versioning and audit in one place; zero hops on the hot path |
+| Redis as the primary store | 0.2–1 ms per call | +1 managed service | Slower than local RAM, weak durability and relational queries |
+| MongoDB / Cosmos DB | 1–5 ms per call if read on every request | medium-high (RU/cluster) | Handy for JSON documents, but a cache is needed anyway; less suited to audit and constraints |
+| Object storage (S3/Blob) with bundles | \~0 after loading | very low | Great as a multi-region distribution channel (OPA style) in phase 2; not suited to editing |
+| SQLite embedded in the worker | \~0 | none | Good for edge/offline, but sync between instances has to be built |
 
-I costi sono stime di ordine di grandezza da validare con il cloud scelto. Con più regioni, il compiler pubblica anche il bundle su object storage e i worker remoti lo scaricano: stessa logica, distribuzione diversa.
+Costs are order-of-magnitude estimates to validate with the chosen cloud. With several regions, the compiler also publishes the bundle to object storage and remote workers download it: same logic, different distribution.
 
-### Stack tecnologico
+### Technology stack
 
-| Livello | Scelta | Note |
+| Layer | Choice | Notes |
 | --- | --- | --- |
-| Linguaggio backend | Python 3.14 | Python non ha un ramo LTS: 3.14 è l'ultima stabile con ecosistema maturo, supportata fino a ottobre 2030; valutare 3.15 a metà 2027 |
-| Framework API | FastAPI + Pydantic v2 | OpenAPI 3.1 automatica |
-| Server ASGI | Granian o Uvicorn, un worker per core | Benchmark in fase 0 |
-| Serializzazione | orjson / msgspec | 3–10 volte più veloce di `json` standard |
-| Validazione schema | `jsonschema-rs` (binding Rust) o `fastjsonschema` | Schema compilato una volta per versione |
-| ORM e migrazioni | SQLAlchemy 2 (async) + Alembic | Solo nel piano di controllo |
-| Database | PostgreSQL 17 o 18 gestito | Azure Database for PostgreSQL se il contesto è Microsoft |
-| Frontend | React 19 + TypeScript 5 + Vite | Node.js 24 LTS per il toolchain |
-| Canvas | React Flow (xyflow) + ELK.js per auto-layout | Base usata anche da GoRules e molti editor no-code |
-| Stato e dati UI | Zustand + TanStack Query | Client API generato da OpenAPI |
-| Editor codice/espressioni | Monaco Editor | Autocompletamento dei path dallo schema |
-| UI kit | shadcn/ui (Radix) + Tailwind, oppure Fluent UI 2 per coerenza con Dynamics | Decisione aperta |
-| Packaging | Docker, deploy su Azure Container Apps / Kubernetes | IaC con Terraform o Bicep |
-| Osservabilità | OpenTelemetry → Grafana / Azure Monitor |  |
+| Backend language | Python 3.14 | Python has no LTS branch: 3.14 is the latest stable release with a mature ecosystem, supported until October 2030; evaluate 3.15 in mid-2027 |
+| API framework | FastAPI + Pydantic v2 | Automatic OpenAPI 3.1 |
+| ASGI server | Granian or Uvicorn, one worker per core | Benchmark in phase 0 |
+| Serialisation | orjson / msgspec | 3–10 times faster than the standard `json` |
+| Schema validation | `jsonschema-rs` (Rust binding) or `fastjsonschema` | Schema compiled once per version |
+| ORM and migrations | SQLAlchemy 2 (async) + Alembic | Control plane only |
+| Database | Managed PostgreSQL 17 or 18 | Azure Database for PostgreSQL in a Microsoft context |
+| Frontend | React 19 + TypeScript 5 + Vite | Node.js 24 LTS for the toolchain |
+| Canvas | React Flow (xyflow) + ELK.js for auto-layout | Also the foundation of GoRules and many no-code editors |
+| UI state and data | Zustand + TanStack Query | API client generated from OpenAPI |
+| Code/expression editor | Monaco Editor | Path autocompletion from the schema |
+| UI kit | shadcn/ui (Radix) + Tailwind, or Fluent UI 2 for consistency with Dynamics | Open decision |
+| Packaging | Docker, deployed on Azure Container Apps / Kubernetes | IaC with Terraform or Bicep |
+| Observability | OpenTelemetry → Grafana / Azure Monitor |  |
 
-### Il motore di esecuzione
+### The execution engine
 
-- **Compilazione, non interpretazione**: ogni nodo diventa una funzione Python chiusa sui propri parametri; i path dello schema diventano accessor pre-calcolati; il grafo diventa una lista ordinata topologicamente. Nessun parsing a runtime.
-- **Espressioni**: AST JSON → closure Python. Il linguaggio testuale per utenti esperti è parsato con Lark nel compiler, mai a runtime.
-- **Context immutabile per nodo**: ogni nodo riceve un JSON e restituisce un JSON (requisito di design), ma internamente si usano strutture native e si serializza solo in uscita o in trace `full`, per non pagare la copia a ogni step.
-- **Piano B prestazionale**: se i benchmark su rule set grandi non bastano, il core di valutazione si può riscrivere in Rust con PyO3 mantenendo lo stesso formato, oppure delegare le decision table a `zen-engine`.
+- **Compilation, not interpretation**: every node becomes a Python function closed over its own parameters; schema paths become precomputed accessors; the graph becomes a topologically sorted list. No parsing at runtime.
+- **Expressions**: JSON AST → Python closures. The textual language for expert users is parsed with Lark in the compiler, never at runtime.
+- **Immutable context per node**: every node receives JSON and returns JSON (a design requirement), but internally native structures are used and serialisation happens only on output or with a `full` trace, so as not to pay for a copy at every step.
+- **Performance plan B**: if the benchmarks on large rule sets fall short, the evaluation core can be rewritten in Rust with PyO3 keeping the same format, or decision tables can be delegated to `zen-engine`.
 
-## Modello dati e formato JSON
+## Data model and JSON format
 
-Tutto ciò che l'utente disegna è un documento JSON ("Rule Graph Document", RGD) salvato in JSONB; le tabelle relazionali servono solo per identità, versioni, permessi e audit.
+Everything the user designs is a JSON document ("Rule Graph Document", RGD) saved as JSONB; relational tables are used only for identity, versions, permissions and audit.
 
-### Tabelle principali (PostgreSQL)
+### Main tables (PostgreSQL)
 
-| Tabella | Campi chiave | Note |
+| Table | Key fields | Notes |
 | --- | --- | --- |
 | `workspace` | id, slug, name, settings | Tenant |
-| `entity` | id, workspace\_id, key, name | Es. `StudyPlan` |
-| `schema_version` | id, entity\_id, version, json\_schema (JSONB), source (`sample` / `manual` / `connector`), hash | Immutabile dopo pubblicazione |
-| `ruleset` | id, entity\_id, key, name, mode (`fail_fast` / `collect_all`) | `key` usata nell'URL di esecuzione |
-| `ruleset_draft` | ruleset\_id, graph (JSONB), updated\_by, lock\_version | Un draft per rule set, optimistic locking |
-| `ruleset_version` | id, ruleset\_id, semver, schema\_version\_id, graph (JSONB), compiled (JSONB), hash, valid\_from, valid\_to, status, published\_by, published\_at | Immutabile |
-| `ruleset_alias` | ruleset\_id, env, version\_id | `prod` → 1.4.0; aggiornarlo fa partire il NOTIFY |
-| `lookup_table` | id, ruleset\_version\_id, key, rows (JSONB) | Versionata con il rule set |
-| `test_case` | id, ruleset\_id, name, input, expected | Eseguiti alla pubblicazione |
-| `api_client` | id, workspace\_id, key\_hash, scopes, rate\_limit | API key con hash |
-| `execution_log` | id, ts, ruleset\_version\_id, outcome, exit\_node, latency\_us, input\_hash, trace (JSONB, opzionale) | Partizionata per giorno |
+| `entity` | id, workspace\_id, key, name | E.g. `StudyPlan` |
+| `schema_version` | id, entity\_id, version, json\_schema (JSONB), source (`sample` / `manual` / `connector`), hash | Immutable after publication |
+| `ruleset` | id, entity\_id, key, name, mode (`fail_fast` / `collect_all`) | `key` used in the execution URL |
+| `ruleset_draft` | ruleset\_id, graph (JSONB), updated\_by, lock\_version | One draft per rule set, optimistic locking |
+| `ruleset_version` | id, ruleset\_id, semver, schema\_version\_id, graph (JSONB), compiled (JSONB), hash, valid\_from, valid\_to, status, published\_by, published\_at | Immutable |
+| `ruleset_alias` | ruleset\_id, env, version\_id | `prod` → 1.4.0; updating it triggers the NOTIFY |
+| `lookup_table` | id, ruleset\_version\_id, key, rows (JSONB) | Versioned with the rule set |
+| `test_case` | id, ruleset\_id, name, input, expected | Run on publication |
+| `api_client` | id, workspace\_id, key\_hash, scopes, rate\_limit | Hashed API keys |
+| `execution_log` | id, ts, ruleset\_version\_id, outcome, exit\_node, latency\_us, input\_hash, trace (JSONB, optional) | Partitioned by day |
 | `audit_event` | id, ts, actor, action, target, diff | Append-only |
 
 ### Rule Graph Document
@@ -257,7 +257,7 @@ Tutto ciò che l'utente disegna è un documento JSON ("Rule Graph Document", RGD
     {
       "id": "chkWindow",
       "type": "condition",
-      "label": "Piano presentato nella finestra",
+      "label": "Plan submitted within the window",
       "condition": {
         "op": "between",
         "left": { "ref": "$.input.submittedAt" },
@@ -298,13 +298,13 @@ Tutto ciò che l'utente disegna è un documento JSON ("Rule Graph Document", RGD
 }
 ```
 
-Regole del formato: gli archi hanno una porta (`pass`, `fail`, `default` o il nome di un caso dello Switch); le condizioni sono AST con `op` e operandi `ref` / `fn` / letterali; la sezione `ui` non entra nell'hash compilato, così spostare un nodo non crea una nuova versione logica.
+Format rules: edges have a port (`pass`, `fail`, `default` or the name of a Switch case); conditions are ASTs with `op` and `ref` / `fn` / literal operands; the `ui` section is not part of the compiled hash, so moving a node does not create a new logical version.
 
-### Context che scorre tra i nodi
+### Context flowing between nodes
 
 ```json
 {
-  "input":    { "...": "oggetto originale, sola lettura" },
+  "input":    { "...": "original object, read-only" },
   "vars":     { "totalCfu": 64, "window": { "open": "2027-09-01", "close": "2027-10-15" } },
   "nodes":    { "chkWindow": { "outcome": "pass", "output": {} } },
   "feedback": [],
@@ -312,9 +312,9 @@ Regole del formato: gli archi hanno una porta (`pass`, `fail`, `default` o il no
 }
 ```
 
-Ogni nodo legge dal context e scrive solo nel proprio slot `nodes.<id>.output`, in `vars` (nodi Set) o in `feedback`. Questo rende ogni passaggio ispezionabile come JSON nel simulatore, come il pannello input/output di n8n.
+Every node reads from the context and writes only to its own `nodes.<id>.output` slot, to `vars` (Set nodes) or to `feedback`. This makes every step inspectable as JSON in the simulator, like n8n's input/output panel.
 
-### Output di un'esecuzione
+### Execution output
 
 ```json
 {
@@ -325,7 +325,7 @@ Ogni nodo legge dal context e scrive solo nel proprio slot `nodes.<id>.output`, 
   "exit": { "nodeId": "endKo", "reason": "grpCfu:fail" },
   "feedback": [
     { "code": "SP_CFU_MIN", "severity": "error", "path": "courses", "nodeId": "grpCfu",
-      "message": "Servono almeno 60 CFU, ne risultano 54", "data": { "actual": 54, "required": 60 } }
+      "message": "At least 60 ECTS are required, 54 found", "data": { "actual": 54, "required": 60 } }
   ],
   "result": { "totalCfu": 54, "tuitionFee": 38500 },
   "path": ["start", "chkWindow", "grpCfu", "endKo"],
@@ -336,20 +336,20 @@ Ogni nodo legge dal context e scrive solo nel proprio slot `nodes.<id>.output`, 
 
 ## API
 
-Due superfici separate: l'API di esecuzione (pubblica verso i sistemi terzi, ottimizzata per latenza) e l'API di gestione (usata dall'editor e dalla CI). Entrambe sono versionate nel path (`/v1`) e descritte in OpenAPI 3.1.
+Two separate surfaces: the execution API (public to third-party systems, optimised for latency) and the management API (used by the editor and CI). Both are versioned in the path (`/v1`) and described in OpenAPI 3.1.
 
-### Esecuzione
+### Execution
 
-| Metodo e path | Scopo |
+| Method and path | Purpose |
 | --- | --- |
-| `POST /v1/exec/{workspace}/{ruleset}` | Esegue l'alias `prod` (default) |
-| `POST /v1/exec/{workspace}/{ruleset}@{env}` | Esegue un alias (`test`, `dev`) |
-| `POST /v1/exec/{workspace}/{ruleset}/versions/{semver}` | Esegue una versione fissa (riproducibilità, audit) |
-| `POST /v1/exec/{workspace}/{ruleset}/batch` (F4) | Fino a 1.000 oggetti per chiamata, risposta in array |
-| `POST /v1/exec/{workspace}/{entity}/dispatch` (F3) | Sceglie il rule set con il dispatcher dell'entità |
-| `GET /v1/health`, `GET /v1/ready` | Probe; `ready` solo dopo il caricamento degli artefatti |
+| `POST /v1/exec/{workspace}/{ruleset}` | Runs the `prod` alias (default) |
+| `POST /v1/exec/{workspace}/{ruleset}@{env}` | Runs an alias (`test`, `dev`) |
+| `POST /v1/exec/{workspace}/{ruleset}/versions/{semver}` | Runs a pinned version (reproducibility, audit) |
+| `POST /v1/exec/{workspace}/{ruleset}/batch` (F4) | Up to 1,000 objects per call, array response |
+| `POST /v1/exec/{workspace}/{entity}/dispatch` (F3) | Chooses the rule set with the entity's dispatcher |
+| `GET /v1/health`, `GET /v1/ready` | Probes; `ready` only after the artefacts are loaded |
 
-Richiesta:
+Request:
 
 ```json
 {
@@ -358,78 +358,78 @@ Richiesta:
 }
 ```
 
-Regole di risposta:
+Response rules:
 
-- **HTTP 200** anche quando l'esito è `invalid`: la validazione è andata a buon fine, l'oggetto no. L'esito è nel body (`outcome`).
-- **400** input non conforme allo schema (con lista errori JSON Schema), **401/403** autenticazione, **404** rule set o alias inesistente, **413** input troppo grande, **422** errore di esecuzione (es. limite passi), **429** rate limit.
-- Header: `X-Ruleset-Version`, `X-Request-Id`, `Server-Timing: engine;dur=0.21`.
-- Idempotenza naturale: l'esecuzione non ha effetti collaterali.
+- **HTTP 200** even when the outcome is `invalid`: validation succeeded, the object did not. The outcome is in the body (`outcome`).
+- **400** input not matching the schema (with the list of JSON Schema errors), **401/403** authentication, **404** nonexistent rule set or alias, **413** input too large, **422** execution error (e.g. step limit), **429** rate limit.
+- Headers: `X-Ruleset-Version`, `X-Request-Id`, `Server-Timing: engine;dur=0.21`.
+- Naturally idempotent: execution has no side effects.
 
-### Gestione (estratto)
+### Management (excerpt)
 
-Le azioni sono sotto-risorse con `POST` (es. `.../publish`). Il riferimento completo di ciò che
-è implementato è in [`docs/api.md`](api.md).
+Actions are sub-resources with `POST` (e.g. `.../publish`). The full reference of what is
+implemented is in [`docs/api.md`](api.md).
 
-| Risorsa | Endpoint principali |
+| Resource | Main endpoints |
 | --- | --- |
-| Entità e schemi | `GET/POST /v1/workspaces/{ws}/entities`, `POST .../entities/{entity}/schemas` (manuale o da esempi), `POST /v1/schemas/infer`; in seguito import da connettore e diff tra versioni |
-| Rule set | `GET/POST /v1/workspaces/{ws}/rulesets`, `GET/PUT .../rulesets/{rs}/draft` (con `If-Match`) |
-| Ciclo di vita | `POST .../rulesets/{rs}/validate`, `/simulate`, `/publish` (bump semver), `PUT/DELETE .../aliases/{env}` |
-| Test | `GET/POST .../rulesets/{rs}/tests`, `DELETE .../tests/{name}`, `POST .../tests/run` |
-| Bundle (F3) | export di una versione e import di un rule set completo |
-| Catalogo nodi (F2) | `GET /v1/node-types` (manifest dei nodi e dei plugin, usato dall'editor per la palette) |
-| Connettori (F4) | `GET /v1/connectors`, `POST /v1/connections`, `POST /v1/connections/{id}/test` |
-| Accessi | `.../api-keys`, `POST /v1/admin/api-keys`, `.../audit` (le chiavi servono solo con `MINOS_REQUIRE_AUTH=true`) |
+| Entities and schemas | `GET/POST /v1/workspaces/{ws}/entities`, `POST .../entities/{entity}/schemas` (manual or from samples), `POST /v1/schemas/infer`; later, import from connectors and diff between versions |
+| Rule sets | `GET/POST /v1/workspaces/{ws}/rulesets`, `GET/PUT .../rulesets/{rs}/draft` (with `If-Match`) |
+| Lifecycle | `POST .../rulesets/{rs}/validate`, `/simulate`, `/publish` (semver bump), `PUT/DELETE .../aliases/{env}` |
+| Tests | `GET/POST .../rulesets/{rs}/tests`, `DELETE .../tests/{name}`, `POST .../tests/run` |
+| Bundles (F3) | export of a version and import of a complete rule set |
+| Node catalogue (F2) | `GET /v1/node-types` (manifest of nodes and plugins, used by the editor for the palette) |
+| Connectors (F4) | `GET /v1/connectors`, `POST /v1/connections`, `POST /v1/connections/{id}/test` |
+| Access | `.../api-keys`, `POST /v1/admin/api-keys`, `.../audit` (keys are only needed with `MINOS_REQUIRE_AUTH=true`) |
 
-### SDK e integrazioni
+### SDKs and integrations
 
-- Client generati da OpenAPI per Python, TypeScript e C# (quest'ultimo utile per plugin Dataverse).
-- Custom connector Power Platform per usare il motore da Power Automate e Power Apps.
-- Plugin Dataverse di esempio: su `PreOperation` di `Create/Update` chiama l'API e, se `outcome=invalid`, lancia `InvalidPluginExecutionException` con i messaggi di feedback.
+- Clients generated from OpenAPI for Python, TypeScript and C# (the latter useful for Dataverse plugins).
+- Power Platform custom connector to use the engine from Power Automate and Power Apps.
+- Sample Dataverse plugin: on `PreOperation` of `Create/Update` it calls the API and, if `outcome=invalid`, throws `InvalidPluginExecutionException` with the feedback messages.
 
-## Editor web no-code
+## No-code web editor
 
-L'editor riprende la UX di n8n (canvas, palette, pannello del nodo con input e output JSON) ma è "schema-aware": ogni campo, operatore e valore proposto deriva dallo schema dell'entità, così l'utente business non scrive path a mano.
+The editor borrows n8n's UX (canvas, palette, node panel with JSON input and output) but is "schema-aware": every field, operator and value offered comes from the entity schema, so business users never type paths by hand.
 
-### Schermate
+### Screens
 
-1. **Home workspace**: entità, rule set, stato degli alias per ambiente, metriche ultime 24 ore.
-2. **Schema studio**: albero dei campi; "incolla un JSON di esempio" per l'inferenza; import da connettore; diff tra versioni; marcatura `pii`.
-3. **Canvas del rule set**:
-   - palette a sinistra con i tipi di nodo raggruppati (Logica, Dati, Flusso, Output, Plugin);
-   - drag-and-drop, collegamento delle porte `pass` / `fail`, auto-layout, minimap, copia/incolla di gruppi di nodi, annotazioni;
-   - nodi colorati per esito durante la simulazione, con il percorso evidenziato.
-4. **Pannello del nodo** (a destra o a tutto schermo come n8n): configurazione, feedback per esito, politica `onFail`; tab Input / Output con il JSON reale dell'ultima simulazione.
-5. **Condition builder visuale**: righe "campo – operatore – valore" con gruppi AND/OR annidati (stile query builder), commutabile in modalità espressione testuale con Monaco e autocompletamento.
-6. **Decision table editor**: griglia tipo foglio di calcolo, import/export CSV/Excel, controllo di righe sovrapposte o mancanti.
-7. **Simulatore e test**: input JSON o generato dallo schema, esecuzione del draft, salvataggio come test case.
-8. **Versioni e rilasci**: cronologia, diff visuale del grafo, pubblica, promuovi, rollback, approvazioni.
+1. **Workspace home**: entities, rule sets, alias status per environment, last-24-hours metrics.
+2. **Schema studio**: field tree; "paste a sample JSON" for inference; import from connector; diff between versions; `pii` marking.
+3. **Rule set canvas**:
+   - palette on the left with node types grouped (Logic, Data, Flow, Output, Plugins);
+   - drag-and-drop, connecting `pass` / `fail` ports, auto-layout, minimap, copy/paste of node groups, annotations;
+   - nodes coloured by outcome during simulation, with the path highlighted.
+4. **Node panel** (on the right or full screen like n8n): configuration, feedback per outcome, `onFail` policy; Input / Output tabs with the real JSON from the latest simulation.
+5. **Visual condition builder**: "field – operator – value" rows with nested AND/OR groups (query-builder style), switchable to a textual expression mode with Monaco and autocompletion.
+6. **Decision table editor**: spreadsheet-like grid, CSV/Excel import/export, checks for overlapping or missing rows.
+7. **Simulator and tests**: JSON input or generated from the schema, draft execution, save as test case.
+8. **Versions and releases**: history, visual graph diff, publish, promote, rollback, approvals.
 
-### Integrabilità dell'editor
+### Embedding the editor
 
-- Pacchetto `@minos/editor` come componente React riusabile, con props per API base URL e token; pubblicabile su registry privato.
-- Modalità embed via iframe con postMessage, per ospitarlo in un Model-driven App di Dynamics (web resource) o in altri portali.
-- Nessun login: lo Studio entra direttamente sulle installazioni aperte (default) e chiede una API key solo se l'API la richiede.
+- `@minos/editor` package as a reusable React component, with props for the API base URL and token; publishable to a private registry.
+- Embed mode through an iframe with postMessage, to host it in a Dynamics Model-driven App (web resource) or in other portals.
+- No login: the Studio opens directly on open installations (the default) and asks for an API key only if the API requires one.
 
-### Estensibilità a plugin (come la palette n8n)
+### Plugin extensibility (like the n8n palette)
 
-Ogni tipo di nodo è descritto da un manifest JSON servito da `GET /v1/node-types`: nome, icona, porte, schema dei parametri (JSON Schema) e hint UI. L'editor genera automaticamente il form di configurazione dal manifest, quindi un nuovo nodo o connettore lato Python appare nella palette senza modifiche al frontend.
+Every node type is described by a JSON manifest served by `GET /v1/node-types`: name, icon, ports, parameter schema (JSON Schema) and UI hints. The editor generates the configuration form from the manifest automatically, so a new node or connector on the Python side appears in the palette without frontend changes.
 
-## Esempi
+## Examples
 
-Il motore è generico: nel repository ci sono esempi completi, con suite di test, per tre domini (`examples/`):
+The engine is generic: the repository holds complete examples, with test suites, for three domains (`examples/`):
 
-| Rule set | Dominio | Cosa mostra |
+| Rule set | Domain | What it shows |
 | --- | --- | --- |
-| `aurora.studyplan.*` | Piano di studi universitario | Gruppi di regole, aggregazioni annidate, switch, rule set annidato a versione fissata, tabella di listino |
-| `shop.order` | Ordine e-commerce | Totali calcolati, controlli per riga con elenco degli articoli non conformi, tabella delle spedizioni, coupon con avviso |
-| `bank.loan.eligibility` | Idoneità a un finanziamento | Rata e rapporto rata/reddito, tabella `collect` dei motivi di rifiuto, fascia di rischio |
+| `aurora.studyplan.*` | University study plan | Rule groups, nested aggregations, switch, sub rule set at a pinned version, price-list table |
+| `shop.order` | E-commerce order | Computed totals, per-line checks listing the non-compliant items, shipping table, coupon with a warning |
+| `bank.loan.eligibility` | Loan eligibility | Instalment and instalment-to-income ratio, `collect` table of rejection reasons, risk band |
 
-### Esempio dettagliato: piano di studi Aurora Business School
+### Detailed example: Aurora Business School study plan
 
-Un dispatcher legge `program.code` e instrada il piano verso il rule set del programma; ogni rule set riusa un blocco comune e aggiunge le sue regole. Tutti i numeri qui sotto (CFU, date, prezzi) sono **illustrativi** e vanno sostituiti con i regolamenti reali.
+A dispatcher reads `program.code` and routes the plan to the programme's rule set; every rule set reuses a common block and adds its own rules. All the numbers below (credits, dates, prices) are **illustrative** and must be replaced with the real regulations.
 
-### Oggetto in input
+### Input object
 
 ```json
 {
@@ -446,88 +446,88 @@ Un dispatcher legge `program.code` e instrada il piano verso il rule set del pro
 }
 ```
 
-Lo schema si ottiene incollando questo esempio nello Schema studio; poi si rifinisce a mano (enum per `program.code` e `area`, `cfu` intero positivo, `birthDate` marcato `pii`) oppure, in seguito, lo si importa dall'entità Dataverse del piano di studi.
+The schema is obtained by pasting this sample into the Schema studio; then it is refined by hand (enums for `program.code` and `area`, `cfu` a positive integer, `birthDate` marked `pii`) or, later, imported from the study plan's Dataverse entity.
 
-### Rule set e regole
+### Rule sets and rules
 
-| Rule set | Blocco | Regola (esempio) | Tipo nodo | Su fallimento |
+| Rule set | Block | Rule (example) | Node type | On failure |
 | --- | --- | --- | --- | --- |
-| `aurora.studyplan.common` | Finestra | `submittedAt` tra apertura e chiusura dell'edizione (da Lookup per programma e anno) | Condition + Lookup | stop |
-| `aurora.studyplan.common` | Corsi | Ogni corso esiste nel catalogo dell'anno e non è duplicato | For Each + Lookup | continue |
-| `aurora.studyplan.common` | Corsi | Corsi CORE obbligatori tutti presenti | Expression + Condition | continue |
-| `aurora.studyplan.emba` | CFU | Totale CFU ≥ minimo del programma; elettivi ≤ massimo | Group AND | continue |
-| `aurora.studyplan.emba` | Area didattica | Track FINANCE: almeno N CFU in area FIN; altrimenti max 2 corsi FIN | Switch + Group OR | continue |
-| `aurora.studyplan.emba` | Calendario | Nessun corso in un term successivo alla fine dell'edizione | For Each | continue |
-| `aurora.studyplan.emba` | Prezzo | Retta = listino programma − borsa (%) + extra per elettivi oltre soglia | Decision Table + Set | — (calcolo) |
-| `aurora.studyplan.emba` | Pagamento | Rate ammesse in base al programma (es. 1, 2 o 3) | Decision Table | continue |
-| `aurora.studyplan.ftmba` | CFU / Aree | Regole proprie del Full-Time MBA, stessa struttura | come sopra | — |
+| `aurora.studyplan.common` | Window | `submittedAt` between the edition's opening and closing (from a Lookup per programme and year) | Condition + Lookup | stop |
+| `aurora.studyplan.common` | Courses | Every course exists in the year's catalogue and is not duplicated | For Each + Lookup | continue |
+| `aurora.studyplan.common` | Courses | All mandatory CORE courses present | Expression + Condition | continue |
+| `aurora.studyplan.emba` | Credits | Total credits ≥ the programme minimum; electives ≤ maximum | Group AND | continue |
+| `aurora.studyplan.emba` | Subject area | FINANCE track: at least N credits in the FIN area; otherwise max 2 FIN courses | Switch + Group OR | continue |
+| `aurora.studyplan.emba` | Calendar | No course in a term after the end of the edition | For Each | continue |
+| `aurora.studyplan.emba` | Price | Fee = programme list price − scholarship (%) + extra for electives over the threshold | Decision Table + Set | — (computation) |
+| `aurora.studyplan.emba` | Payment | Instalments allowed depending on the programme (e.g. 1, 2 or 3) | Decision Table | continue |
+| `aurora.studyplan.ftmba` | Credits / Areas | Full-Time MBA's own rules, same structure | as above | — |
 
-Con `mode: collect_all` il portale studenti riceve in una sola chiamata tutti gli errori da mostrare nel form, più il `result` con CFU totali e retta calcolata. Lo stesso rule set, chiamato da un plugin Dataverse in `fail_fast`, blocca il salvataggio del piano al primo errore.
+With `mode: collect_all` the student portal receives in a single call every error to show in the form, plus the `result` with total credits and the computed fee. The same rule set, called by a Dataverse plugin in `fail_fast`, blocks saving the plan at the first error.
 
-### Versioning nel caso reale
+### Versioning in the real case
 
-- Le regole dell'anno 2027/28 sono la versione 2.0.0 con `valid_from = 2027-08-01`; quelle 2026/27 restano attive per i piani con data di riferimento precedente.
-- Una correzione di listino a metà anno diventa 2.0.1, provata in `test` con replay delle richieste reali e poi promossa in `prod` spostando l'alias.
+- The 2027/28 rules are version 2.0.0 with `valid_from = 2027-08-01`; the 2026/27 ones stay active for plans with an earlier reference date.
+- A mid-year price-list fix becomes 2.0.1, tried in `test` with a replay of real requests and then promoted to `prod` by moving the alias.
 
 ## Roadmap
 
-In circa 23 settimane si arriva al pilota Aurora in produzione (gate G3); le integrazioni Dynamics seguono in altre 6. Ogni fase si chiude solo quando il suo gate è superato.
+In about 23 weeks we reach the Aurora pilot in production (gate G3); the Dynamics integrations follow in another 6. Every phase closes only when its gate is passed.
 
 ```mermaid
 flowchart TB
-  F0[F0 · Fondamenta · 3 sett.] --> G0{{G0: p99 motore sotto 2 ms}}
-  G0 --> F1[F1 · Motore e API · 6 sett.] --> G1{{G1: regole comuni Aurora, p99 API sotto 10 ms}}
-  G1 --> F2[F2 · Editor MVP · 8 sett.] --> G2{{G2: utente business crea il rule set EMBA}}
-  G2 --> F3[F3 · Completamento e pilota · 6 sett.] --> G3{{G3: pilota Aurora in produzione}}
-  G3 --> F4[F4 · Integrazioni · 6 sett.] --> G4{{G4: Dynamics valida via plugin}}
-  G4 --> F5[F5 · Scala ed evoluzioni · continuo]
+  F0[F0 · Foundations · 3 wks] --> G0{{G0: engine p99 under 2 ms}}
+  G0 --> F1[F1 · Engine and API · 6 wks] --> G1{{G1: Aurora common rules, API p99 under 10 ms}}
+  G1 --> F2[F2 · Editor MVP · 8 wks] --> G2{{G2: a business user builds the EMBA rule set}}
+  G2 --> F3[F3 · Completion and pilot · 6 wks] --> G3{{G3: Aurora pilot in production}}
+  G3 --> F4[F4 · Integrations · 6 wks] --> G4{{G4: Dynamics validates through a plugin}}
+  G4 --> F5[F5 · Scale and evolution · ongoing]
 ```
 
-Le durate presuppongono 2 sviluppatori backend, 2 frontend e un PO/QA part-time; con metà team raddoppiano circa.
+The durations assume 2 backend developers, 2 frontend developers and a part-time PO/QA; with half the team they roughly double.
 
-### Deliverable e criteri di accettazione
+### Deliverables and acceptance criteria
 
-1. **F0 · Fondamenta**
-   - Monorepo (`backend/`, `frontend/`, `packages/editor/`), CI con lint, type-check, test e benchmark; ADR su storage, linguaggio espressioni, UI kit.
-   - Spike: compilazione di un grafo a closure e confronto con `zen-engine` sullo stesso caso.
-   - Gate G0: p99 del motore sotto 2 ms su grafo sintetico da 100 nodi e input da 10 KB.
-2. **F1 · Motore e API**
-   - Formato RGD v1, compiler con rilevamento cicli e type-check sullo schema, nodi base, modalità `fail_fast` / `collect_all`, feedback e trace.
-   - Exec API e Management API, PostgreSQL con migrazioni, versioni immutabili, alias, hot reload con LISTEN/NOTIFY, inferenza schema da esempi, API key.
-   - Gate G1: le regole comuni Aurora scritte a mano in JSON passano i test; p99 API sotto 10 ms con 200 richieste/s per core.
+1. **F0 · Foundations**
+   - Monorepo (`backend/`, `frontend/`, `packages/editor/`), CI with lint, type-check, tests and benchmarks; ADRs on storage, expression language, UI kit.
+   - Spike: compiling a graph to closures and comparing with `zen-engine` on the same case.
+   - Gate G0: engine p99 under 2 ms on a synthetic 100-node graph with a 10 KB input.
+2. **F1 · Engine and API**
+   - RGD v1 format, compiler with cycle detection and type-checking against the schema, base nodes, `fail_fast` / `collect_all` modes, feedback and trace.
+   - Exec API and Management API, PostgreSQL with migrations, immutable versions, aliases, hot reload with LISTEN/NOTIFY, schema inference from samples, API keys.
+   - Gate G1: the Aurora common rules written by hand in JSON pass their tests; API p99 under 10 ms at 200 requests/s per core.
 3. **F2 · Editor MVP**
-   - Canvas, palette generata dai manifest, condition builder con gruppi AND/OR, pannello I/O, schema studio, simulatore, pubblicazione e promozione.
-   - Gate G2: in un test d'uso, un utente dell'ufficio didattica costruisce e pubblica in `test` il rule set EMBA senza aiuto di sviluppatori.
-4. **F3 · Completamento e pilota**
-   - Decision table, For Each, Lookup, Sub-RuleSet, dispatcher, test case obbligatori alla pubblicazione, diff visuale, approvazioni, OpenTelemetry, mascheramento PII, i18n.
-   - Gate G3: pilota Aurora in produzione con SLO (RNF-01, 02, 05) rispettati per 4 settimane consecutive.
-5. **F4 · Integrazioni**
-   - `SchemaConnector` per Dataverse, SQL (PostgreSQL, SQL Server), MongoDB, OpenAPI; gestione credenziali cifrate.
-   - Custom connector Power Platform, plugin Dataverse di riferimento, SDK Python/TypeScript/C#, endpoint batch, replay e shadow run.
-   - Gate G4: Dynamics valida i piani di studio in produzione tramite plugin.
-6. **F5 · Scala ed evoluzioni** (backlog prioritizzato con le metriche)
-   - Distribuzione dei bundle multi-regione su object storage, nodo Data Fetch con cache, core Rust/PyO3 se i benchmark lo richiedono, assistente AI che propone regole e test a partire dai regolamenti in PDF, marketplace interno di nodi plugin.
+   - Canvas, palette generated from manifests, condition builder with AND/OR groups, I/O panel, schema studio, simulator, publication and promotion.
+   - Gate G2: in a usability test, a user from the academic office builds and publishes the EMBA rule set to `test` without help from developers.
+4. **F3 · Completion and pilot**
+   - Decision tables, For Each, Lookup, Sub-RuleSet, dispatcher, test cases required on publication, visual diff, approvals, OpenTelemetry, PII masking, i18n.
+   - Gate G3: Aurora pilot in production with the SLOs (RNF-01, 02, 05) met for 4 consecutive weeks.
+5. **F4 · Integrations**
+   - `SchemaConnector` for Dataverse, SQL (PostgreSQL, SQL Server), MongoDB, OpenAPI; encrypted credential management.
+   - Power Platform custom connector, reference Dataverse plugin, Python/TypeScript/C# SDKs, batch endpoint, replay and shadow run.
+   - Gate G4: Dynamics validates study plans in production through a plugin.
+6. **F5 · Scale and evolution** (backlog prioritised by metrics)
+   - Multi-region bundle distribution on object storage, Data Fetch node with cache, Rust/PyO3 core if the benchmarks call for it, an AI assistant that proposes rules and tests from regulations in PDF, an internal marketplace of plugin nodes.
 
-## Rischi e decisioni aperte
+## Risks and open decisions
 
-### Rischi
+### Risks
 
-| Rischio | Impatto | Mitigazione |
+| Risk | Impact | Mitigation |
 | --- | --- | --- |
-| Python puro non regge la latenza su rule set grandi (migliaia di nodi, array lunghi) | Target RNF-01 mancato | Benchmark in fase 0 e in CI; compilazione a closure; piano B Rust/PyO3 o `zen-engine` |
-| Il linguaggio di espressioni cresce fino a diventare un linguaggio di programmazione | Sicurezza, manutenibilità | Grammatica chiusa, niente loop espliciti, funzioni solo da plugin registrati |
-| Utenti business costruiscono grafi illeggibili | Errori e manutenzione costosa | Sub-RuleSet, gruppi comprimibili, linting del grafo (nodi morti, condizioni sempre vere), test obbligatori |
-| Modifiche di schema rompono regole in produzione | Errori runtime | Analisi d'impatto alla pubblicazione dello schema; ogni versione di regola punta a una versione di schema fissa |
-| Scope creep verso un clone di n8n (workflow, integrazioni in scrittura) | Ritardi | Fuori ambito v1 dichiarato; nodo Data Fetch solo in fase 4 |
-| Dati personali di studenti in trace e log | GDPR | Trace `full` disattivata in prod per default, mascheramento `pii`, retention breve, hosting UE |
-| Cache disallineate tra worker | Esiti diversi per la stessa chiamata | Hash di versione nell'header di risposta, NOTIFY + polling di sicurezza, metrica di drift |
+| Pure Python cannot hold the latency on large rule sets (thousands of nodes, long arrays) | RNF-01 target missed | Benchmarks in phase 0 and in CI; compilation to closures; plan B Rust/PyO3 or `zen-engine` |
+| The expression language grows into a programming language | Security, maintainability | Closed grammar, no explicit loops, functions only from registered plugins |
+| Business users build unreadable graphs | Errors and costly maintenance | Sub-RuleSets, collapsible groups, graph linting (dead nodes, always-true conditions), mandatory tests |
+| Schema changes break rules in production | Runtime errors | Impact analysis on schema publication; every rule version points to a pinned schema version |
+| Scope creep towards an n8n clone (workflows, write integrations) | Delays | v1 out-of-scope stated; Data Fetch node only in phase 4 |
+| Students' personal data in traces and logs | GDPR | `full` trace off in prod by default, `pii` masking, short retention, EU hosting |
+| Caches out of sync between workers | Different outcomes for the same call | Version hash in the response header, NOTIFY + safety polling, drift metric |
 
-### Decisioni
+### Decisions
 
-- [x] Hosting: installazione locale (`docker compose`), nessun cloud per ora.
-- [x] Licenza e distribuzione: software libero, licenza MIT.
+- [x] Hosting: local installation (`docker compose`), no cloud for now.
+- [x] Licence and distribution: free software, MIT licence.
 - [x] UI kit: Fluent UI 2 (ADR 0004).
-- [x] Identity provider per l'editor: nessuno, autenticazione facoltativa e spenta di default.
-- [ ] Linguaggio di espressioni testuale: sintassi propria su Lark o sottoinsieme compatibile con CEL o FEEL.
-- [ ] Volumi attesi (richieste/giorno, picchi nei periodi di iscrizione) per dimensionare worker e trace store.
-- [ ] Chi è il primo utente pilota (es. ufficio didattica Aurora) e quali rule set reali portare in fase 2.
+- [x] Identity provider for the editor: none, authentication optional and off by default.
+- [ ] Textual expression language: our own syntax on Lark or a subset compatible with CEL or FEEL.
+- [ ] Expected volumes (requests/day, peaks during enrolment periods) to size workers and trace store.
+- [ ] Who the first pilot user is (e.g. the Aurora academic office) and which real rule sets to bring in phase 2.

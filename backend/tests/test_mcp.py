@@ -42,7 +42,7 @@ def example_graph() -> dict[str, Any]:
 def test_guide_includes_the_format_reference() -> None:
     # the packaged copy (shipped in the Docker image) must follow docs/rgd-format.md
     assert (HERE / "rgd-format.md").read_text() == (ROOT / "docs" / "rgd-format.md").read_text()
-    assert "Workflow" in guide_text() and "## Espressioni" in guide_text()
+    assert "Workflow" in guide_text() and "## Expressions" in guide_text()
 
 
 @asynccontextmanager

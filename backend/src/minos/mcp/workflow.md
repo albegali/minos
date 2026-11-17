@@ -77,4 +77,4 @@ Order with lines; reject empty orders, require a total of at least 10, warn abov
 }
 ```
 
-The format reference follows (in Italian: it is the project documentation).
+The format reference follows.
