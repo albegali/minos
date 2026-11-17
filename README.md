@@ -38,6 +38,7 @@ assistant write them from a description.
 | [`docs/mcp.md`](docs/mcp.md) | MCP server: rules written by an AI assistant |
 | [`docs/benchmarks.md`](docs/benchmarks.md) | Measurements and phase gates |
 | [`docs/adr/`](docs/adr/) | Architecture decisions |
+| [`docs/improvements.md`](docs/improvements.md) | Known issues and improvements, tracked by ID and status |
 | [`docs/brand/`](docs/brand/) | Logo (original, light and dark theme versions, mark) |
 | [`docs/screenshots/`](docs/screenshots/) | Studio screenshots used on this page |
 
