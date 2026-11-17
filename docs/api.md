@@ -13,10 +13,11 @@ Configuration through environment variables:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `MINOS_DATABASE_URL` | — | `postgresql+asyncpg://user:pass@host:5432/db` |
-| `MINOS_REQUIRE_AUTH` | `false` | `true` to require API keys |
+| `MINOS_REQUIRE_AUTH` | `false` | `true` to require API keys; any value other than `true/false/1/0/yes/no/on/off` stops the start-up |
 | `MINOS_CORS_ORIGINS` | — | Allowed browser origins, comma-separated |
 | `MINOS_RULESETS_DIR` | — | RGD files served as workspace `local`, environment `prod` |
-| `MINOS_POLL_INTERVAL_S` | `30` | Periodic alias check (safety net for lost NOTIFYs) |
+| `MINOS_POLL_INTERVAL_S` | `30` | Periodic alias check (safety net for lost NOTIFYs), at least 1 |
+| `MINOS_EXEC_TIME_LIMIT_MS` | `1000` | Wall-clock budget of one execution, sub rule sets included (`422` beyond it) |
 | `MINOS_EXAMPLES_DIR` | the repo's `examples/` | Examples loaded by `minos.cli seed-examples` |
 | `MINOS_SEED_EXAMPLES` | `true` only in the Docker image | Loads the examples on the container's first start |
 | `MINOS_STUDIO_URL` | `http://localhost:8080` | Studio address in the links returned by the MCP server |
@@ -146,7 +147,7 @@ Body: `{"input": {...}, "options": {"trace": "none|summary|full", "locale": "it"
   an `admin` or `manage` key may ask for it (`403` otherwise). Values of an unexpected type then
   end with outcome `error`.
 - `200` with the outcome in the body (`valid`, `invalid`, `warning`); `422` if execution fails or
-  exceeds `maxSteps`; `400` if the input does not match the entity schema (`errors` list with JSON
+  exceeds `maxSteps` or the time limit; `400` if the input does not match the entity schema (`errors` list with JSON
   pointers); `401`/`403` for keys; `404` if the rule set or the alias is not deployed.
 - Headers: `X-Ruleset-Version`, `X-Ruleset-Hash`, `X-Request-Id` (echo of the one received),
   `Server-Timing: engine;dur=<ms>`.

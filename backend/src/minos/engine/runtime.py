@@ -61,6 +61,7 @@ class ExecutionState:
 
     locale: str
     feedback: list[dict[str, Any]] = field(default_factory=list)
+    deadline: float | None = None
 
     def emit(self, fb: CompiledFeedback | None, scope: Scope, node_id: str) -> None:
         if fb is not None:
@@ -82,12 +83,20 @@ class CompiledNode:
     end_output: tuple[tuple[str, Evaluator], ...] = ()
 
 
+DEFAULT_TIME_LIMIT_MS: Final = 1000
+"""Wall-clock budget of one execution, sub-rule sets included (spec RNF-08)."""
+
+
 @dataclass(slots=True, frozen=True)
 class ExecuteOptions:
     trace: TraceLevel = "none"
     locale: str | None = None
     reference_date: str | None = None
     request_id: str | None = None
+    time_limit_ms: float = DEFAULT_TIME_LIMIT_MS
+    deadline: float | None = None
+    """``time.perf_counter()`` value past which the execution stops; set by a parent rule set
+    for its sub-rule sets, so that the budget is shared (``time_limit_ms`` is then ignored)."""
 
 
 @dataclass(slots=True)
@@ -124,7 +133,8 @@ class CompiledRuleset:
                 "locale": locale,
             },
         }
-        state = ExecutionState(locale=locale)
+        deadline = opts.deadline or (time.perf_counter() + opts.time_limit_ms / 1000)
+        state = ExecutionState(locale=locale, deadline=deadline)
         path: list[str] = []
         trace: list[dict[str, Any]] = []
         full = opts.trace == "full"
@@ -138,6 +148,8 @@ class CompiledRuleset:
             steps += 1
             if steps > self.max_steps:
                 raise ExecutionLimitError(f"exceeded maxSteps={self.max_steps}")
+            if time.perf_counter() > deadline:
+                raise ExecutionLimitError("exceeded the execution time limit")
             path.append(node.id)
 
             n0 = time.perf_counter_ns() if full else 0

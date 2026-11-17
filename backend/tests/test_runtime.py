@@ -295,9 +295,10 @@ def test_group_child_failures_are_reported_only_when_the_group_fails() -> None:
 @pytest.mark.parametrize(
     ("expr", "data"),
     [
-        ({"op": "in", "left": {"ref": "$.input.v"}, "right": ["a", "b"]}, {"v": ["x"]}),
-        ({"op": "in", "left": {"ref": "$.input.v"}, "right": "abc"}, {"v": 1}),
         ({"fn": "abs", "args": [{"ref": "$.input.v"}]}, {"v": "x"}),
+        # would allocate gigabytes (SEC-07)
+        ({"op": "*", "args": [{"ref": "$.input.v"}, 10**10]}, {"v": "x"}),
+        ({"op": "*", "args": [{"ref": "$.input.v"}, 10**10]}, {"v": [1]}),
         ({"fn": "floor", "args": [{"op": "*", "args": [{"ref": "$.input.v"}, 10]}]}, {"v": 1e308}),
         ({"op": "%", "args": [{"ref": "$.input.v"}, 1]}, {"v": "%z"}),
     ],
@@ -319,3 +320,12 @@ def test_end_output_errors_end_with_error() -> None:
     doc = graph([START, end], [{"from": "start", "to": "ok"}])
     r = run(doc, {"z": 0})
     assert (r["outcome"], r["exit"]) == ("error", {"nodeId": "ok", "reason": "error"})
+
+
+def test_time_limit_is_shared_with_sub_rule_sets() -> None:
+    # one budget for the whole execution (SEC-04)
+    doc = chain(check("c", gt(0)))
+    compiled = compile_ruleset(doc)
+    with pytest.raises(ExecutionLimitError, match="time limit"):
+        compiled.execute({"n": 1}, ExecuteOptions(deadline=0.0000001))
+    assert compiled.execute({"n": 1}, ExecuteOptions(time_limit_ms=1000))["outcome"] == "valid"

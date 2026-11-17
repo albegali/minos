@@ -494,6 +494,7 @@ def _subruleset_fn(
                 locale=state.locale,
                 reference_date=meta["referenceDate"],
                 request_id=meta["requestId"],
+                deadline=state.deadline,  # one budget for the whole execution
             ),
         )
         if result["outcome"] == "error":

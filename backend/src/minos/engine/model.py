@@ -173,7 +173,7 @@ class Edge(_Strict):
 class Settings(_Strict):
     mode: Literal["fail_fast", "collect_all"] = "fail_fast"
     locale: str = "it"
-    maxSteps: int = Field(default=5000, ge=1)
+    maxSteps: int = Field(default=5000, ge=1, le=100_000)
 
 
 class SchemaRef(_Strict):

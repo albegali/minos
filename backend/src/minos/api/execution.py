@@ -23,6 +23,7 @@ from minos.control.keys import hash_key
 from minos.db import ALWAYS, asyncpg_dsn, make_engine, make_sessionmaker
 from minos.engine import EvaluationError, ExecuteOptions, ExecutionLimitError
 from minos.engine.expressions import to_date
+from minos.engine.runtime import DEFAULT_TIME_LIMIT_MS
 from minos.settings import Settings
 
 from .common import Principal, api_key_from, install_cors, json_response, problem
@@ -38,6 +39,7 @@ def execution_router(
     sync: DbSync | None,
     require_auth: bool,
     management: bool = False,
+    time_limit_ms: float = DEFAULT_TIME_LIMIT_MS,
 ) -> APIRouter:
     router = APIRouter(prefix="/v1")
 
@@ -142,6 +144,7 @@ def execution_router(
                     locale=opts.get("locale"),
                     reference_date=on.isoformat() if on is not None else None,
                     request_id=request.headers.get("x-request-id"),
+                    time_limit_ms=time_limit_ms,
                 ),
             )
         except ExecutionLimitError as exc:
@@ -294,7 +297,14 @@ def create_execution_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Minos Execution API", version=__version__, lifespan=lifespan)
     app.state.runtime = rt
-    app.include_router(execution_router(rt.registry, rt.sync, rt.settings.require_auth))
+    app.include_router(
+        execution_router(
+            rt.registry,
+            rt.sync,
+            rt.settings.require_auth,
+            time_limit_ms=rt.settings.exec_time_limit_ms,
+        )
+    )
     install_problem_handler(app)
     install_cors(app, rt.settings)
     return app

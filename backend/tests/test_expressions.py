@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import time
 from typing import Any
 
 import pytest
@@ -263,3 +264,55 @@ def test_outer_binds_the_enclosing_element() -> None:
     scope = dict(SCOPE)
     assert compile_expr(expr)(scope) == [10, 8]
     assert "outer" not in scope and "item" not in scope
+
+
+def run_on(expr: Any, data: Any) -> Any:
+    return compile_expr(expr)({"input": data, "vars": {}, "meta": {}})
+
+
+def test_json_equality() -> None:
+    # true is not 1, 1 is 1.0, lists and objects compare by content (ENG-06)
+    eq = {"op": "==", "left": ref("$.input.a"), "right": ref("$.input.b")}
+    assert run_on(eq, {"a": True, "b": 1}) is False
+    assert run_on(eq, {"a": 1, "b": 1.0}) is True
+    assert run_on(eq, {"a": [1, {"x": True}], "b": [1.0, {"x": True}]}) is True
+    assert run_on(eq, {"a": [True], "b": [1]}) is False
+    assert run_on({"op": "==", "left": ref("$.input.a"), "right": 1}, {"a": True}) is False
+    member = {"op": "in", "left": ref("$.input.a"), "right": [1, 2]}
+    assert run_on(member, {"a": True}) is False
+    assert run_on(member, {"a": 2.0}) is True
+    assert run_on({"fn": "distinct", "args": [ref("$.input.a")]}, {"a": [1, True, 1.0, "1"]}) == [
+        1,
+        True,
+        "1",
+    ]
+
+
+def test_membership_with_any_value() -> None:
+    # values the schema did not rule out answer false instead of crashing
+    assert run_on({"op": "in", "left": ref("$.input.v"), "right": ["a"]}, {"v": ["x"]}) is False
+    assert run_on({"op": "in", "left": ref("$.input.v"), "right": "abc"}, {"v": 1}) is False
+    assert run_on({"op": "in", "left": ref("$.input.v"), "right": [["x"]]}, {"v": ["x"]}) is True
+
+
+def test_large_lists_stay_linear() -> None:
+    # 20k x 20k membership and distinct used to take seconds (SEC-06)
+    data = {"a": list(range(20_000)), "b": list(range(20_000))}
+    all_in = {
+        "fn": "all",
+        "args": [ref("$.input.a")],
+        "select": {"op": "in", "left": ref("$.item"), "right": ref("$.input.b")},
+    }
+    t0 = time.perf_counter()
+    assert run_on(all_in, data) is True
+    assert len(run_on({"fn": "distinct", "args": [ref("$.input.a")]}, data)) == 20_000
+    assert time.perf_counter() - t0 < 1.0
+
+
+def test_regex_runs_in_linear_time() -> None:
+    expr = {"op": "regex", "left": ref("$.input.s"), "right": "^(a+)+$"}
+    t0 = time.perf_counter()
+    assert run_on(expr, {"s": "a" * 50_000 + "b"}) is False
+    assert time.perf_counter() - t0 < 0.5  # catastrophic backtracking with `re` (SEC-05)
+    with pytest.raises(CompileError, match="RE2"):
+        compile_expr({"op": "regex", "left": ref("$.input.s"), "right": r"(a)\1"})

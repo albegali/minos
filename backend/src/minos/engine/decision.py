@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from typing import Any, Final
 
 from .errors import CompileError, EvaluationError
-from .expressions import Evaluator, clean, compile_expr, to_date
+from .expressions import Evaluator, clean, compile_expr, json_key, same, to_date
 from .refs import MISSING, Scope
 
 type Cell = Callable[[Any, Scope], bool]
@@ -91,9 +91,9 @@ def _compile_test(op: str, raw: Any, where: str) -> Cell:
 
     value = compile_expr(raw, f"{where}.value")
     if op == "==":
-        return lambda v, s: clean(v) == clean(value(s))
+        return lambda v, s: same(v, value(s))
     if op == "!=":
-        return lambda v, s: clean(v) != clean(value(s))
+        return lambda v, s: not same(v, value(s))
     if op in _ORDER:
         cmp = _ORDER[op]
 
@@ -114,7 +114,7 @@ def _compile_test(op: str, raw: Any, where: str) -> Cell:
             r = value(s)
             if not isinstance(r, list):
                 raise EvaluationError(f"cell {op}: expected a list, got {r!r}")
-            return (clean(v) in r) != negate
+            return (json_key(v) in {json_key(x) for x in r}) != negate
 
         return member
     if op in ("date_before", "date_after"):
@@ -128,7 +128,16 @@ def _compile_test(op: str, raw: Any, where: str) -> Cell:
 
         return date_cmp
     if op == "contains":
-        return lambda v, s: isinstance(v, (list, str)) and value(s) in v
+
+        def contains(v: Any, s: Scope) -> bool:
+            needle = value(s)
+            if isinstance(v, str):
+                return isinstance(needle, str) and needle in v
+            if isinstance(v, list):
+                return json_key(needle) in {json_key(x) for x in v}
+            return False
+
+        return contains
     # starts_with
     return lambda v, s: isinstance(v, str) and isinstance(r := value(s), str) and v.startswith(r)
 

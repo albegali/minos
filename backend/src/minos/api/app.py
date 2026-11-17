@@ -13,6 +13,7 @@ Configuration comes from ``MINOS_*`` environment variables (see :mod:`minos.sett
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, AsyncExitStack, asynccontextmanager
 from pathlib import Path
@@ -35,13 +36,8 @@ from .management import create_management_app, install_error_handlers, managemen
 def create_app(settings: Settings | None = None) -> FastAPI:
     cfg = settings or Settings.from_env()
     if cfg.database_url is None and cfg.rulesets_dir is None:
-        default = Settings.from_env()
-        cfg = Settings(
-            database_url=None,
-            rulesets_dir=_examples_dir(),
-            require_auth=False,
-            poll_interval_s=default.poll_interval_s,
-        )
+        # Demo: the repository examples, read-only and open; the other settings are kept.
+        cfg = dataclasses.replace(cfg, rulesets_dir=_examples_dir(), require_auth=False)
     rt = ExecutionRuntime.from_settings(cfg)
     mcp: MCPServer | None = None
 
@@ -57,7 +53,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Minos", version=__version__, lifespan=lifespan)
     app.state.runtime = rt
     app.include_router(
-        execution_router(rt.registry, rt.sync, cfg.require_auth, management=rt.engine is not None)
+        execution_router(
+            rt.registry,
+            rt.sync,
+            cfg.require_auth,
+            management=rt.engine is not None,
+            time_limit_ms=cfg.exec_time_limit_ms,
+        )
     )
     if rt.engine is not None:
         app.include_router(management_router(make_sessionmaker(rt.engine), cfg.require_auth))

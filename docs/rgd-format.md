@@ -175,15 +175,15 @@ JSON literals; lists of expressions; `{"literal": <any JSON>}` for literal objec
 
 | Operators | Notes |
 | --- | --- |
-| `==` `!=` | `null` and a missing field are equivalent |
+| `==` `!=` | JSON equality: `1` equals `1.0` but not `true`; lists and objects by content. `null` and a missing field are equivalent |
 | `<` `<=` `>` `>=` | `false` if one side is missing; error if the types are not comparable |
 | `between` | `right: [min, max]`, bounds included |
 | `date_before` `date_after` `date_between` | Compares the date part (ISO `YYYY-MM-DD...`) |
 | `in` `not_in` | `right` a literal list or a reference to a list |
-| `contains` `starts_with` `ends_with` `regex` | `regex` requires a literal pattern |
+| `contains` `starts_with` `ends_with` `regex` | `regex` requires a literal pattern, in [RE2 syntax](https://github.com/google/re2/wiki/Syntax) (no backreferences or lookarounds; matching time is linear) and finds a match anywhere in the text (anchor it with `^...$`) |
 | `exists` `is_null` `is_not_null` | `exists` tells a missing field from `null` |
 | `and` `or` `not` `if` | `if`: `args: [condition, then, else]` |
-| `+` `-` `*` `/` `%` | `null` if an operand is missing |
+| `+` `-` `*` `/` `%` | On numbers (`+` also joins texts or lists); `null` if an operand is missing |
 
 | Functions | Notes |
 | --- | --- |
