@@ -140,24 +140,19 @@ class CompiledRuleset:
                 raise ExecutionLimitError(f"exceeded maxSteps={self.max_steps}")
             path.append(node.id)
 
-            if node.type == "end":
-                for key, ev in node.end_output:
-                    result[key] = clean(ev(scope))
-                outcome = _final_outcome(node.end_outcome or "valid", failures, state.feedback)
-                exit_info = {"nodeId": node.id, "reason": "end"}
-                if traced:
-                    trace.append({"nodeId": node.id, "type": "end", "outcome": outcome})
-                break
-
             n0 = time.perf_counter_ns() if full else 0
             try:
-                node_outcome, port, output = node.run(scope, state)
-            except EvaluationError as exc:
+                if node.type == "end":
+                    for key, ev in node.end_output:
+                        result[key] = clean(ev(scope))
+                else:
+                    node_outcome, port, output = node.run(scope, state)
+            except _EVALUATION_FAILURES as exc:
                 state.feedback.append(
                     {
                         "code": "MINOS_EVALUATION_ERROR",
                         "severity": "error",
-                        "message": str(exc),
+                        "message": _failure_message(exc),
                         "nodeId": node.id,
                     }
                 )
@@ -165,6 +160,13 @@ class CompiledRuleset:
                     trace.append({"nodeId": node.id, "type": node.type, "outcome": "error"})
                 outcome = "error"
                 exit_info = {"nodeId": node.id, "reason": "error"}
+                break
+
+            if node.type == "end":
+                outcome = _final_outcome(node.end_outcome or "valid", failures, state.feedback)
+                exit_info = {"nodeId": node.id, "reason": "end"}
+                if traced:
+                    trace.append({"nodeId": node.id, "type": "end", "outcome": outcome})
                 break
 
             node_slots[node.id] = {"outcome": node_outcome, "output": output}
@@ -205,6 +207,28 @@ class CompiledRuleset:
             "trace": trace if traced else None,
             "timing": {"engineUs": round((time.perf_counter_ns() - t0) / 1000, 1)},
         }
+
+
+# Errors that values in the input can trigger while evaluating (types the schema did not rule
+# out, overflows, malformed strings): reported as outcome ``error``, never as a crash.
+_EVALUATION_FAILURES = (
+    EvaluationError,
+    ArithmeticError,
+    TypeError,
+    ValueError,
+    LookupError,
+    RecursionError,
+)
+
+
+MAX_MESSAGE = 300  # error messages quote values from the input: keep them short
+
+
+def _failure_message(exc: BaseException) -> str:
+    text = str(exc)
+    if not isinstance(exc, EvaluationError):
+        text = f"evaluation failed ({type(exc).__name__}): {text}"
+    return text if len(text) <= MAX_MESSAGE else text[: MAX_MESSAGE - 1] + "…"
 
 
 def _final_outcome(end_outcome: str, failures: list[str], feedback: list[dict[str, Any]]) -> str:

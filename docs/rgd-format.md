@@ -63,7 +63,9 @@ unconnected required ports, edges into the start, cycles. Unreachable nodes prod
 
 The children of a `group` are expressions or rules with their own feedback:
 `{ "rule": <expression>, "feedback": { "fail": {...} } }`. With `evaluate: "all"` every child is
-evaluated (useful to collect every error); `not` means NOT(AND(children)).
+evaluated (useful to collect every error); `not` means NOT(AND(children)). A child's `fail`
+feedback explains why the group failed, so it is emitted only when the group fails: when an `or`
+alternative (or a `not`) makes the group pass, the children that failed report nothing.
 
 ### Decision table
 
@@ -113,7 +115,8 @@ before validating or publishing the rule set that uses it.
   to `passWhen`); an `error` stops the execution with outcome `error`.
 - `target`: `{ "outcome", "result" }`, or the list of these with `forEach`, in `$.vars`.
 - The sub rule set's messages flow into the result with `nodeId` = `<node>/<nested node>` and,
-  with `forEach`, the item's `index`.
+  with `forEach`, the item's `index`: all of them when the node fails, only those of the passing
+  runs when it passes (with `passWhen: any` the failing items do not count).
 
 A "dispatcher" (choosing the rule set based on a field) is an ordinary rule set with a `switch`
 followed by `subruleset` nodes.
@@ -132,8 +135,11 @@ Default when `onFail` is missing: `branch` if the `fail` port is connected, othe
 `fail_fast` and `continue` in `collect_all`.
 
 Final outcome: that of the `end` reached; an `end` declared `valid` becomes `invalid` if there are
-violations or feedback with severity `error`, and `warning` if there are only warnings. An
-evaluation error (e.g. comparing incompatible types) ends with outcome `error`.
+violations or feedback with severity `error`, and `warning` if there are only warnings. With
+`branch`, a failing node still emits its `fail` feedback: give it severity `info` (or none) when
+the failure is only a routing decision. An evaluation error (e.g. comparing incompatible types,
+or a value of an unexpected type when schema validation is off) ends with outcome `error`; its
+message is cut to 300 characters.
 
 ## Type-check on publication
 

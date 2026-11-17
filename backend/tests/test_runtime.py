@@ -180,7 +180,8 @@ def test_groups(operator: str, evaluate: str, n: int, passed: bool, evaluated: l
     assert entry["output"] == evaluated
     codes = [f["code"] for f in r["feedback"]]
     assert ("GP" in codes) == passed
-    assert ("C1" in codes) == (False in evaluated[:1])
+    # a child's failure is reported only when it makes the group fail
+    assert ("C1" in codes) == (False in evaluated[:1] and not passed)
 
 
 def test_switch_and_set_nodes() -> None:
@@ -259,3 +260,62 @@ def test_defaults_and_metadata() -> None:
     assert r["timing"]["engineUs"] >= 0
     r = compiled.execute({"n": 1}, ExecuteOptions(request_id="abc"))
     assert r["requestId"] == "abc"
+
+
+def test_group_child_failures_are_reported_only_when_the_group_fails() -> None:
+    # "passport or ID card": one alternative is enough (ENG-01)
+    group = {
+        "id": "docs",
+        "type": "group",
+        "operator": "or",
+        "evaluate": "all",
+        "children": [
+            {
+                "rule": {"op": "exists", "arg": {"ref": "$.input.passport"}},
+                "feedback": {"fail": fb("NO_PASSPORT")},
+            },
+            {
+                "rule": {"op": "exists", "arg": {"ref": "$.input.idCard"}},
+                "feedback": {"fail": fb("NO_ID")},
+            },
+        ],
+    }
+    doc = chain(group, mode="collect_all")
+    r = run(doc, {"idCard": "X"})
+    assert (r["outcome"], r["feedback"]) == ("valid", [])
+    r = run(doc, {})
+    assert r["outcome"] == "invalid"
+    assert [f["code"] for f in r["feedback"]] == ["NO_PASSPORT", "NO_ID"]
+
+    negated = {**group, "operator": "not", "children": group["children"][:1]}
+    r = run(chain(negated, mode="collect_all"), {})
+    assert (r["outcome"], r["feedback"]) == ("valid", [])
+
+
+@pytest.mark.parametrize(
+    ("expr", "data"),
+    [
+        ({"op": "in", "left": {"ref": "$.input.v"}, "right": ["a", "b"]}, {"v": ["x"]}),
+        ({"op": "in", "left": {"ref": "$.input.v"}, "right": "abc"}, {"v": 1}),
+        ({"fn": "abs", "args": [{"ref": "$.input.v"}]}, {"v": "x"}),
+        ({"fn": "floor", "args": [{"op": "*", "args": [{"ref": "$.input.v"}, 10]}]}, {"v": 1e308}),
+        ({"op": "%", "args": [{"ref": "$.input.v"}, 1]}, {"v": "%z"}),
+    ],
+)
+def test_unexpected_values_end_with_error_not_a_crash(expr: Any, data: Any) -> None:
+    # without schema validation any value can reach an expression (ENG-03)
+    r = run(chain(check("c", expr)), data)
+    assert r["outcome"] == "error"
+    assert r["feedback"][0]["code"] == "MINOS_EVALUATION_ERROR"
+
+
+def test_end_output_errors_end_with_error() -> None:
+    end = {
+        "id": "ok",
+        "type": "end",
+        "outcome": "valid",
+        "output": {"q": {"op": "/", "args": [1, {"ref": "$.input.z"}]}},
+    }
+    doc = graph([START, end], [{"from": "start", "to": "ok"}])
+    r = run(doc, {"z": 0})
+    assert (r["outcome"], r["exit"]) == ("error", {"nodeId": "ok", "reason": "error"})

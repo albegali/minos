@@ -303,6 +303,8 @@ def test_sub_ruleset_for_each_element() -> None:
     anyone = run(parent(forEach={"ref": "$.input.courses"}, passWhen="any"), data, resolve=resolve)
     assert anyone["exit"]["nodeId"] == "ok"
     assert [x["outcome"] for x in anyone["result"]["r"]] == ["valid", "invalid", "valid"]
+    # the failing element does not count when one is enough (ENG-02)
+    assert (anyone["outcome"], anyone["feedback"]) == ("valid", [])
     assert (
         run(parent(forEach={"ref": "$.input.none"}), {}, resolve=resolve)["exit"]["nodeId"] == "ok"
     )
