@@ -48,6 +48,8 @@ MINOS_DATABASE_URL=... uv run python -m minos.cli migrate
 
 ```bash
 MINOS_DATABASE_URL=... uv run python -m minos.cli create-admin-key --name ops
+MINOS_DATABASE_URL=... uv run python -m minos.cli list-admin-keys
+MINOS_DATABASE_URL=... uv run python -m minos.cli revoke-key <id>   # any key, admin or workspace
 ```
 
 ## Ready-made examples
@@ -66,6 +68,12 @@ name, `--dir` another folder (`rulesets/`, `inputs/`, `tests/`, optionally `enti
 start (`MINOS_SEED_EXAMPLES=false` to start empty).
 
 Errors are `application/problem+json` (`status`, `title`, `detail` plus specific fields).
+
+### References allowed in schemas
+
+A schema is self-contained: `$ref` may point inside it (`#/$defs/...`) or at another entity
+(`entity:Key`, see below). Any other reference (`http://...`, `file://...`, `other.json`) is
+rejected with `422`, and the server never downloads schemas.
 
 ### Entities made of other entities
 
@@ -134,6 +142,9 @@ Body: `{"input": {...}, "options": {"trace": "none|summary|full", "locale": "it"
 
 - `referenceDate` (default: today, UTC) is the rules' "reference" date: it feeds `today()` and
   `age()` and picks the version when the environment has scheduled versions.
+- `validateSchema: false` skips the input check against the entity schema: with API keys on, only
+  an `admin` or `manage` key may ask for it (`403` otherwise). Values of an unexpected type then
+  end with outcome `error`.
 - `200` with the outcome in the body (`valid`, `invalid`, `warning`); `422` if execution fails or
   exceeds `maxSteps`; `400` if the input does not match the entity schema (`errors` list with JSON
   pointers); `401`/`403` for keys; `404` if the rule set or the alias is not deployed.
@@ -148,7 +159,7 @@ All paths under `/v1`. `{ws}` is the workspace slug, `{rs}` the rule set key.
 | --- | --- |
 | `GET/POST /workspaces` | List (filtered by key) and create (admin) |
 | `GET/POST /workspaces/{ws}/api-keys` · `DELETE .../api-keys/{id}` | Workspace keys; the plaintext key is returned only on creation |
-| `POST /admin/api-keys` | Global admin key |
+| `GET/POST /admin/api-keys` · `DELETE .../api-keys/{id}` | Global admin keys (admin): list, create, revoke |
 | `GET /workspaces/{ws}/audit?limit=100` | Change log |
 | `POST /schemas/infer` | `{"samples": [...], "title"?}` → JSON Schema 2020-12, without saving it |
 | `GET/POST /workspaces/{ws}/entities` | Entities |

@@ -23,7 +23,14 @@ from minos.control import service as svc
 from minos.control.bundle import export_bundle, import_bundle
 from minos.control.diff import diff_graphs
 from minos.control.errors import ControlError, Invalid, Unauthorized
-from minos.db import Entity, RulesetVersion, SchemaVersion, make_engine, make_sessionmaker
+from minos.db import (
+    ApiClient,
+    Entity,
+    RulesetVersion,
+    SchemaVersion,
+    make_engine,
+    make_sessionmaker,
+)
 from minos.engine import ExecuteOptions
 from minos.engine.catalog import catalog
 from minos.schema import infer_schema
@@ -163,6 +170,17 @@ def _exec_options(raw: dict[str, Any]) -> ExecuteOptions:
 # --------------------------------------------------------------------------- router
 
 
+def _key_out(c: ApiClient) -> dict[str, Any]:
+    return {
+        "id": str(c.id),
+        "name": c.name,
+        "prefix": c.key_prefix,
+        "scopes": c.scopes,
+        "createdAt": c.created_at.isoformat(),
+        "revoked": c.revoked_at is not None,
+    }
+
+
 def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: bool) -> APIRouter:
     router = APIRouter(prefix="/v1")
 
@@ -207,25 +225,29 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
             client, key = await svc.create_api_client(s, who.actor, None, body.name, body.scopes)
         return json_response({"id": str(client.id), "key": key, "scopes": client.scopes}, 201)
 
+    @router.get("/admin/api-keys")
+    async def list_admin_keys(request: Request) -> Response:
+        who = await principal(request)
+        who.require("admin")
+        async with sessions() as s:
+            items = await svc.list_api_clients(s, None)
+        return json_response([_key_out(c) for c in items])
+
+    @router.delete("/admin/api-keys/{key_id}", status_code=204)
+    async def revoke_admin_key(key_id: uuid.UUID, request: Request) -> Response:
+        who = await principal(request)
+        who.require("admin")
+        async with sessions.begin() as s:
+            await svc.revoke_api_client(s, who.actor, None, key_id)
+        return Response(status_code=204)
+
     @router.get("/workspaces/{ws}/api-keys")
     async def list_keys(ws: str, request: Request) -> Response:
         who = await principal(request)
         async with sessions() as s:
             w = await workspace(s, who, ws)
             items = await svc.list_api_clients(s, w)
-        return json_response(
-            [
-                {
-                    "id": str(c.id),
-                    "name": c.name,
-                    "prefix": c.key_prefix,
-                    "scopes": c.scopes,
-                    "createdAt": c.created_at.isoformat(),
-                    "revoked": c.revoked_at is not None,
-                }
-                for c in items
-            ]
-        )
+        return json_response([_key_out(c) for c in items])
 
     @router.post("/workspaces/{ws}/api-keys", status_code=201)
     async def create_key(ws: str, body: ApiKeyIn, request: Request) -> Response:

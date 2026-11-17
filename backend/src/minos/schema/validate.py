@@ -24,6 +24,38 @@ def check_schema(schema: Any) -> None:
         jsonschema_rs.meta.validate(schema)
     except jsonschema_rs.ValidationError as exc:
         raise SchemaError(exc.message) from exc
+    for ref in _references(schema):
+        if not ref.startswith(("#", "entity:")):
+            raise SchemaError(
+                f"$ref {ref!r} is not allowed: use local references (#/$defs/...) "
+                "or other entities (entity:Key)"
+            )
+
+
+_REF_KEYWORDS = ("$ref", "$dynamicRef")
+
+
+def _references(node: Any) -> list[str]:
+    """Every ``$ref``/``$dynamicRef`` value in ``node`` (data keywords included: harmless)."""
+    out: list[str] = []
+    stack = [node]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            for key, value in item.items():
+                if key in _REF_KEYWORDS and isinstance(value, str):
+                    out.append(value)
+                else:
+                    stack.append(value)
+        elif isinstance(item, list):
+            stack.extend(item)
+    return out
+
+
+def _no_remote(uri: str) -> Any:
+    """Retriever that refuses every external document: schemas are self-contained, and a
+    fetch would let a schema author reach internal hosts or local files (SSRF)."""
+    raise ValueError(f"external schema {uri!r} is not allowed")
 
 
 def _pointer(path: Any) -> str:
@@ -35,7 +67,12 @@ class InputValidator:
 
     def __init__(self, schema: dict[str, Any]) -> None:
         check_schema(schema)
-        self._validator = jsonschema_rs.validator_for(schema, validate_formats=True)
+        try:
+            self._validator = jsonschema_rs.validator_for(
+                schema, validate_formats=True, retriever=_no_remote
+            )
+        except (ValueError, jsonschema_rs.ValidationError) as exc:
+            raise SchemaError(str(exc)) from exc
 
     def is_valid(self, instance: Any) -> bool:
         return bool(self._validator.is_valid(instance))

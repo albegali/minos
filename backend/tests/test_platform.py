@@ -174,11 +174,11 @@ async def test_full_lifecycle(
     assert r.json()["outcome"] == "invalid"
     r = await c.post(EXEC, json={"input": {**valid_plan, "courses": "nope"}}, headers=exec_key)
     assert r.status_code == 400 and r.json()["errors"][0]["path"] == "/courses"
-    r = await c.post(
-        EXEC,
-        json={"input": {**valid_plan, "courses": "nope"}, "options": {"validateSchema": False}},
-        headers=exec_key,
-    )
+    unchecked = {"input": {**valid_plan, "courses": "nope"}, "options": {"validateSchema": False}}
+    # only keys that can change the rules may skip the schema gate (SEC-02)
+    r = await c.post(EXEC, json=unchecked, headers=exec_key)
+    assert r.status_code == 403
+    r = await c.post(EXEC, json=unchecked, headers=admin)
     # without the schema gate the engine itself reports the type error
     assert r.status_code == 422 and r.json()["outcome"] == "error"
 
@@ -328,6 +328,26 @@ async def test_authorisation(
     bad = await c.post("/v1/admin/api-keys", json={"name": "x", "scopes": ["exec"]}, headers=admin)
     assert bad.status_code == 422
 
+    # a leaked admin key can be revoked like any other (SEC-03)
+    ops = r.json()
+    ops_headers = {"Authorization": f"Bearer {ops['key']}"}
+    listed = (await c.get("/v1/admin/api-keys", headers=admin)).json()
+    assert ops["id"] in [k["id"] for k in listed]
+    manage = await c.post(f"{WS}/api-keys", json={"name": "m", "scopes": ["manage"]}, headers=admin)
+    manage_headers = {"Authorization": f"Bearer {manage.json()['key']}"}
+    assert (await c.get("/v1/admin/api-keys", headers=manage_headers)).status_code == 403
+    gone = await c.delete(f"/v1/admin/api-keys/{ops['id']}", headers=admin)
+    assert gone.status_code == 204
+
+    async def ops_revoked() -> bool:
+        res = await c.get("/v1/workspaces", headers=ops_headers)
+        return res.status_code == 401
+
+    await eventually(ops_revoked)
+    # a workspace key is not an admin key, and vice versa
+    ws_key = (await c.get(f"{WS}/api-keys", headers=admin)).json()[0]["id"]
+    assert (await c.delete(f"/v1/admin/api-keys/{ws_key}", headers=admin)).status_code == 404
+
 
 @pytest.mark.parametrize(
     ("method", "path", "body", "status"),
@@ -459,6 +479,13 @@ def test_cli(
     assert main(["migrate"]) == 0
     assert main(["create-admin-key", "--name", "cli"]) == 0
     assert capsys.readouterr().out.strip().splitlines()[-1].startswith("mns_")
+    assert main(["list-admin-keys"]) == 0
+    key_id, _, _, status = capsys.readouterr().out.split()[:4]
+    assert status == "active"
+    assert main(["revoke-key", key_id]) == 0
+    assert main(["list-admin-keys"]) == 0
+    assert capsys.readouterr().out.split()[-1] == "revoked"
+    assert main(["revoke-key", "00000000-0000-0000-0000-000000000000"]) == 1
     monkeypatch.delenv("MINOS_DATABASE_URL")
     assert main(["migrate"]) == 2
 
@@ -577,6 +604,25 @@ async def test_sub_rulesets_and_decision_tables_end_to_end(
     rt = c.app.state.runtime  # type: ignore[attr-defined]
     await rt.sync.load_all()
     assert rt.registry.get("aurora", "aurora.studyplan.full") is not None
+
+    # the drift safety net carries on past a version that cannot be loaded (API-01)
+    real_key = ("aurora", "aurora.studyplan.full", "prod")
+    ghost = ("aurora", "deleted.meanwhile", "prod")
+    rt.registry.put(ghost, rt.registry.schedules()[real_key])
+    rt.registry.put(real_key, None)
+    real = rt.sync.reload_one
+
+    async def broken(ws: str, rs: str, env: str) -> None:
+        raise RuntimeError("cannot compile")
+
+    rt.sync.reload_one = broken
+    try:
+        assert await rt.sync.check_drift() == 1  # the ghost is removed all the same
+    finally:
+        rt.sync.reload_one = real
+    assert ghost not in rt.registry.schedules()
+    assert await rt.sync.check_drift() == 1  # and the next poll reloads the other one
+    assert rt.registry.get(*real_key[:2]) is not None
 
 
 async def test_files_and_database_together(

@@ -789,23 +789,22 @@ async def create_api_client(
     return client, key
 
 
-async def list_api_clients(s: AsyncSession, ws: Workspace) -> list[ApiClient]:
-    return list(
-        await s.scalars(
-            select(ApiClient).where(ApiClient.workspace_id == ws.id).order_by(ApiClient.created_at)
-        )
-    )
+async def list_api_clients(s: AsyncSession, ws: Workspace | None) -> list[ApiClient]:
+    """Keys of ``ws``, or the global (admin) keys when ``ws`` is ``None``."""
+    owner = ApiClient.workspace_id == ws.id if ws else ApiClient.workspace_id.is_(None)
+    return list(await s.scalars(select(ApiClient).where(owner).order_by(ApiClient.created_at)))
 
 
 async def revoke_api_client(
-    s: AsyncSession, actor: str, ws: Workspace, client_id: uuid.UUID
+    s: AsyncSession, actor: str, ws: Workspace | None, client_id: uuid.UUID
 ) -> None:
+    """Revoke a key of ``ws``, or a global (admin) key when ``ws`` is ``None``."""
     client = await s.get(ApiClient, client_id)
-    if client is None or client.workspace_id != ws.id:
+    if client is None or client.workspace_id != (ws.id if ws else None):
         raise NotFound("API key not found")
     if client.revoked_at is None:
         client.revoked_at = await s.scalar(select(func.now()))
-        await audit(s, actor, "apikey.revoke", client.key_prefix, ws.id)
+        await audit(s, actor, "apikey.revoke", client.key_prefix, ws.id if ws else None)
         await notify(s, {"kind": "apikey", "keyHash": client.key_hash})
 
 

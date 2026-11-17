@@ -2,6 +2,8 @@
 
     python -m minos.cli migrate                      # apply database migrations
     python -m minos.cli create-admin-key --name ops  # print a new global admin API key
+    python -m minos.cli list-admin-keys              # global admin API keys
+    python -m minos.cli revoke-key <id>              # revoke any API key (admin or workspace)
     python -m minos.cli seed-examples                # load the examples into workspace "esempi"
 
 All read ``MINOS_DATABASE_URL``. ``seed-examples`` reads the examples from ``--dir``, else
@@ -15,6 +17,7 @@ import argparse
 import asyncio
 import os
 import sys
+import uuid
 from pathlib import Path
 
 from alembic import command
@@ -22,7 +25,7 @@ from alembic.config import Config
 
 from minos.control import service as svc
 from minos.control.examples import WORKSPACE, load_examples, seed_examples
-from minos.db import make_engine, make_sessionmaker
+from minos.db import ApiClient, Workspace, make_engine, make_sessionmaker
 from minos.settings import Settings
 
 MIGRATIONS = Path(__file__).resolve().parent / "db" / "migrations"
@@ -50,6 +53,34 @@ async def create_admin_key(url: str, name: str) -> str:
     return key
 
 
+async def list_admin_keys(url: str) -> list[str]:
+    engine = make_engine(url)
+    try:
+        async with make_sessionmaker(engine)() as s:
+            clients = await svc.list_api_clients(s, None)
+    finally:
+        await engine.dispose()
+    return [
+        f"{c.id}  {c.key_prefix}  {c.name}  {'revoked' if c.revoked_at else 'active'}"
+        for c in clients
+    ]
+
+
+async def revoke_key(url: str, key_id: uuid.UUID) -> bool:
+    """Revoke any key by id (the CLI has database access, so no scope applies)."""
+    engine = make_engine(url)
+    try:
+        async with make_sessionmaker(engine).begin() as s:
+            client = await s.get(ApiClient, key_id)
+            if client is None:
+                return False
+            ws = await s.get(Workspace, client.workspace_id) if client.workspace_id else None
+            await svc.revoke_api_client(s, "cli", ws, key_id)
+    finally:
+        await engine.dispose()
+    return True
+
+
 async def seed(url: str, root: Path, workspace: str) -> list[str]:
     examples = load_examples(root)
     engine = make_engine(url)
@@ -70,6 +101,9 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("migrate", help="apply database migrations")
     key = sub.add_parser("create-admin-key", help="create a global admin API key")
     key.add_argument("--name", required=True)
+    sub.add_parser("list-admin-keys", help="list the global admin API keys")
+    revoke = sub.add_parser("revoke-key", help="revoke an API key (admin or workspace) by id")
+    revoke.add_argument("id", type=uuid.UUID)
     examples = sub.add_parser("seed-examples", help="load the examples into a new workspace")
     examples.add_argument("--dir", help="examples directory (rulesets/, inputs/, tests/)")
     examples.add_argument("--workspace", default=WORKSPACE)
@@ -92,6 +126,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"workspace {args.workspace!r} already has every example: nothing to add")
         else:
             print(f"workspace {args.workspace!r}: published {', '.join(published)} in prod")
+    elif args.cmd == "list-admin-keys":
+        for line in asyncio.run(list_admin_keys(url)):
+            print(line)
+    elif args.cmd == "revoke-key":
+        if not asyncio.run(revoke_key(url, args.id)):
+            print(f"no API key {args.id}", file=sys.stderr)
+            return 1
+        print(f"API key {args.id} revoked")
     else:
         print(asyncio.run(create_admin_key(url, args.name)))
     return 0

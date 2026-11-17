@@ -397,11 +397,17 @@ class DbSync:
         }
         stale = [k for k, v in wanted.items() if current.get(k) != sorted(v)]
         gone = [k for k in current if k not in wanted]
-        for ws, rs, env in stale:
-            await self.reload_one(ws, rs, env)
         for key in gone:
             self.registry.put(key, None)
-        return len(stale) + len(gone)
+        fixed = len(gone)
+        for ws, rs, env in stale:
+            # One version that cannot be loaded must not keep the others stale.
+            try:
+                await self.reload_one(ws, rs, env)
+                fixed += 1
+            except Exception:
+                log.exception("cannot reload %s/%s@%s", ws, rs, env)
+        return fixed
 
     async def _poll_forever(self) -> None:
         while True:

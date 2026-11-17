@@ -167,3 +167,15 @@ def test_resolve_impossible(path: str) -> None:
 def test_formats() -> None:
     node = resolve("$.input.date")
     assert node is not None and node.formats == {"date"}
+
+
+@pytest.mark.parametrize(
+    "ref",
+    ["http://169.254.169.254/latest/meta-data", "file:///etc/passwd", "other.json", "//host/x"],
+)
+def test_external_references_are_refused(ref: str) -> None:
+    # a schema author must not make the server fetch URLs or read files (SEC-01)
+    with pytest.raises(SchemaError, match="not allowed"):
+        check_schema({"type": "object", "properties": {"a": {"$ref": ref}}})
+    check_schema({"$defs": {"a": {"type": "string"}}, "properties": {"a": {"$ref": "#/$defs/a"}}})
+    check_schema({"properties": {"a": {"$ref": "entity:Course@1"}}})

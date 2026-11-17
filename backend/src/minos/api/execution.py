@@ -54,30 +54,40 @@ def execution_router(
             }
         )
 
-    async def authorise(request: Request, workspace: str | None) -> Response | None:
-        """``workspace=None`` requires an admin key."""
+    async def authenticate(
+        request: Request, workspace: str | None
+    ) -> tuple[Response | None, Principal | None]:
+        """``(denial, caller)``; ``workspace=None`` requires an admin key. The caller is
+        ``None`` on an open installation."""
         if not require_auth:
-            return None
+            return None, None
         try:
             key = api_key_from(request)
         except Unauthorized as exc:
-            return problem(401, "Unauthorized", exc.detail)
+            return problem(401, "Unauthorized", exc.detail), None
         if sync is None:
-            return problem(401, "Unauthorized", "API keys need a database")
+            return problem(401, "Unauthorized", "API keys need a database"), None
         principal = await sync.authenticate(key, hash_key(key))
         if principal is None:
-            return problem(401, "Unauthorized", "invalid or revoked API key")
+            return problem(401, "Unauthorized", "invalid or revoked API key"), None
         if workspace is None:
             if not principal.is_admin():
-                return problem(403, "Forbidden", "an admin API key is required")
+                return problem(403, "Forbidden", "an admin API key is required"), principal
         elif not principal.can_execute(workspace):
-            return problem(403, "Forbidden", "the API key cannot execute in this workspace")
-        return None
+            return (
+                problem(403, "Forbidden", "the API key cannot execute in this workspace"),
+                principal,
+            )
+        return None, principal
+
+    async def authorise(request: Request, workspace: str | None) -> Response | None:
+        return (await authenticate(request, workspace))[0]
 
     async def run(
         request: Request,
         choose: Callable[[dt.date | None], Deployment | None],
         missing: str,
+        caller: Principal | None,
     ) -> Response:
         raw = await request.body()
         if len(raw) > MAX_BODY_BYTES:
@@ -108,7 +118,14 @@ def execution_router(
             return problem(404, "Not Found", missing)
 
         data = body["input"]
-        validator = dep.validator if opts.get("validateSchema", True) else None
+        validate = opts.get("validateSchema", True)
+        if validate is not True and caller is not None and not _can_skip_validation(caller):
+            # Unvalidated input reaches expressions the type-check assumed well typed: only
+            # keys that can already change the rules may ask for it.
+            return problem(
+                403, "Forbidden", "'validateSchema: false' needs an admin or manage API key"
+            )
+        validator = dep.validator if validate is not False else None
         if validator is not None and not validator.is_valid(data):
             return problem(
                 400,
@@ -123,7 +140,7 @@ def execution_router(
                 ExecuteOptions(
                     trace=trace,
                     locale=opts.get("locale"),
-                    reference_date=opts.get("referenceDate"),
+                    reference_date=on.isoformat() if on is not None else None,
                     request_id=request.headers.get("x-request-id"),
                 ),
             )
@@ -201,7 +218,7 @@ def execution_router(
     @router.post("/exec/{workspace}/{target}")
     async def execute(workspace: str, target: str, request: Request) -> Response:
         ruleset, _, env = target.partition("@")
-        denied = await authorise(request, workspace)
+        denied, caller = await authenticate(request, workspace)
         if denied is not None:
             return denied
         name = env or DEFAULT_ENV
@@ -209,17 +226,20 @@ def execution_router(
             request,
             lambda on: registry.get(workspace, ruleset, name, on),
             f"no deployment {workspace}/{ruleset}@{name} for the reference date",
+            caller,
         )
 
     @router.post("/exec/{workspace}/{ruleset}/versions/{semver}")
     async def execute_version(
         workspace: str, ruleset: str, semver: str, request: Request
     ) -> Response:
-        denied = await authorise(request, workspace)
+        denied, caller = await authenticate(request, workspace)
         if denied is not None:
             return denied
         dep = await sync.load_version(workspace, ruleset, semver) if sync else None
-        return await run(request, lambda on: dep, f"no version {workspace}/{ruleset}/{semver}")
+        return await run(
+            request, lambda on: dep, f"no version {workspace}/{ruleset}/{semver}", caller
+        )
 
     return router
 
@@ -284,3 +304,7 @@ def install_problem_handler(app: FastAPI) -> None:
     @app.exception_handler(ControlError)
     async def control_error(request: Request, exc: ControlError) -> Response:
         return problem(exc.status, exc.title, exc.detail, **exc.extra)
+
+
+def _can_skip_validation(caller: Principal) -> bool:
+    return caller.is_admin() or "manage" in caller.scopes
