@@ -19,10 +19,11 @@ from typing import Any, Final
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from minos.db import Entity, Workspace
 from minos.schema import find_refs, infer_schema, pin_refs, resolve_refs
 
 from . import service as svc
-from .errors import NotFound
+from .errors import ControlError, NotFound
 
 WORKSPACE: Final = "esempi"
 WORKSPACE_NAME: Final = "Esempi"
@@ -120,17 +121,24 @@ def load_examples(root: Path) -> Examples:
     return Examples(ordered, samples, tests, schemas)
 
 
+@dataclass(frozen=True)
+class Seeded:
+    published: list[str]  # ruleset@version
+    skipped: list[str]  # "key: reason", for examples that do not fit this workspace
+
+
 async def seed_examples(
     s: AsyncSession,
     examples: Examples,
     workspace: str = WORKSPACE,
     name: str = WORKSPACE_NAME,
-) -> list[str]:
+) -> Seeded:
     """Publish in ``prod`` of ``workspace`` (created if missing) every example it lacks.
 
     Entities and rule sets that already exist, by key, are left alone, so changes made in the
-    Studio survive restarts while examples added to the repository still arrive. Returns the
-    published ``ruleset@version`` list (empty when nothing was missing).
+    Studio survive restarts while examples added to the repository still arrive. Each example
+    is added in its own savepoint: one that does not fit (e.g. a new rule set on an entity
+    edited in the Studio) is skipped and reported, and never stops the others nor the start-up.
     """
     try:
         ws = await svc.get_workspace(s, workspace)
@@ -138,19 +146,26 @@ async def seed_examples(
         ws = await svc.create_workspace(s, ACTOR, workspace, name)
 
     entities = {}
+    skipped: list[str] = []
     for key in examples.entities():
         try:
             entities[key] = await svc.get_entity(s, ws, key)
             continue
         except NotFound:
             pass
-        entity = await svc.create_entity(s, ACTOR, ws, key, ENTITY_NAMES.get(key, key), None)
-        schema = examples.schemas.get(key)
-        if schema is None and examples.samples.get(key):
-            schema = infer_schema(examples.samples[key], title=key)
-        if schema is not None:
-            await svc.add_schema_version(s, ACTOR, ws, entity, schema, "examples")
-        entities[key] = entity
+        try:
+            async with s.begin_nested():
+                entity = await svc.create_entity(
+                    s, ACTOR, ws, key, ENTITY_NAMES.get(key, key), None
+                )
+                schema = examples.schemas.get(key)
+                if schema is None and examples.samples.get(key):
+                    schema = infer_schema(examples.samples[key], title=key)
+                if schema is not None:
+                    await svc.add_schema_version(s, ACTOR, ws, entity, schema, "examples")
+            entities[key] = entity
+        except ControlError as exc:
+            skipped.append(f"entity {key}: {exc}")
 
     published = []
     for graph in examples.graphs:
@@ -160,19 +175,34 @@ async def seed_examples(
             continue
         except NotFound:
             pass
-        entity = entities[graph["schemaRef"]["entity"]]
-        rs = await svc.create_ruleset(s, ACTOR, ws, entity, key, key, None, graph)
-        for case in examples.tests.get(key, []):
-            await svc.add_test(
-                s,
-                ACTOR,
-                ws,
-                rs,
-                case["name"],
-                case.get("input"),
-                case.get("expected") or {},
-                case.get("referenceDate"),
-            )
-        version, _ = await svc.publish(s, ACTOR, ws, rs, "minor", "Esempio", promote_to="prod")
-        published.append(f"{key}@{version.semver}")
-    return published
+        entity_key = graph["schemaRef"]["entity"]
+        if entity_key not in entities:
+            skipped.append(f"{key}: entity {entity_key} was not created")
+            continue
+        try:
+            async with s.begin_nested():
+                semver = await _seed_ruleset(s, ws, entities[entity_key], graph, examples)
+            published.append(f"{key}@{semver}")
+        except ControlError as exc:
+            skipped.append(f"{key}: {exc}")
+    return Seeded(published, skipped)
+
+
+async def _seed_ruleset(
+    s: AsyncSession, ws: Workspace, entity: Entity, graph: dict[str, Any], examples: Examples
+) -> str:
+    key = graph["ruleset"]
+    rs = await svc.create_ruleset(s, ACTOR, ws, entity, key, key, None, graph)
+    for case in examples.tests.get(key, []):
+        await svc.add_test(
+            s,
+            ACTOR,
+            ws,
+            rs,
+            case["name"],
+            case.get("input"),
+            case.get("expected") or {},
+            case.get("referenceDate"),
+        )
+    version, _ = await svc.publish(s, ACTOR, ws, rs, "minor", "Esempio", promote_to="prod")
+    return version.semver

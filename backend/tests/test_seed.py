@@ -105,3 +105,37 @@ async def _execute_examples(url: str) -> None:
             "EN_MANDATORY_MISSING",
             "EN_CFU_RANGE",
         ]
+
+
+def test_seed_skips_examples_that_do_not_fit(
+    clean_db: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # an entity made in the Studio, then an upgrade adds an example rule set on it (CTL-05)
+    monkeypatch.setenv("MINOS_DATABASE_URL", clean_db)
+    older = tmp_path / "examples"
+    shutil.copytree(EXAMPLES, older)
+    (older / "rulesets" / "shop.order.json").unlink()
+    assert main(["seed-examples", "--dir", str(older)]) == 0
+    asyncio.run(_edit_order_schema(clean_db))
+    capsys.readouterr()
+    assert main(["seed-examples", "--dir", str(EXAMPLES)]) == 0  # the start-up goes on
+    out, err = capsys.readouterr()
+    assert "example skipped: shop.order" in err
+    assert "nothing to add" in out
+
+
+async def _edit_order_schema(url: str) -> None:
+    app = create_app(settings(url, require_auth=False))
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://m") as c,
+    ):
+        # an entity of the same key, made in the Studio with another shape
+        r = await c.post("/v1/workspaces/esempi/entities", json={"key": "Order", "name": "Mine"})
+        assert r.status_code == 201, r.text
+        body = {"schema": {"type": "object", "properties": {"id": {"type": "string"}}}}
+        r = await c.post("/v1/workspaces/esempi/entities/Order/schemas", json=body)
+        assert r.status_code == 201, r.text

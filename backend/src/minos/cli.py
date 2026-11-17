@@ -24,7 +24,7 @@ from alembic import command
 from alembic.config import Config
 
 from minos.control import service as svc
-from minos.control.examples import WORKSPACE, load_examples, seed_examples
+from minos.control.examples import WORKSPACE, Seeded, load_examples, seed_examples
 from minos.db import ApiClient, Workspace, make_engine, make_sessionmaker
 from minos.settings import Settings
 
@@ -81,7 +81,7 @@ async def revoke_key(url: str, key_id: uuid.UUID) -> bool:
     return True
 
 
-async def seed(url: str, root: Path, workspace: str) -> list[str]:
+async def seed(url: str, root: Path, workspace: str) -> Seeded:
     examples = load_examples(root)
     engine = make_engine(url)
     try:
@@ -121,11 +121,13 @@ def main(argv: list[str] | None = None) -> int:
         if not (root / "rulesets").is_dir():
             print(f"no examples in {root}", file=sys.stderr)
             return 2
-        published = asyncio.run(seed(url, root, args.workspace))
-        if not published:
-            print(f"workspace {args.workspace!r} already has every example: nothing to add")
+        seeded = asyncio.run(seed(url, root, args.workspace))
+        for reason in seeded.skipped:
+            print(f"example skipped: {reason}", file=sys.stderr)
+        if not seeded.published:
+            print(f"workspace {args.workspace!r}: nothing to add")
         else:
-            print(f"workspace {args.workspace!r}: published {', '.join(published)} in prod")
+            print(f"workspace {args.workspace!r}: published {', '.join(seeded.published)} in prod")
     elif args.cmd == "list-admin-keys":
         for line in asyncio.run(list_admin_keys(url)):
             print(line)
