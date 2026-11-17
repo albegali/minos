@@ -14,9 +14,12 @@ import httpx
 import pytest
 
 from minos.api.app import create_app
+from minos.api.common import MAX_REQUEST_BYTES, Principal
 from minos.api.execution import create_execution_app
 from minos.api.management import create_management_app
+from minos.api.registry import KeyCache
 from minos.cli import create_admin_key, main
+from minos.control.keys import generate_key, well_formed
 from minos.settings import Settings
 
 WS = "/v1/workspaces/aurora"
@@ -689,3 +692,43 @@ async def test_exec_openapi_follows_publications(
     assert (await c.get(spec, headers=other)).json()["paths"] == {}
     assert (await c.get(f"{spec}?workspace=aurora", headers=other)).json()["paths"] == {}
     assert len((await c.get(f"{spec}?workspace=aurora", headers=admin)).json()["paths"]) == 2
+
+
+async def test_request_hardening(
+    client: httpx.AsyncClient,
+    admin: dict[str, str],
+) -> None:
+    c = client
+    assert (
+        await c.post("/v1/workspaces", json={"slug": "h", "name": "H"}, headers=admin)
+    ).is_success
+    # a cross-site text/plain POST cannot import (SEC-09)
+    r = await c.post(
+        "/v1/workspaces/h/import",
+        content=b'{"format": "minos-bundle/1"}',
+        headers={**admin, "Content-Type": "text/plain"},
+    )
+    assert r.status_code == 422 and "application/json" in r.json()["detail"]
+    # bodies over the limit are refused before being read (SEC-10)
+    big = b"x" * (MAX_REQUEST_BYTES + 1)
+    r = await c.post(
+        "/v1/workspaces/h/import",
+        content=big,
+        headers={**admin, "Content-Type": "application/json"},
+    )
+    assert r.status_code == 413
+    assert r.headers["content-type"] == "application/problem+json"
+
+
+def test_key_cache_keeps_valid_keys() -> None:
+    # unknown keys cannot flush the valid ones (SEC-11)
+    cache = KeyCache()
+    who = Principal("ci", None, frozenset({"admin"}))
+    cache.put("good", who)
+    for i in range(KeyCache.MAX_ENTRIES + 5):
+        cache.put(f"bad{i}", None)
+    assert cache.get("good") == (True, who)
+    assert cache.get("bad0") == (False, None)  # the oldest unknown ones went
+    assert cache.get(f"bad{KeyCache.MAX_ENTRIES + 4}") == (True, None)
+    assert well_formed(generate_key())
+    assert not well_formed("mns_nope") and not well_formed("x" * 47)

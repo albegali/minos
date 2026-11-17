@@ -26,7 +26,7 @@ from minos.engine.expressions import to_date
 from minos.engine.runtime import DEFAULT_TIME_LIMIT_MS
 from minos.settings import Settings
 
-from .common import Principal, api_key_from, install_cors, json_response, problem
+from .common import Principal, api_key_from, install_cors, install_limits, json_response, problem
 from .exec_docs import OpenApiCache, swagger_html
 from .registry import DEFAULT_ENV, DbSync, Deployment, KeyCache, RulesetRegistry
 
@@ -307,6 +307,7 @@ def create_execution_app(settings: Settings | None = None) -> FastAPI:
     )
     install_problem_handler(app)
     install_cors(app, rt.settings)
+    install_limits(app)
     return app
 
 

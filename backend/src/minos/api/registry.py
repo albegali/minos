@@ -22,7 +22,7 @@ import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Final
 
 import asyncpg
 import orjson
@@ -30,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from minos.api.common import Principal
+from minos.control.keys import well_formed
 from minos.control.service import resolver_for, resolver_from
 from minos.db import (
     ALWAYS,
@@ -193,25 +194,43 @@ class RulesetRegistry:
 class KeyCache:
     """API key -> principal, cached so the execution hot path rarely touches the database."""
 
+    MAX_ENTRIES: Final = 10_000
+
     def __init__(self, ttl_s: float = 60.0, negative_ttl_s: float = 5.0) -> None:
         self.ttl_s = ttl_s
         self.negative_ttl_s = negative_ttl_s
-        self._items: dict[str, tuple[Principal | None, float]] = {}
+        # Valid and unknown keys are kept apart: a flood of unknown keys can only push out
+        # other unknown keys, never the valid ones.
+        self._valid: dict[str, tuple[Principal, float]] = {}
+        self._unknown: dict[str, float] = {}
 
     def get(self, key_hash: str) -> tuple[bool, Principal | None]:
-        hit = self._items.get(key_hash)
-        if hit is None or hit[1] < time.monotonic():
-            return False, None
-        return True, hit[0]
+        now = time.monotonic()
+        hit = self._valid.get(key_hash)
+        if hit is not None and hit[1] >= now:
+            return True, hit[0]
+        expires = self._unknown.get(key_hash)
+        if expires is not None and expires >= now:
+            return True, None
+        return False, None
 
     def put(self, key_hash: str, principal: Principal | None) -> None:
-        ttl = self.ttl_s if principal else self.negative_ttl_s
-        if len(self._items) > 10_000:
-            self._items = {}
-        self._items[key_hash] = (principal, time.monotonic() + ttl)
+        now = time.monotonic()
+        if principal is not None:
+            _bounded_put(self._valid, key_hash, (principal, now + self.ttl_s), self.MAX_ENTRIES)
+        else:
+            _bounded_put(self._unknown, key_hash, now + self.negative_ttl_s, self.MAX_ENTRIES)
 
     def evict(self, key_hash: str) -> None:
-        self._items.pop(key_hash, None)
+        self._valid.pop(key_hash, None)
+        self._unknown.pop(key_hash, None)
+
+
+def _bounded_put[V](items: dict[str, V], key: str, value: V, limit: int) -> None:
+    items.pop(key, None)
+    while len(items) >= limit:
+        items.pop(next(iter(items)))  # oldest first
+    items[key] = value
 
 
 _ALIAS_QUERY = (
@@ -335,6 +354,8 @@ class DbSync:
         return dep
 
     async def authenticate(self, key: str, key_hash: str) -> Principal | None:
+        if not well_formed(key):
+            return None  # no database query, no cache entry for random strings
         hit, principal = self.keys.get(key_hash)
         if hit:
             return principal

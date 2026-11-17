@@ -41,6 +41,7 @@ from .common import (
     Principal,
     api_key_from,
     install_cors,
+    install_limits,
     json_response,
     problem,
 )
@@ -590,6 +591,11 @@ def management_router(sessions: async_sessionmaker[AsyncSession], require_auth: 
     @router.post("/workspaces/{ws}/import")
     async def import_(ws: str, request: Request) -> Response:
         who = await principal(request)
+        media = request.headers.get("content-type", "").split(";")[0].strip().lower()
+        if media != "application/json":
+            # A cross-site form or text/plain POST needs no CORS preflight: refusing it keeps
+            # other websites from importing into an open installation (CSRF).
+            raise Invalid("the bundle must be sent as application/json")
         try:
             bundle = orjson.loads(await request.body())
         except orjson.JSONDecodeError as exc:
@@ -684,4 +690,5 @@ def create_management_app(settings: Settings | None = None) -> FastAPI:
 
     install_error_handlers(app)
     install_cors(app, cfg)
+    install_limits(app)
     return app

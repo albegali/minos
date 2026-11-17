@@ -44,7 +44,7 @@ from minos.engine.compiler import Resolver, dependencies
 from minos.schema import SchemaError, check_schema, find_refs, pin_refs, resolve_refs
 
 from .errors import Conflict, Invalid, NotFound, PreconditionFailed
-from .keys import SCOPES, display_prefix, generate_key, hash_key
+from .keys import SCOPES, display_prefix, generate_key, hash_key, well_formed
 from .testing import EXPECTATION_KEYS, compare
 
 type Bump = Literal["major", "minor", "patch"]
@@ -831,6 +831,8 @@ async def revoke_api_client(
 
 
 async def find_api_client(s: AsyncSession, key: str) -> ApiClient | None:
+    if not well_formed(key):
+        return None
     client = await s.scalar(select(ApiClient).where(ApiClient.key_hash == hash_key(key)))
     if client is None or client.revoked_at is not None:
         return None

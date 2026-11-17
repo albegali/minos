@@ -27,7 +27,7 @@ from minos.db import make_sessionmaker
 from minos.mcp import build_server
 from minos.settings import Settings
 
-from .common import install_cors
+from .common import install_cors, install_limits
 from .execution import ExecutionRuntime, create_execution_app, execution_router
 from .execution import install_problem_handler as install_execution_handlers
 from .management import create_management_app, install_error_handlers, management_router
@@ -68,6 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     else:
         install_execution_handlers(app)
     install_cors(app, cfg)
+    install_limits(app)
     return app
 
 

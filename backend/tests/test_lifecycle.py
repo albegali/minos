@@ -202,7 +202,11 @@ async def test_export_import_round_trip(
 
     # into another workspace: everything is created, then it publishes as is
     await c.post("/v1/workspaces", json={"slug": "copy", "name": "Copy"}, headers=admin)
-    r = await c.post("/v1/workspaces/copy/import", content=r.content, headers=admin)
+    r = await c.post(
+        "/v1/workspaces/copy/import",
+        content=r.content,
+        headers={**admin, "Content-Type": "application/json"},
+    )
     assert r.status_code == 201, r.text
     assert r.json() == {
         "ruleset": "studyplan-emba",
@@ -256,7 +260,9 @@ async def test_import_errors(
     message: str,
 ) -> None:
     await client.post("/v1/workspaces", json={"slug": "aurora", "name": "A"}, headers=admin)
-    r = await client.post(f"{WS}/import", content=payload, headers=admin)
+    r = await client.post(
+        f"{WS}/import", content=payload, headers={**admin, "Content-Type": "application/json"}
+    )
     assert r.status_code == 422
     assert message in r.json()["detail"]
 

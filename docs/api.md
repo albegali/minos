@@ -32,7 +32,7 @@ whether to ask for a key and whether to open the demo.
 
 ## Authentication (optional)
 
-By default the installation is **open**: no key required. With `MINOS_REQUIRE_AUTH=true` you need
+By default the installation is **open**: no key required (`compose.yaml` publishes the ports on `127.0.0.1` only). With `MINOS_REQUIRE_AUTH=true` you need
 `Authorization: Bearer mns_...` or `X-Api-Key: mns_...`, with these scopes (ADR 0005):
 
 | Scope | Reach | Allows |
@@ -151,6 +151,12 @@ Body: `{"input": {...}, "options": {"trace": "none|summary|full", "locale": "it"
   pointers); `401`/`403` for keys; `404` if the rule set or the alias is not deployed.
 - Headers: `X-Ruleset-Version`, `X-Ruleset-Hash`, `X-Request-Id` (echo of the one received),
   `Server-Timing: engine;dur=<ms>`.
+
+## Limits
+
+Request bodies over 10 MB get `413` on every endpoint (the execution input is limited to 1 MB).
+`POST .../import` accepts only `Content-Type: application/json`. API keys that do not have the
+shape Minos issues (`mns_` plus 43 characters) are refused without a database lookup.
 
 ## Management API
 
