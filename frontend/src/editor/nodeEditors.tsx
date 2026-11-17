@@ -18,6 +18,7 @@ import { useState } from 'react'
 import { useParams } from 'react-router'
 
 import { useRulesets, useVersions } from '../api/hooks'
+import { useI18n } from '../i18n'
 import type { RgdNode } from '../rgd'
 import { formatCell, formatOutput, parseCell, parseOutput } from './cells'
 import { describe, type Expr, isRef } from './expr'
@@ -93,6 +94,7 @@ export function DecisionTableEditor({ node, set }: { node: RgdNode; set: (n: Rgd
   const rules = (node.rules as Row[] | undefined) ?? []
   const hit = (node.hitPolicy as string | undefined) ?? 'first'
   const [openInput, setOpenInput] = useState<number | null>(null)
+  const { t, rich, loc } = useI18n()
 
   const write = (patch: Partial<{ inputs: InputColumn[]; outputs: Column[]; rules: Row[] }>) =>
     set({ ...node, ...patch })
@@ -107,20 +109,20 @@ export function DecisionTableEditor({ node, set }: { node: RgdNode; set: (n: Rgd
   return (
     <div className="stack">
       <div className="inline">
-        <Field label="Quale riga vale">
+        <Field label={t('table.hitPolicy')}>
           <Dropdown
-            value={hitPolicies.find((h) => h.key === hit)?.label.it ?? hit}
+            value={loc(hitPolicies.find((h) => h.key === hit)?.label) || hit}
             selectedOptions={[hit]}
             onOptionSelect={(_, d) => set({ ...node, hitPolicy: d.optionValue })}
           >
             {hitPolicies.map((h) => (
               <Option key={h.key} value={h.key}>
-                {h.label.it ?? h.key}
+                {loc(h.label) || h.key}
               </Option>
             ))}
           </Dropdown>
         </Field>
-        <Field label="Salva il risultato in" hint={`Disponibile come $.vars.${String(node.target ?? '')}`}>
+        <Field label={t('table.saveIn')} hint={t('table.availableAs', { target: String(node.target ?? '') })}>
           <Input
             value={String(node.target ?? '')}
             onChange={(_, d) => IDENT.test(d.value) && set({ ...node, target: d.value })}
@@ -128,23 +130,23 @@ export function DecisionTableEditor({ node, set }: { node: RgdNode; set: (n: Rgd
         </Field>
       </div>
 
-      <Text weight="semibold">Colonne di input</Text>
+      <Text weight="semibold">{t('table.inputColumns')}</Text>
       {inputs.map((col, i) => (
         <div key={i} className="rule-card">
           <div className="inline">
             <Input
-              aria-label={`Nome input ${i + 1}`}
+              aria-label={t('table.inputName', { n: i + 1 })}
               value={col.label ?? col.name}
               onChange={(_, d) => write({ inputs: inputs.map((c, j) => (j === i ? { ...c, label: d.value } : c)) })}
             />
             <Button size="small" appearance="subtle" onClick={() => setOpenInput(openInput === i ? null : i)}>
-              {openInput === i ? 'Chiudi' : isBlank(col.expr) ? 'Scegli il valore' : describe(col.expr)}
+              {openInput === i ? t('common.close') : isBlank(col.expr) ? t('table.chooseValue') : describe(col.expr)}
             </Button>
             {inputs.length > 1 && (
               <Button
                 size="small"
                 appearance="subtle"
-                aria-label={`Rimuovi input ${col.label ?? col.name}`}
+                aria-label={t('table.removeInput', { name: col.label ?? col.name })}
                 icon={<Delete16Regular />}
                 onClick={() =>
                   write({
@@ -168,7 +170,7 @@ export function DecisionTableEditor({ node, set }: { node: RgdNode; set: (n: Rgd
           size="small"
           icon={<Add16Regular />}
           onClick={() => {
-            const name = uniqueName('input', inputs.map((c) => c.name))
+            const name = uniqueName(t('table.inputBase'), inputs.map((c) => c.name))
             write({
               inputs: [...inputs, { name, label: name, expr: { ref: '' } }],
               rules: rules.map((r) => ({ ...r, when: [...r.when, null] })),
@@ -176,22 +178,22 @@ export function DecisionTableEditor({ node, set }: { node: RgdNode; set: (n: Rgd
             setOpenInput(inputs.length)
           }}
         >
-          Input
+          {t('table.addInput')}
         </Button>
         <Button
           size="small"
           icon={<Add16Regular />}
           onClick={() => {
-            const name = uniqueName('risultato', outputs.map((c) => c.name))
+            const name = uniqueName(t('table.outputBase'), outputs.map((c) => c.name))
             write({ outputs: [...outputs, { name, label: name }] })
           }}
         >
-          Output
+          {t('table.addOutput')}
         </Button>
       </div>
 
       <div className="dt-scroll">
-        <table className="dt" aria-label="Righe della tabella decisionale">
+        <table className="dt" aria-label={t('table.rows')}>
           <thead>
             <tr>
               <th>#</th>
@@ -203,7 +205,7 @@ export function DecisionTableEditor({ node, set }: { node: RgdNode; set: (n: Rgd
               {outputs.map((c, i) => (
                 <th key={`o-${c.name}`} className="dt-out">
                   <input
-                    aria-label={`Nome output ${i + 1}`}
+                    aria-label={t('table.outputName', { n: i + 1 })}
                     className="cell-input head"
                     defaultValue={c.name}
                     onBlur={(e) => {
@@ -222,8 +224,8 @@ export function DecisionTableEditor({ node, set }: { node: RgdNode; set: (n: Rgd
                   />
                 </th>
               ))}
-              {hit === 'priority' && <th>Priorità</th>}
-              <th aria-label="Azioni" />
+              {hit === 'priority' && <th>{t('table.priority')}</th>}
+              <th aria-label={t('table.actions')} />
             </tr>
           </thead>
           <tbody>
@@ -233,7 +235,7 @@ export function DecisionTableEditor({ node, set }: { node: RgdNode; set: (n: Rgd
                 {inputs.map((c, j) => (
                   <td key={`i-${c.name}`}>
                     <CellInput
-                      label={`Riga ${i + 1}, ${c.label ?? c.name}`}
+                      label={t('table.cell', { n: i + 1, column: c.label ?? c.name })}
                       value={rule.when[j] ?? null}
                       format={formatCell}
                       parse={parseCell}
@@ -244,7 +246,7 @@ export function DecisionTableEditor({ node, set }: { node: RgdNode; set: (n: Rgd
                 {outputs.map((c) => (
                   <td key={`o-${c.name}`} className="dt-out">
                     <CellInput
-                      label={`Riga ${i + 1}, ${c.name}`}
+                      label={t('table.cell', { n: i + 1, column: c.name })}
                       value={rule.then[c.name]}
                       format={formatOutput}
                       parse={parseOutput}
@@ -255,7 +257,7 @@ export function DecisionTableEditor({ node, set }: { node: RgdNode; set: (n: Rgd
                 {hit === 'priority' && (
                   <td>
                     <CellInput
-                      label={`Priorità riga ${i + 1}`}
+                      label={t('table.priorityCell', { n: i + 1 })}
                       value={rule.priority ?? 0}
                       format={(v) => String(v)}
                       parse={(t) => Number(t) || 0}
@@ -264,13 +266,13 @@ export function DecisionTableEditor({ node, set }: { node: RgdNode; set: (n: Rgd
                   </td>
                 )}
                 <td className="dt-actions">
-                  <Tooltip content="Su" relationship="label">
+                  <Tooltip content={t('table.up')} relationship="label">
                     <Button size="small" appearance="subtle" icon={<ArrowUp16Regular />} disabled={i === 0} onClick={() => move(i, -1)} />
                   </Tooltip>
-                  <Tooltip content="Giù" relationship="label">
+                  <Tooltip content={t('table.down')} relationship="label">
                     <Button size="small" appearance="subtle" icon={<ArrowDown16Regular />} disabled={i === rules.length - 1} onClick={() => move(i, 1)} />
                   </Tooltip>
-                  <Tooltip content={`Rimuovi riga ${i + 1}`} relationship="label">
+                  <Tooltip content={t('table.removeRow', { n: i + 1 })} relationship="label">
                     <Button
                       size="small"
                       appearance="subtle"
@@ -290,12 +292,19 @@ export function DecisionTableEditor({ node, set }: { node: RgdNode; set: (n: Rgd
         icon={<Add16Regular />}
         onClick={() => write({ rules: [...rules, { when: inputs.map(() => null), then: {} }] })}
       >
-        Riga
+        {t('table.addRow')}
       </Button>
       <Text size={200} className="muted">
-        Celle: vuoto = qualsiasi · <code>EMBA</code> · <code>A, B</code> (uno tra) · <code>&gt;= 60</code> ·{' '}
-        <code>30..59</code> · <code>2027-01-01..2027-12-31</code> · <code>!= X</code> · <code>$.vars.nome</code>. Se nessuna
-        riga vale, il nodo esce da <b>fail</b>.
+        {rich('table.help', {
+          c1: <code>EMBA</code>,
+          c2: <code>A, B</code>,
+          c3: <code>&gt;= 60</code>,
+          c4: <code>30..59</code>,
+          c5: <code>2027-01-01..2027-12-31</code>,
+          c6: <code>!= X</code>,
+          c7: <code>$.vars.{t('table.varName')}</code>,
+          fail: <b>fail</b>,
+        })}
       </Text>
     </div>
   )
@@ -311,13 +320,14 @@ export function SubRulesetEditor({ node, set }: { node: RgdNode; set: (n: RgdNod
   const element = useElementSchema(forEach)
   const inner = forEach !== undefined ? itemScope(scope, element) : scope
   const hasInput = 'input' in node
+  const { t, rich } = useI18n()
 
   return (
     <div className="stack">
       <div className="inline">
-        <Field label="Rule set da eseguire">
+        <Field label={t('subruleset.ruleset')}>
           <Dropdown
-            placeholder="Scegli un rule set"
+            placeholder={t('subruleset.chooseRuleset')}
             value={ruleset}
             selectedOptions={ruleset ? [ruleset] : []}
             onOptionSelect={(_, d) => set({ ...node, ruleset: d.optionValue, version: '' })}
@@ -331,9 +341,9 @@ export function SubRulesetEditor({ node, set }: { node: RgdNode; set: (n: RgdNod
               ))}
           </Dropdown>
         </Field>
-        <Field label="Versione" hint="Fissata: il risultato resta riproducibile">
+        <Field label={t('subruleset.version')} hint={t('subruleset.versionHint')}>
           <Dropdown
-            placeholder={versions.data?.length === 0 ? 'Nessuna versione pubblicata' : 'Scegli'}
+            placeholder={versions.data?.length === 0 ? t('subruleset.noVersions') : t('subruleset.chooseVersion')}
             value={String(node.version ?? '')}
             selectedOptions={node.version ? [String(node.version)] : []}
             onOptionSelect={(_, d) => set({ ...node, version: d.optionValue })}
@@ -347,7 +357,7 @@ export function SubRulesetEditor({ node, set }: { node: RgdNode; set: (n: RgdNod
         </Field>
       </div>
       <Checkbox
-        label="Esegui per ogni elemento di una lista"
+        label={t('subruleset.forEach')}
         checked={forEach !== undefined}
         onChange={(_, d) => {
           const next: RgdNode = { ...node }
@@ -359,26 +369,26 @@ export function SubRulesetEditor({ node, set }: { node: RgdNode; set: (n: RgdNod
       {forEach !== undefined && isRef(forEach) && (
         <div className="nested stack">
           <FieldPicker
-            ariaLabel="Lista da percorrere"
-            placeholder="Scegli una lista"
+            ariaLabel={t('subruleset.list')}
+            placeholder={t('subruleset.chooseList')}
             value={forEach.ref}
             filter={(c) => Boolean(c.many) || c.types.includes('array') || c.types.length === 0}
             onChange={(ref) => set({ ...node, forEach: { ref } })}
           />
-          <Field label="Il nodo passa se">
+          <Field label={t('subruleset.passWhen')}>
             <Dropdown
-              value={node.passWhen === 'any' ? 'Almeno un elemento è valido' : 'Tutti gli elementi sono validi'}
+              value={node.passWhen === 'any' ? t('subruleset.passAny') : t('subruleset.passAll')}
               selectedOptions={[String(node.passWhen ?? 'all')]}
               onOptionSelect={(_, d) => set({ ...node, passWhen: d.optionValue })}
             >
-              <Option value="all">Tutti gli elementi sono validi</Option>
-              <Option value="any">Almeno un elemento è valido</Option>
+              <Option value="all">{t('subruleset.passAll')}</Option>
+              <Option value="any">{t('subruleset.passAny')}</Option>
             </Dropdown>
           </Field>
         </div>
       )}
       <Checkbox
-        label={forEach !== undefined ? 'Passa un valore diverso dall’elemento' : 'Passa un valore diverso dall’oggetto in input'}
+        label={forEach !== undefined ? t('subruleset.otherItemInput') : t('subruleset.otherInput')}
         checked={hasInput}
         onChange={(_, d) => {
           const next: RgdNode = { ...node }
@@ -392,7 +402,7 @@ export function SubRulesetEditor({ node, set }: { node: RgdNode; set: (n: RgdNod
           <ExpressionEditor value={node.input} onChange={(input) => set({ ...node, input })} />
         </ScopeContext.Provider>
       )}
-      <Field label="Salva il risultato in (facoltativo)" hint="Esito e output del rule set annidato, in $.vars">
+      <Field label={t('subruleset.target')} hint={t('subruleset.targetHint')}>
         <Input
           value={String(node.target ?? '')}
           onChange={(_, d) => {
@@ -403,8 +413,7 @@ export function SubRulesetEditor({ node, set }: { node: RgdNode; set: (n: RgdNod
         />
       </Field>
       <Text size={200} className="muted">
-        I messaggi del rule set annidato compaiono nel risultato con il suo nodo d’origine; il nodo esce da <b>fail</b> se
-        il rule set non è valido.
+        {rich('subruleset.help', { fail: <b>fail</b> })}
       </Text>
     </div>
   )

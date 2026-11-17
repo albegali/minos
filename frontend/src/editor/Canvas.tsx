@@ -18,6 +18,7 @@ import {
 import { type DragEvent, useCallback, useEffect, useMemo } from 'react'
 
 import type { Catalog, NodeManifest } from '../api/types'
+import { t, useI18n } from '../i18n'
 import { layered, type RgdNode, type RuleGraph } from '../rgd'
 import { describe } from './expr'
 import { addNode, canConnect, connect, defaultNode, disconnect, edgeId, issueNode, newNodeId, portsOf, removeNode, setPosition } from './graph'
@@ -42,15 +43,18 @@ function summary(n: RgdNode): string | null {
     case 'condition':
       return describe(n.condition)
     case 'group':
-      return `${(n.children as unknown[] | undefined)?.length ?? 0} regole · ${String(n.operator ?? 'and').toUpperCase()}`
+      return t('canvas.groupSummary', {
+        count: (n.children as unknown[] | undefined)?.length ?? 0,
+        operator: String(n.operator ?? 'and').toUpperCase(),
+      })
     case 'set':
       return Object.keys((n.assign as object | undefined) ?? {}).join(', ')
     case 'feedback':
       return String((n.feedback as { code?: string } | undefined)?.code ?? '')
     case 'decision_table':
-      return `${(n.rules as unknown[] | undefined)?.length ?? 0} righe → $.vars.${String(n.target ?? '')}`
+      return t('canvas.tableSummary', { count: (n.rules as unknown[] | undefined)?.length ?? 0, target: String(n.target ?? '') })
     case 'subruleset':
-      return `${String(n.ruleset || '?')}@${String(n.version || '?')}${n.forEach ? ' per ogni elemento' : ''}`
+      return `${String(n.ruleset || '?')}@${String(n.version || '?')}${n.forEach ? t('canvas.forEach') : ''}`
     case 'end':
       return n.outcome ?? 'valid'
     default:
@@ -60,13 +64,15 @@ function summary(n: RgdNode): string | null {
 
 function RuleNodeView({ data, selected }: NodeProps<FlowNode>) {
   const { rgd, manifest, ports, status, issues } = data
+  // Subscribing to the language re-renders the node (and its summary) when it changes.
+  const { t: tr, loc } = useI18n()
   const text = summary(rgd)
   return (
     <div className={`rule-node type-${rgd.type} status-${status}${selected ? ' selected' : ''}${issues ? ' has-issues' : ''}`}>
       {rgd.type !== 'start' && <Handle type="target" position={Position.Left} />}
       <div className="rule-node-type">
-        {manifest?.label.it ?? rgd.type}
-        {issues > 0 && <span className="issue-dot" title={`${issues} problemi`}>{issues}</span>}
+        {manifest ? loc(manifest.label) : rgd.type}
+        {issues > 0 && <span className="issue-dot" title={tr('canvas.issueCount', { count: issues })}>{issues}</span>}
       </div>
       <div className="rule-node-label">{rgd.label || rgd.id}</div>
       {text && <div className="rule-node-summary" title={text}>{text}</div>}
@@ -259,11 +265,12 @@ export function Canvas({ graph, catalog }: { graph: RuleGraph; catalog: Catalog 
 }
 
 export function Palette({ catalog, onAdd }: { catalog: Catalog; onAdd: (type: string) => void }) {
+  const { t: tr, loc } = useI18n()
   return (
-    <nav className="palette" aria-label="Palette dei nodi">
+    <nav className="palette" aria-label={tr('canvas.palette')}>
       {catalog.categories.map((cat) => (
         <div key={cat.key} className="palette-group">
-          <div className="palette-title">{cat.label.it}</div>
+          <div className="palette-title">{loc(cat.label)}</div>
           {catalog.nodeTypes
             .filter((m) => m.category === cat.key && !m.unique)
             .map((m) => (
@@ -272,15 +279,15 @@ export function Palette({ catalog, onAdd }: { catalog: Catalog; onAdd: (type: st
                 type="button"
                 className={`palette-item type-${m.type}`}
                 draggable
-                title={`${m.description.it}. Trascina sul canvas o fai clic per aggiungere.`}
+                title={tr('canvas.paletteHint', { description: loc(m.description) })}
                 onDragStart={(e) => {
                   e.dataTransfer.setData(DRAG_TYPE, m.type)
                   e.dataTransfer.effectAllowed = 'move'
                 }}
                 onClick={() => onAdd(m.type)}
               >
-                <span className="palette-label">{m.label.it}</span>
-                <span className="palette-desc">{m.description.it}</span>
+                <span className="palette-label">{loc(m.label)}</span>
+                <span className="palette-desc">{loc(m.description)}</span>
               </button>
             ))}
         </div>

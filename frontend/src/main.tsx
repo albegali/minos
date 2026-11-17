@@ -11,6 +11,7 @@ import { RequireAuth, Shell } from './components/Shell'
 import { LoginPage } from './pages/LoginPage'
 import { WorkspacePage } from './pages/WorkspacePage'
 import { WorkspacesPage } from './pages/WorkspacesPage'
+import { useI18n } from './i18n'
 import { minosDark, minosLight } from './theme'
 
 // Heavy pages (React Flow canvas, editors) load on demand.
@@ -18,9 +19,12 @@ const EditorPage = lazy(() => import('./editor/EditorPage').then((m) => ({ defau
 const EntityPage = lazy(() => import('./pages/EntityPage').then((m) => ({ default: m.EntityPage })))
 const DemoPage = lazy(() => import('./pages/DemoPage').then((m) => ({ default: m.DemoPage })))
 
-const page = (element: ReactNode) => (
-  <Suspense fallback={<Spinner label="Caricamento…" className="centered" />}>{element}</Suspense>
-)
+function Loading() {
+  const { t } = useI18n()
+  return <Spinner label={t('common.loading')} className="centered" />
+}
+
+const page = (element: ReactNode) => <Suspense fallback={<Loading />}>{element}</Suspense>
 
 const queryClient = new QueryClient({
   defaultOptions: {

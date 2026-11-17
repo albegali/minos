@@ -4,6 +4,7 @@
 // authority at validation time.
 
 import type { JsonSchema } from '../api/types'
+import { t } from '../i18n'
 
 export interface FieldInfo {
   /** Reference as used in expressions, e.g. `$.input.courses[*].cfu`. */
@@ -112,7 +113,7 @@ export function elementSchema(schema: JsonSchema | undefined, path: string): Jso
 }
 
 export function describeTypes(field: Pick<FieldInfo, 'types' | 'format' | 'many'>): string {
-  const base = field.types.filter((t) => t !== 'null').join(' | ') || 'qualsiasi'
+  const base = field.types.filter((type) => type !== 'null').join(' | ') || t('expr.anyType')
   const fmt = field.format ? ` (${field.format})` : ''
-  return `${field.many ? 'lista di ' : ''}${base}${fmt}`
+  return field.many ? t('expr.listOf', { type: `${base}${fmt}` }) : `${base}${fmt}`
 }

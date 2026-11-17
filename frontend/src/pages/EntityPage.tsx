@@ -9,25 +9,26 @@ import {
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router'
 
-import { errorMessage } from '../api/client'
 import { inferSchema, useAddSchema, useSchema, useSchemas } from '../api/hooks'
 import type { JsonSchema } from '../api/types'
 import { ErrorBar, JsonField } from '../components/forms'
 import { Page } from '../components/Shell'
 import { describeTypes, listFields } from '../editor/schemaPaths'
+import { useI18n } from '../i18n'
 
 function FieldTree({ schema }: { schema: JsonSchema | undefined }) {
   const fields = useMemo(() => listFields(schema), [schema])
+  const { t } = useI18n()
   if (!schema) return null
-  if (fields.length === 0) return <Text>Lo schema non dichiara campi.</Text>
+  if (fields.length === 0) return <Text>{t('entity.noFields')}</Text>
   return (
     <div className="table-scroll">
-    <table className="field-table" aria-label="Campi dello schema">
+    <table className="field-table" aria-label={t('entity.fieldsTable')}>
       <thead>
         <tr>
-          <th>Campo</th>
-          <th>Tipo</th>
-          <th>Riferimento</th>
+          <th>{t('entity.field')}</th>
+          <th>{t('entity.type')}</th>
+          <th>{t('entity.reference')}</th>
         </tr>
       </thead>
       <tbody>
@@ -37,7 +38,7 @@ function FieldTree({ schema }: { schema: JsonSchema | undefined }) {
               {f.name}
               {f.required && (
                 <Badge size="small" appearance="tint" className="badge-gap">
-                  obbligatorio
+                  {t('entity.required')}
                 </Badge>
               )}
             </td>
@@ -62,13 +63,14 @@ export function EntityPage() {
   const latest = versions.data?.[0]?.version ?? null
   const current = useSchema(ws, entity, selected ?? latest)
   const add = useAddSchema(ws, entity)
+  const { t } = useI18n()
 
   const [chosenMode, setMode] = useState<Mode>('view')
   // An entity without schema versions opens directly on "from samples".
   const mode: Mode = chosenMode === 'view' && versions.data?.length === 0 ? 'samples' : chosenMode
   const [samples, setSamples] = useState<unknown>([{}])
   const [preview, setPreview] = useState<JsonSchema | undefined>()
-  const [previewError, setPreviewError] = useState<string | null>(null)
+  const [previewError, setPreviewError] = useState<unknown>(null)
   const [manual, setManual] = useState<unknown>(null)
 
   useEffect(() => {
@@ -80,7 +82,7 @@ export function EntityPage() {
           setPreview(s)
           setPreviewError(null)
         })
-        .catch((e: unknown) => setPreviewError(errorMessage(e)))
+        .catch((e: unknown) => setPreviewError(e))
     }, 300)
     return () => clearTimeout(handle)
   }, [samples, mode, entity])
@@ -96,25 +98,25 @@ export function EntityPage() {
 
   return (
     <Page
-      title={`Entità ${entity}`}
+      title={t('entity.title', { entity })}
       actions={
         mode === 'view' ? (
           <>
-            <Button onClick={() => setMode('samples')}>Nuova versione da esempi</Button>
+            <Button onClick={() => setMode('samples')}>{t('entity.newFromSamples')}</Button>
             <Button
               onClick={() => {
                 setManual(current.data?.schema ?? { type: 'object', properties: {} })
                 setMode('manual')
               }}
             >
-              Modifica JSON Schema
+              {t('entity.editSchema')}
             </Button>
           </>
         ) : (
           <>
-            <Button onClick={() => setMode('view')}>Annulla</Button>
+            <Button onClick={() => setMode('view')}>{t('common.cancel')}</Button>
             <Button appearance="primary" onClick={save} disabled={add.isPending || (mode === 'samples' && !preview)}>
-              Salva come nuova versione
+              {t('entity.saveVersion')}
             </Button>
           </>
         )
@@ -128,11 +130,11 @@ export function EntityPage() {
           <TabList
             selectedValue={String(selected ?? latest)}
             onTabSelect={(_, d) => setSelected(Number(d.value))}
-            aria-label="Versioni dello schema"
+            aria-label={t('entity.versions')}
           >
             {versions.data.map((v) => (
               <Tab key={v.version} value={String(v.version)}>
-                v{v.version} · {v.source === 'sample' ? 'da esempi' : v.source}
+                v{v.version} · {v.source === 'sample' ? t('entity.fromSamples') : v.source}
               </Tab>
             ))}
           </TabList>
@@ -144,15 +146,15 @@ export function EntityPage() {
       {mode === 'samples' && (
         <div className="two-col">
           <JsonField
-            label="Esempi (un oggetto o una lista di oggetti)"
-            hint="Più esempi rendono facoltativi i campi che non compaiono ovunque."
+            label={t('entity.samples')}
+            hint={t('entity.samplesHint')}
             value={samples}
             onValid={setSamples}
             rows={22}
           />
           <div className="stack">
-            <Text weight="semibold">Anteprima dello schema</Text>
-            {previewError && <ErrorBar error={new Error(previewError)} />}
+            <Text weight="semibold">{t('entity.preview')}</Text>
+            <ErrorBar error={previewError} />
             <FieldTree schema={preview} />
           </div>
         </div>
@@ -160,7 +162,7 @@ export function EntityPage() {
 
       {mode === 'manual' && (
         <JsonField
-          label="JSON Schema (draft 2020-12)"
+          label={t('entity.jsonSchema')}
           value={manual}
           onValid={setManual}
           rows={28}

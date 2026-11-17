@@ -17,8 +17,10 @@ import {
 import { type FormEvent, type ReactElement, type ReactNode, useState } from 'react'
 
 import { errorMessage } from '../api/client'
+import { useI18n } from '../i18n'
 
 export function ErrorBar({ error }: { error: unknown }) {
+  useI18n() // re-render in the new language
   if (!error) return null
   return (
     <MessageBar intent="error">
@@ -45,6 +47,7 @@ export function FormDialog({
   const [open, setOpen] = useState(false)
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
+  const { t } = useI18n()
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -73,7 +76,7 @@ export function FormDialog({
             </DialogContent>
             <DialogActions>
               <DialogTrigger disableButtonEnhancement>
-                <Button appearance="secondary">Annulla</Button>
+                <Button appearance="secondary">{t('common.cancel')}</Button>
               </DialogTrigger>
               <Button appearance="primary" type="submit" disabled={busy || !canSubmit}>
                 {submitLabel}
@@ -107,6 +110,7 @@ export function JsonField({
   const [text, setText] = useState(serialised)
   const [error, setError] = useState<string | null>(null)
   const [seen, setSeen] = useState(serialised)
+  const { t } = useI18n()
 
   // Adopt a new external value (adjusting state during render, not in an effect), unless it
   // is just the echo of what the user typed.
@@ -136,7 +140,7 @@ export function JsonField({
             setError(null)
             onValid(parsed)
           } catch (err) {
-            setError(`JSON non valido: ${(err as Error).message}`)
+            setError(t('common.invalidJson', { message: (err as Error).message }))
           }
         }}
       />

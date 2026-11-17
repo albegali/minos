@@ -13,6 +13,8 @@ export default defineConfig({
   globalSetup: './e2e/global-setup.ts',
   use: {
     baseURL: 'http://127.0.0.1:4173',
+    // The specs look elements up by their Italian labels.
+    locale: 'it-IT',
     viewport: { width: 1440, height: 900 },
     trace: 'off',
     screenshot: 'only-on-failure',

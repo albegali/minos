@@ -12,6 +12,9 @@ import { useEffect, useState } from 'react'
 
 import { edgesOnPath, type NodeStatus, type RuleGraph, toFlow } from '../rgd'
 import { BrandLockup } from '../components/Brand'
+import { LanguageSwitch } from '../components/LanguageSwitch'
+import { useI18n } from '../i18n'
+import { exitReasonText, feedbackText, translateApiText } from '../i18n/api'
 import { RuleNode } from '../RuleNode'
 
 // Every example of the repository, bundled at build time. Inputs belong to the entity of
@@ -62,7 +65,8 @@ interface ExecutionResult {
 export function DemoPage() {
   const [ruleset, setRuleset] = useState(EXAMPLES.find((g) => g.ruleset.endsWith('emba'))?.ruleset ?? EXAMPLES[0]?.ruleset)
   const graph = EXAMPLES.find((g) => g.ruleset === ruleset)
-  if (!graph) return <p>Nessun esempio.</p>
+  const { t } = useI18n()
+  if (!graph) return <p>{t('demo.noExamples')}</p>
   // A key per rule set resets the canvas state when the example changes.
   return <DemoView key={graph.ruleset} graph={graph} onRuleset={setRuleset} />
 }
@@ -74,6 +78,7 @@ function DemoView({ graph, onRuleset }: { graph: RuleGraph; onRuleset: (key: str
   const [result, setResult] = useState<ExecutionResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
+  const { t, rich } = useI18n()
 
   // Node state goes through React Flow's change handlers so that nodes get their measured
   // size (needed by fitView and the minimap); simulation results only patch status/edges.
@@ -107,15 +112,12 @@ function DemoView({ graph, onRuleset }: { graph: RuleGraph; onRuleset: (key: str
       })
       const body: unknown = await res.json()
       if (!res.ok && res.status !== 422) {
-        throw new Error((body as { detail?: string }).detail ?? `HTTP ${res.status}`)
+        throw new Error(translateApiText((body as { detail?: string }).detail ?? `HTTP ${res.status}`))
       }
       setResult(body as ExecutionResult)
     } catch (e) {
       setResult(null)
-      setError(
-        `Esecuzione non riuscita (${e instanceof Error ? e.message : String(e)}). ` +
-          "Avvia l'API: cd backend && uv run uvicorn minos.api.app:app",
-      )
+      setError(t('demo.runFailed', { message: e instanceof Error ? e.message : String(e) }))
     } finally {
       setRunning(false)
     }
@@ -131,26 +133,27 @@ function DemoView({ graph, onRuleset }: { graph: RuleGraph; onRuleset: (key: str
           </span>
         </div>
         <div className="actions">
-          <select value={graph.ruleset} onChange={(e) => onRuleset(e.target.value)} aria-label="Esempio">
+          <select value={graph.ruleset} onChange={(e) => onRuleset(e.target.value)} aria-label={t('demo.example')}>
             {EXAMPLES.map((g) => (
               <option key={g.ruleset} value={g.ruleset}>
                 {g.ruleset}
               </option>
             ))}
           </select>
-          <select value={sample} onChange={(e) => setSample(e.target.value)} aria-label="Input">
+          <select value={sample} onChange={(e) => setSample(e.target.value)} aria-label={t('demo.input')}>
             {Object.keys(samples).map((name) => (
               <option key={name}>{name}</option>
             ))}
           </select>
+          <LanguageSwitch />
           <button type="button" onClick={simulate} disabled={running}>
-            {running ? 'Esecuzione…' : 'Simula'}
+            {running ? t('demo.running') : t('demo.simulate')}
           </button>
         </div>
       </header>
 
       <main className="workspace">
-        <section className="canvas" aria-label="Grafo delle regole">
+        <section className="canvas" aria-label={t('demo.graph')}>
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -176,35 +179,37 @@ function DemoView({ graph, onRuleset }: { graph: RuleGraph; onRuleset: (key: str
           {result && (
             <section>
               <h2>
-                Esito: <span className={`outcome outcome-${result.outcome}`}>{result.outcome}</span>
+                {rich('demo.outcome', {
+                  outcome: <span className={`outcome outcome-${result.outcome}`}>{result.outcome}</span>,
+                })}
               </h2>
               <p className="muted">
-                Uscita da <code>{result.exit.nodeId}</code> ({result.exit.reason}) · motore{' '}
-                {result.timing.engineUs} µs
+                {rich('demo.exit', {
+                  node: <code>{result.exit.nodeId}</code>,
+                  reason: exitReasonText(result.exit.reason),
+                  us: result.timing.engineUs,
+                })}
               </p>
               <ul className="feedback">
                 {result.feedback.map((f, i) => (
                   <li key={`${f.code}-${i}`} className={`sev-${f.severity}`}>
-                    <code>{f.code}</code> {f.message}
+                    <code>{f.code}</code> {feedbackText(f)}
                   </li>
                 ))}
               </ul>
-              <h3>Output</h3>
+              <h3>{t('demo.output')}</h3>
               <pre>{JSON.stringify(result.result, null, 2)}</pre>
             </section>
           )}
 
           {selectedNode ? (
             <section>
-              <h3>Nodo {selectedNode.id}</h3>
+              <h3>{t('demo.node', { id: selectedNode.id })}</h3>
               <pre>{JSON.stringify(selectedNode, null, 2)}</pre>
             </section>
           ) : (
             !result && (
-              <p className="muted">
-                Seleziona un nodo per vederne la configurazione, oppure premi Simula per eseguire
-                il rule set sull'input scelto.
-              </p>
+              <p className="muted">{t('demo.hint')}</p>
             )
           )}
         </aside>

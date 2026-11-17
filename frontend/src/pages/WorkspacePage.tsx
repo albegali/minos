@@ -17,24 +17,26 @@ import { useNavigate, useParams } from 'react-router'
 import { importBundle, keys, useCreateEntity, useCreateRuleset, useEntities, useRulesets } from '../api/hooks'
 import { ErrorBar, FormDialog, slugify } from '../components/forms'
 import { Page } from '../components/Shell'
+import { useI18n } from '../i18n'
 
 function NewEntity({ ws }: { ws: string }) {
   const create = useCreateEntity(ws)
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [key, setKey] = useState('')
+  const { t } = useI18n()
   return (
     <FormDialog
-      title="Nuova entità"
-      submitLabel="Crea"
+      title={t('workspace.newEntity')}
+      submitLabel={t('common.create')}
       canSubmit={Boolean(name && key)}
       onSubmit={async () => {
         await create.mutateAsync({ key, name })
         navigate(`/w/${ws}/entities/${key}`)
       }}
-      trigger={<Button icon={<Add20Regular />}>Nuova entità</Button>}
+      trigger={<Button icon={<Add20Regular />}>{t('workspace.newEntity')}</Button>}
     >
-      <Field label="Nome" required hint="Es. Piano di studi">
+      <Field label={t('common.name')} required hint={t('workspace.entityNameHint')}>
         <Input
           value={name}
           onChange={(_, d) => {
@@ -43,7 +45,7 @@ function NewEntity({ ws }: { ws: string }) {
           }}
         />
       </Field>
-      <Field label="Chiave" required hint="Es. StudyPlan">
+      <Field label={t('common.key')} required hint={t('workspace.entityKeyHint')}>
         <Input value={key} onChange={(_, d) => setKey(d.value)} />
       </Field>
     </FormDialog>
@@ -57,10 +59,11 @@ function NewRuleset({ ws }: { ws: string }) {
   const [name, setName] = useState('')
   const [key, setKey] = useState('')
   const [entity, setEntity] = useState('')
+  const { t } = useI18n()
   return (
     <FormDialog
-      title="Nuovo rule set"
-      submitLabel="Crea"
+      title={t('workspace.newRuleset')}
+      submitLabel={t('common.create')}
       canSubmit={Boolean(name && key && entity)}
       onSubmit={async () => {
         await create.mutateAsync({ key, name, entity })
@@ -68,11 +71,11 @@ function NewRuleset({ ws }: { ws: string }) {
       }}
       trigger={
         <Button appearance="primary" icon={<Add20Regular />}>
-          Nuovo rule set
+          {t('workspace.newRuleset')}
         </Button>
       }
     >
-      <Field label="Nome" required hint="Es. Piano di studi Executive MBA">
+      <Field label={t('common.name')} required hint={t('workspace.rulesetNameHint')}>
         <Input
           value={name}
           onChange={(_, d) => {
@@ -81,12 +84,12 @@ function NewRuleset({ ws }: { ws: string }) {
           }}
         />
       </Field>
-      <Field label="Chiave" required hint="Usata nell'URL di esecuzione">
+      <Field label={t('common.key')} required hint={t('workspace.rulesetKeyHint')}>
         <Input value={key} onChange={(_, d) => setKey(d.value)} />
       </Field>
-      <Field label="Entità" required hint="Lo schema dell'entità guida l'editor">
+      <Field label={t('workspace.entity')} required hint={t('workspace.entityHint')}>
         <Dropdown
-          placeholder="Scegli un'entità"
+          placeholder={t('workspace.chooseEntity')}
           value={entity}
           selectedOptions={entity ? [entity] : []}
           onOptionSelect={(_, d) => setEntity(d.optionValue ?? '')}
@@ -107,6 +110,7 @@ function ImportButton({ ws }: { ws: string }) {
   const qc = useQueryClient()
   const input = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<unknown>(null)
+  const { t } = useI18n()
   return (
     <>
       <input
@@ -114,7 +118,7 @@ function ImportButton({ ws }: { ws: string }) {
         type="file"
         accept="application/json,.json"
         hidden
-        aria-label="File da importare"
+        aria-label={t('workspace.importFile')}
         onChange={async (e) => {
           const file = e.target.files?.[0]
           e.target.value = ''
@@ -129,12 +133,12 @@ function ImportButton({ ws }: { ws: string }) {
             ])
             navigate(`/w/${ws}/rulesets/${result.ruleset}`)
           } catch (err) {
-            setError(err instanceof SyntaxError ? new Error('Il file non è un JSON valido') : err)
+            setError(err instanceof SyntaxError ? new Error(t('workspace.importInvalid')) : err)
           }
         }}
       />
       <Button icon={<ArrowUpload20Regular />} onClick={() => input.current?.click()}>
-        Importa
+        {t('workspace.import')}
       </Button>
       {error !== null && <ErrorBar error={error} />}
     </>
@@ -146,10 +150,11 @@ export function WorkspacePage() {
   const entities = useEntities(ws)
   const rulesets = useRulesets(ws)
   const navigate = useNavigate()
+  const { t } = useI18n()
 
   return (
     <Page
-      title={`Workspace ${ws}`}
+      title={t('workspace.title', { ws })}
       actions={
         <>
           <ImportButton ws={ws} />
@@ -160,11 +165,11 @@ export function WorkspacePage() {
     >
       <section className="section">
         <Text as="h2" size={500} weight="semibold">
-          Rule set
+          {t('workspace.rulesets')}
         </Text>
         {rulesets.isLoading && <Spinner size="tiny" />}
         <ErrorBar error={rulesets.error} />
-        {rulesets.data?.length === 0 && <Text>Nessun rule set: creane uno dopo aver definito un'entità.</Text>}
+        {rulesets.data?.length === 0 && <Text>{t('workspace.noRulesets')}</Text>}
         <div className="card-grid">
           {rulesets.data?.map((r) => (
             <Card key={r.key} className="clickable" onClick={() => navigate(`/w/${ws}/rulesets/${r.key}`)}>
@@ -179,11 +184,11 @@ export function WorkspacePage() {
       </section>
       <section className="section">
         <Text as="h2" size={500} weight="semibold">
-          Entità e schemi
+          {t('workspace.entities')}
         </Text>
         {entities.isLoading && <Spinner size="tiny" />}
         <ErrorBar error={entities.error} />
-        {entities.data?.length === 0 && <Text>Nessuna entità.</Text>}
+        {entities.data?.length === 0 && <Text>{t('workspace.noEntities')}</Text>}
         <div className="card-grid">
           {entities.data?.map((e) => (
             <Card key={e.key} className="clickable" onClick={() => navigate(`/w/${ws}/entities/${e.key}`)}>

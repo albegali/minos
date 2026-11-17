@@ -2,6 +2,7 @@ import { Button, Checkbox, Dropdown, Input, Option, Tooltip } from '@fluentui/re
 import { Add16Regular, Dismiss16Regular } from '@fluentui/react-icons'
 
 import { JsonField } from '../components/forms'
+import { type Key, useI18n } from '../i18n'
 import { ConditionBuilder } from './ConditionBuilder'
 import {
   blankComparison,
@@ -19,13 +20,13 @@ import { elementSchema } from './schemaPaths'
 
 export type Mode = 'field' | 'value' | 'aggregate' | 'function' | 'calc' | 'json'
 
-const MODE_LABEL: Record<Mode, string> = {
-  field: 'Campo',
-  value: 'Valore',
-  aggregate: 'Su una lista',
-  function: 'Funzione',
-  calc: 'Calcolo',
-  json: 'JSON',
+const MODE_LABEL: Record<Mode, Key> = {
+  field: 'expression.modeField',
+  value: 'expression.modeValue',
+  aggregate: 'expression.modeAggregate',
+  function: 'expression.modeFunction',
+  calc: 'expression.modeCalc',
+  json: 'expression.modeJson',
 }
 
 const ARITH = ['+', '-', '*', '/', '%']
@@ -81,11 +82,12 @@ export function useElementSchema(source: Expr) {
 }
 
 function ValueInput({ value, onChange, hint }: { value: Expr; onChange: (e: Expr) => void; hint?: ValueHint }) {
+  const { t } = useI18n()
   if (hint?.enum && hint.enum.length > 0) {
     const current = literalText(value)
     return (
       <Dropdown
-        aria-label="Valore"
+        aria-label={t('expression.value')}
         className="value-input"
         value={current}
         selectedOptions={[current]}
@@ -100,16 +102,16 @@ function ValueInput({ value, onChange, hint }: { value: Expr; onChange: (e: Expr
     )
   }
   if (hint?.types?.length === 1 && hint.types[0] === 'boolean') {
-    return <Checkbox label="vero" checked={value === true} onChange={(_, d) => onChange(Boolean(d.checked))} />
+    return <Checkbox label={t('expression.true')} checked={value === true} onChange={(_, d) => onChange(Boolean(d.checked))} />
   }
   const isDate = hint?.format === 'date' || hint?.format === 'date-time'
   return (
     <Input
-      aria-label="Valore"
+      aria-label={t('expression.value')}
       className="value-input"
       type={isDate ? 'date' : 'text'}
       value={isDate ? literalText(value).slice(0, 10) : literalText(value)}
-      placeholder={hint?.types?.includes('number') || hint?.types?.includes('integer') ? 'numero' : 'valore'}
+      placeholder={hint?.types?.includes('number') || hint?.types?.includes('integer') ? t('expression.numberPlaceholder') : t('expression.valuePlaceholder')}
       onChange={(_, d) => onChange(isDate ? d.value : parseLiteral(d.value, hint?.types))}
     />
   )
@@ -126,6 +128,7 @@ function ArgList({
   min: number
   max: number
 }) {
+  const { t } = useI18n()
   return (
     <div className="arg-list">
       {args.map((a, i) => (
@@ -135,7 +138,7 @@ function ArgList({
             <Button
               appearance="subtle"
               size="small"
-              aria-label="Rimuovi argomento"
+              aria-label={t('expression.removeArgument')}
               icon={<Dismiss16Regular />}
               onClick={() => onChange(args.filter((_, j) => j !== i))}
             />
@@ -144,7 +147,7 @@ function ArgList({
       ))}
       {args.length < max && (
         <Button size="small" appearance="subtle" icon={<Add16Regular />} onClick={() => onChange([...args, 0])}>
-          Argomento
+          {t('expression.argument')}
         </Button>
       )}
     </div>
@@ -167,27 +170,28 @@ function AggregateEditor({ value, onChange }: { value: { fn: string; args?: Expr
   const element = useElementSchema(source)
   const inner = itemScope(scope, element)
   const set = (patch: Record<string, unknown>) => onChange(compact({ ...value, ...patch }))
+  const { t, loc } = useI18n()
   return (
     <div className="aggregate">
       <div className="inline">
         <Dropdown
-          aria-label="Funzione sulla lista"
+          aria-label={t('expression.listFunction')}
           className="fn-select"
-          value={aggregates.find((f) => f.fn === value.fn)?.label.it ?? value.fn}
+          value={loc(aggregates.find((f) => f.fn === value.fn)?.label) || value.fn}
           selectedOptions={[value.fn]}
           onOptionSelect={(_, d) => set({ fn: d.optionValue })}
         >
           {aggregates.map((f) => (
             <Option key={f.fn} value={f.fn}>
-              {f.label.it ?? f.fn}
+              {loc(f.label) || f.fn}
             </Option>
           ))}
         </Dropdown>
-        <span className="muted">di</span>
+        <span className="muted">{t('expression.of')}</span>
         {isRef(source) ? (
           <FieldPicker
-            ariaLabel="Lista"
-            placeholder="Scegli una lista"
+            ariaLabel={t('expression.list')}
+            placeholder={t('expression.chooseList')}
             value={source.ref}
             filter={isList}
             onChange={(ref) => set({ args: [{ ref }] })}
@@ -198,7 +202,7 @@ function AggregateEditor({ value, onChange }: { value: { fn: string; args?: Expr
       </div>
       <ScopeContext.Provider value={inner}>
         <Checkbox
-          label="Solo gli elementi che rispettano una condizione"
+          label={t('expression.onlyMatching')}
           checked={value.where !== undefined}
           onChange={(_, d) => set({ where: d.checked ? blankComparison() : undefined })}
         />
@@ -210,7 +214,7 @@ function AggregateEditor({ value, onChange }: { value: { fn: string; args?: Expr
         {value.fn !== 'count' && value.fn !== 'filter' && (
           <>
             <Checkbox
-              label="Usa un valore calcolato da ogni elemento"
+              label={t('expression.useSelect')}
               checked={value.select !== undefined}
               onChange={(_, d) => set({ select: d.checked ? { ref: '$.item' } : undefined })}
             />
@@ -244,6 +248,7 @@ export function ExpressionEditor({
   compact?: boolean
 }) {
   const scope = useScope()
+  const { t, loc } = useI18n()
   const aggregateNames = new Set(scope.catalog.functions.filter((f) => f.aggregate).map((f) => f.fn))
   const mode = modeOf(value, aggregateNames)
   const allowed = modes ?? (['field', 'value', 'aggregate', 'function', 'calc', 'json'] as Mode[])
@@ -263,9 +268,9 @@ export function ExpressionEditor({
     body = (
       <div className="stack-tight">
         <Dropdown
-          aria-label="Funzione"
+          aria-label={t('expression.function')}
           className="fn-select"
-          value={spec?.label.it ?? value.fn}
+          value={spec ? loc(spec.label) : value.fn}
           selectedOptions={[value.fn]}
           onOptionSelect={(_, d) => {
             const next = fns.find((f) => f.fn === d.optionValue)
@@ -277,7 +282,7 @@ export function ExpressionEditor({
         >
           {fns.map((f) => (
             <Option key={f.fn} value={f.fn}>
-              {f.label.it ?? f.fn}
+              {loc(f.label) || f.fn}
             </Option>
           ))}
         </Dropdown>
@@ -288,7 +293,7 @@ export function ExpressionEditor({
     body = (
       <div className="stack-tight">
         <Dropdown
-          aria-label="Operazione"
+          aria-label={t('expression.operation')}
           className="op-select"
           value={value.op}
           selectedOptions={[value.op]}
@@ -304,18 +309,18 @@ export function ExpressionEditor({
       </div>
     )
   } else {
-    body = <JsonField label="Espressione (JSON)" value={value} onValid={onChange} rows={compact ? 3 : 6} />
+    body = <JsonField label={t('expression.json')} value={value} onValid={onChange} rows={compact ? 3 : 6} />
   }
 
   return (
     <div className={compact ? 'expr expr-compact' : 'expr'}>
       {choices.length > 1 && (
-        <Tooltip content="Tipo di espressione" relationship="label">
+        <Tooltip content={t('expression.type')} relationship="label">
           <Dropdown
-            aria-label="Tipo di espressione"
+            aria-label={t('expression.type')}
             className="mode-select"
             size="small"
-            value={MODE_LABEL[mode]}
+            value={t(MODE_LABEL[mode])}
             selectedOptions={[mode]}
             onOptionSelect={(_, d) => {
               const m = d.optionValue as Mode
@@ -324,7 +329,7 @@ export function ExpressionEditor({
           >
             {choices.map((m) => (
               <Option key={m} value={m}>
-                {MODE_LABEL[m]}
+                {t(MODE_LABEL[m])}
               </Option>
             ))}
           </Dropdown>

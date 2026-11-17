@@ -13,6 +13,7 @@ import { Add16Regular, Delete16Regular } from '@fluentui/react-icons'
 import { type ReactNode, useState } from 'react'
 
 import type { NodeManifest } from '../api/types'
+import { type Key, useI18n } from '../i18n'
 import type { RgdNode } from '../rgd'
 import { ConditionBuilder } from './ConditionBuilder'
 import { blankComparison, describe, type Expr } from './expr'
@@ -58,6 +59,7 @@ export function KeyExprList({
   newKey: string
 }) {
   const entries = Object.entries(value)
+  const { t } = useI18n()
   const rename = (from: string, to: string) =>
     onChange(Object.fromEntries(entries.map(([k, v]) => [k === from ? to : k, v])))
   return (
@@ -76,7 +78,7 @@ export function KeyExprList({
             </Field>
             <Button
               appearance="subtle"
-              aria-label={`Rimuovi ${k}`}
+              aria-label={t('node.remove', { name: k })}
               icon={<Delete16Regular />}
               onClick={() => onChange(Object.fromEntries(entries.filter(([key]) => key !== k)))}
             />
@@ -109,6 +111,7 @@ export function FeedbackEditor({
   title: string
 }) {
   const enabled = Boolean(value)
+  const { t } = useI18n()
   const messages: Record<string, string> =
     typeof value?.message === 'string' ? { it: value.message } : (value?.message ?? {})
   return (
@@ -123,26 +126,28 @@ export function FeedbackEditor({
       {value && (
         <div className="stack nested">
           <div className="inline">
-            <Field label="Codice">
+            <Field label={t('node.code')}>
               <Input value={value.code} onChange={(_, d) => onChange({ ...value, code: d.value })} />
             </Field>
-            <Field label="Gravità">
+            <Field label={t('node.severity')}>
               <Dropdown
-                value={{ info: 'Informazione', warning: 'Avviso', error: 'Errore' }[value.severity ?? 'error']}
+                value={t(SEVERITY_LABEL[value.severity ?? 'error'])}
                 selectedOptions={[value.severity ?? 'error']}
                 onOptionSelect={(_, d) => onChange({ ...value, severity: d.optionValue as Severity })}
               >
-                <Option value="info">Informazione</Option>
-                <Option value="warning">Avviso</Option>
-                <Option value="error">Errore</Option>
+                {(Object.keys(SEVERITY_LABEL) as Severity[]).map((s) => (
+                  <Option key={s} value={s}>
+                    {t(SEVERITY_LABEL[s])}
+                  </Option>
+                ))}
               </Dropdown>
             </Field>
           </div>
           {LOCALES.map((loc) => (
             <Field
               key={loc}
-              label={`Messaggio (${loc})`}
-              hint={loc === 'it' ? 'Inserisci valori con {{vars.nome}} o {{input.campo}}' : undefined}
+              label={t('node.messageIn', { locale: loc })}
+              hint={loc === LOCALES[0] ? t('node.templateHint') : undefined}
             >
               <Textarea
                 rows={2}
@@ -154,7 +159,7 @@ export function FeedbackEditor({
               />
             </Field>
           ))}
-          <Field label="Campo interessato" hint="Per i form dei sistemi chiamanti, es. courses">
+          <Field label={t('node.affectedField')} hint={t('node.affectedFieldHint')}>
             <Input
               value={value.path ?? ''}
               onChange={(_, d) => {
@@ -165,13 +170,13 @@ export function FeedbackEditor({
             />
           </Field>
           <Text size={200} weight="semibold">
-            Dati allegati
+            {t('node.attachedData')}
           </Text>
           <KeyExprList
             value={value.data ?? {}}
-            keyLabel="Nome"
-            addLabel="Dato"
-            newKey="valore"
+            keyLabel={t('common.name')}
+            addLabel={t('node.addData')}
+            newKey={t('node.dataKey')}
             onChange={(data) => {
               const next: FeedbackSpec = { ...value, data }
               if (Object.keys(data).length === 0) delete next.data
@@ -194,27 +199,39 @@ function FeedbackPair({ value, onChange }: { value: PairValue | undefined; onCha
     const next: PairValue = spec ? { ...value, [key]: spec } : omit({ ...value }, key)
     onChange(Object.keys(next).length > 0 ? next : undefined)
   }
+  const { t } = useI18n()
   return (
     <>
-      <FeedbackEditor title="Messaggio se fallisce" value={value?.fail} onChange={(s) => set('fail', s)} />
-      <FeedbackEditor title="Messaggio se passa" value={value?.pass} onChange={(s) => set('pass', s)} />
+      <FeedbackEditor title={t('node.failMessage')} value={value?.fail} onChange={(s) => set('fail', s)} />
+      <FeedbackEditor title={t('node.passMessage')} value={value?.pass} onChange={(s) => set('pass', s)} />
     </>
   )
 }
 
-const ON_FAIL: Record<string, string> = {
-  '': 'Predefinito (secondo la modalità)',
-  stop: 'Interrompi subito (invalid)',
-  continue: 'Registra e continua',
-  branch: 'Segui il ramo "fail"',
+const SEVERITY_LABEL: Record<Severity, Key> = {
+  info: 'node.severityInfo',
+  warning: 'node.severityWarning',
+  error: 'node.severityError',
+}
+
+type GroupOperator = NonNullable<RgdNode['operator']>
+
+const GROUP_OPERATOR: Record<GroupOperator, Key> = { and: 'node.opAnd', or: 'node.opOr', not: 'node.opNot' }
+
+const ON_FAIL: Record<string, Key> = {
+  '': 'node.onFailDefault',
+  stop: 'node.onFailStop',
+  continue: 'node.onFailContinue',
+  branch: 'node.onFailBranch',
 }
 
 function OnFail({ node, set }: { node: RgdNode; set: (n: RgdNode) => void }) {
   const current = (node.onFail as string | undefined) ?? ''
+  const { t } = useI18n()
   return (
-    <Field label="Se fallisce" hint="Il ramo fail, se collegato, viene sempre seguito">
+    <Field label={t('node.onFail')} hint={t('node.onFailHint')}>
       <Dropdown
-        value={ON_FAIL[current]}
+        value={ON_FAIL[current] ? t(ON_FAIL[current]) : current}
         selectedOptions={[current]}
         onOptionSelect={(_, d) => {
           const next = { ...node, onFail: d.optionValue || undefined }
@@ -224,7 +241,7 @@ function OnFail({ node, set }: { node: RgdNode; set: (n: RgdNode) => void }) {
       >
         {Object.entries(ON_FAIL).map(([k, label]) => (
           <Option key={k} value={k}>
-            {label}
+            {t(label)}
           </Option>
         ))}
       </Dropdown>
@@ -244,6 +261,7 @@ function asChild(c: unknown): GroupChild {
 function GroupChildren({ node, set }: { node: RgdNode; set: (n: RgdNode) => void }) {
   const children = ((node.children as unknown[] | undefined) ?? []).map(asChild)
   const [open, setOpen] = useState<number | null>(0)
+  const { t } = useI18n()
   const write = (next: GroupChild[]) =>
     set({ ...node, children: next.map((c) => (c.feedback ? c : { rule: c.rule })) })
   return (
@@ -252,12 +270,12 @@ function GroupChildren({ node, set }: { node: RgdNode; set: (n: RgdNode) => void
         <div key={i} className="rule-card">
           <div className="rule-card-head">
             <Button appearance="transparent" onClick={() => setOpen(open === i ? null : i)}>
-              Regola {i + 1}: {describe(child.rule)}
+              {t('node.rule', { n: i + 1, text: describe(child.rule) })}
             </Button>
             {children.length > 1 && (
               <Button
                 appearance="subtle"
-                aria-label={`Rimuovi regola ${i + 1}`}
+                aria-label={t('node.removeRule', { n: i + 1 })}
                 icon={<Delete16Regular />}
                 onClick={() => write(children.filter((_, j) => j !== i))}
               />
@@ -286,7 +304,7 @@ function GroupChildren({ node, set }: { node: RgdNode; set: (n: RgdNode) => void
           setOpen(children.length)
         }}
       >
-        Regola
+        {t('node.addRule')}
       </Button>
     </div>
   )
@@ -300,6 +318,7 @@ interface SwitchCase {
 function SwitchCases({ node }: { node: RgdNode }) {
   const change = useEditor((s) => s.change)
   const cases = (node.cases as SwitchCase[] | undefined) ?? []
+  const { t } = useI18n()
   const write = (next: SwitchCase[], rename?: [string, string]) =>
     change((g) => {
       let out = updateNode(g, node.id, { ...node, cases: next })
@@ -311,7 +330,7 @@ function SwitchCases({ node }: { node: RgdNode }) {
       {cases.map((c, i) => (
         <div key={c.name} className="rule-card">
           <div className="kv-head">
-            <Field label="Nome del ramo">
+            <Field label={t('node.branchName')}>
               <Input
                 defaultValue={c.name}
                 onBlur={(e) => {
@@ -324,7 +343,7 @@ function SwitchCases({ node }: { node: RgdNode }) {
             </Field>
             <Button
               appearance="subtle"
-              aria-label={`Rimuovi ramo ${c.name}`}
+              aria-label={t('node.removeBranch', { name: c.name })}
               icon={<Delete16Regular />}
               onClick={() => write(cases.filter((_, j) => j !== i))}
             />
@@ -336,14 +355,15 @@ function SwitchCases({ node }: { node: RgdNode }) {
         size="small"
         icon={<Add16Regular />}
         onClick={() => {
-          let name = `caso${cases.length + 1}`
-          for (let i = cases.length + 2; cases.some((x) => x.name === name); i++) name = `caso${i}`
+          const base = t('graph.caseName')
+          let name = `${base}${cases.length + 1}`
+          for (let i = cases.length + 2; cases.some((x) => x.name === name); i++) name = `${base}${i}`
           write([...cases, { name, when: blankComparison() }])
         }}
       >
-        Ramo
+        {t('node.addBranch')}
       </Button>
-      <Text size={200}>Il primo ramo vero vince; se nessuno è vero si segue "default".</Text>
+      <Text size={200}>{t('node.switchHint')}</Text>
     </div>
   )
 }
@@ -352,31 +372,32 @@ export function NodePanel({ node, manifest }: { node: RgdNode; manifest?: NodeMa
   const change = useEditor((s) => s.change)
   const select = useEditor((s) => s.select)
   const set = (next: RgdNode) => change((g) => updateNode(g, node.id, next))
+  const { t, loc } = useI18n()
 
   return (
     <div className="stack node-panel">
       <div className="panel-title">
         <Text size={500} weight="semibold">
-          {manifest?.label.it ?? node.type}
+          {manifest ? loc(manifest.label) : node.type}
         </Text>
         <Text size={200} className="muted">
-          {manifest?.description.it}
+          {loc(manifest?.description)}
         </Text>
       </div>
       <div className="inline">
-        <Field label="Identificativo">
+        <Field label={t('node.id')}>
           <Input value={node.id} readOnly />
         </Field>
-        <Field label="Etichetta">
+        <Field label={t('node.label')}>
           <Input value={node.label ?? ''} onChange={(_, d) => set({ ...node, label: d.value })} />
         </Field>
       </div>
 
-      {node.type === 'start' && <Text>Il punto di ingresso: collega la sua uscita al primo controllo.</Text>}
+      {node.type === 'start' && <Text>{t('node.startHint')}</Text>}
 
       {node.type === 'condition' && (
         <>
-          <Section title="Condizione">
+          <Section title={t('node.condition')}>
             <ConditionBuilder root value={node.condition} onChange={(condition) => set({ ...node, condition })} />
           </Section>
           <OnFail node={node} set={set} />
@@ -395,29 +416,31 @@ export function NodePanel({ node, manifest }: { node: RgdNode; manifest?: NodeMa
       {node.type === 'group' && (
         <>
           <div className="inline">
-            <Field label="Combinazione">
+            <Field label={t('node.combination')}>
               <Dropdown
-                value={{ and: 'Tutte vere (AND)', or: 'Almeno una (OR)', not: 'Non tutte (NOT)' }[node.operator ?? 'and']}
+                value={t(GROUP_OPERATOR[node.operator ?? 'and'])}
                 selectedOptions={[node.operator ?? 'and']}
                 onOptionSelect={(_, d) => set({ ...node, operator: d.optionValue as RgdNode['operator'] })}
               >
-                <Option value="and">Tutte vere (AND)</Option>
-                <Option value="or">Almeno una (OR)</Option>
-                <Option value="not">Non tutte (NOT)</Option>
+                {(Object.keys(GROUP_OPERATOR) as GroupOperator[]).map((op) => (
+                  <Option key={op} value={op}>
+                    {t(GROUP_OPERATOR[op])}
+                  </Option>
+                ))}
               </Dropdown>
             </Field>
-            <Field label="Valutazione">
+            <Field label={t('node.evaluation')}>
               <Dropdown
-                value={node.evaluate === 'all' ? 'Tutte le regole' : 'Fino al primo esito decisivo'}
+                value={node.evaluate === 'all' ? t('node.evaluateAll') : t('node.evaluateShortCircuit')}
                 selectedOptions={[(node.evaluate as string | undefined) ?? 'short_circuit']}
                 onOptionSelect={(_, d) => set({ ...node, evaluate: d.optionValue })}
               >
-                <Option value="all">Tutte le regole</Option>
-                <Option value="short_circuit">Fino al primo esito decisivo</Option>
+                <Option value="all">{t('node.evaluateAll')}</Option>
+                <Option value="short_circuit">{t('node.evaluateShortCircuit')}</Option>
               </Dropdown>
             </Field>
           </div>
-          <Section title="Regole">
+          <Section title={t('node.rules')}>
             <GroupChildren node={node} set={set} />
           </Section>
           <OnFail node={node} set={set} />
@@ -466,20 +489,20 @@ export function NodePanel({ node, manifest }: { node: RgdNode; manifest?: NodeMa
       )}
 
       {node.type === 'set' && (
-        <Section title="Variabili calcolate">
+        <Section title={t('node.computed')}>
           <KeyExprList
             value={(node.assign as Record<string, Expr> | undefined) ?? {}}
-            keyLabel="Variabile"
-            addLabel="Variabile"
-            newKey="variabile"
+            keyLabel={t('node.variable')}
+            addLabel={t('node.variable')}
+            newKey={t('node.variableKey')}
             onChange={(assign) => set({ ...node, assign })}
           />
-          <Text size={200}>Disponibili negli altri nodi come $.vars.nome.</Text>
+          <Text size={200}>{t('node.varsHint')}</Text>
         </Section>
       )}
 
       {node.type === 'switch' && (
-        <Section title="Rami">
+        <Section title={t('node.branches')}>
           <SwitchCases node={node} />
         </Section>
       )}
@@ -487,12 +510,12 @@ export function NodePanel({ node, manifest }: { node: RgdNode; manifest?: NodeMa
       {node.type === 'feedback' && (
         <>
           <FeedbackEditor
-            title="Messaggio"
+            title={t('node.message')}
             value={node.feedback as FeedbackSpec | undefined}
             onChange={(feedback) => feedback && set({ ...node, feedback })}
           />
           <Checkbox
-            label="Solo se una condizione è vera"
+            label={t('node.onlyWhen')}
             checked={node.when !== undefined}
             onChange={(_, d) => {
               const next = { ...node, when: d.checked ? blankComparison() : undefined }
@@ -508,23 +531,25 @@ export function NodePanel({ node, manifest }: { node: RgdNode; manifest?: NodeMa
 
       {node.type === 'end' && (
         <>
-          <Field label="Esito" hint="Un esito valido diventa non valido se sono stati emessi errori">
+          <Field label={t('node.outcome')} hint={t('node.outcomeHint')}>
             <Dropdown
-              value={{ valid: 'Valido', invalid: 'Non valido', warning: 'Valido con avvisi' }[node.outcome ?? 'valid']}
+              value={t(`outcome.${node.outcome ?? 'valid'}`)}
               selectedOptions={[node.outcome ?? 'valid']}
               onOptionSelect={(_, d) => set({ ...node, outcome: d.optionValue as RgdNode['outcome'] })}
             >
-              <Option value="valid">Valido</Option>
-              <Option value="invalid">Non valido</Option>
-              <Option value="warning">Valido con avvisi</Option>
+              {(['valid', 'invalid', 'warning'] as const).map((o) => (
+                <Option key={o} value={o}>
+                  {t(`outcome.${o}`)}
+                </Option>
+              ))}
             </Dropdown>
           </Field>
-          <Section title="Output restituito">
+          <Section title={t('node.output')}>
             <KeyExprList
               value={(node.output as Record<string, Expr> | undefined) ?? {}}
-              keyLabel="Chiave"
-              addLabel="Valore in output"
-              newKey="valore"
+              keyLabel={t('common.key')}
+              addLabel={t('node.addOutput')}
+              newKey={t('node.outputKey')}
               onChange={(output) => {
                 const next: RgdNode = { ...node, output }
                 if (Object.keys(output).length === 0) delete next.output
@@ -544,7 +569,7 @@ export function NodePanel({ node, manifest }: { node: RgdNode; manifest?: NodeMa
             select(null)
           }}
         >
-          Elimina nodo
+          {t('node.delete')}
         </Button>
       )}
     </div>

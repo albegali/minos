@@ -2,6 +2,7 @@ import { Combobox, Option, OptionGroup } from '@fluentui/react-components'
 import { createContext, useContext, useMemo, useState } from 'react'
 
 import type { Catalog, JsonSchema } from '../api/types'
+import { type Key, type Params, t, useI18n } from '../i18n'
 import { describeTypes, type FieldInfo, listFields } from './schemaPaths'
 
 /** What expressions in the current position can reference. */
@@ -40,33 +41,36 @@ export interface FieldChoice {
   enum?: unknown[]
 }
 
-export function allChoices(scope: FieldScope): { group: string; items: (FieldChoice & { hint: string })[] }[] {
+export function allChoices(
+  scope: FieldScope,
+  tr: (key: Key, params?: Params) => string = t,
+): { group: string; items: (FieldChoice & { hint: string })[] }[] {
   const fromFields = (fields: FieldInfo[]) => fields.map((f) => ({ ...f, hint: describeTypes(f) }))
   const groups = []
   if (scope.item) {
     groups.push({
-      group: 'Elemento corrente',
-      items: [{ path: '$.item', types: [], hint: 'l’elemento intero' }, ...fromFields(scope.item.fields)],
+      group: tr('fields.currentItem'),
+      items: [{ path: '$.item', types: [], hint: tr('fields.wholeItem') }, ...fromFields(scope.item.fields)],
     })
   }
   if (scope.outer) {
     groups.push({
-      group: 'Elemento esterno',
-      items: [{ path: '$.outer', types: [], hint: 'l’elemento intero' }, ...fromFields(scope.outer.fields.map((f) => ({ ...f, path: f.path.replace(/^\$\.item/, '$.outer') })))],
+      group: tr('fields.outerItem'),
+      items: [{ path: '$.outer', types: [], hint: tr('fields.wholeItem') }, ...fromFields(scope.outer.fields.map((f) => ({ ...f, path: f.path.replace(/^\$\.item/, '$.outer') })))],
     })
   }
-  groups.push({ group: 'Oggetto in input', items: fromFields(scope.input) })
+  groups.push({ group: tr('fields.input'), items: fromFields(scope.input) })
   groups.push({
-    group: 'Variabili',
-    items: scope.vars.map((v) => ({ path: `$.vars.${v}`, types: [], hint: 'costante o calcolo' })),
+    group: tr('fields.vars'),
+    items: scope.vars.map((v) => ({ path: `$.vars.${v}`, types: [], hint: tr('fields.varsHint') })),
   })
   groups.push({
-    group: 'Esiti dei nodi',
+    group: tr('fields.nodes'),
     items: scope.nodes.map((n) => ({ path: `$.nodes.${n}.outcome`, types: ['string'], hint: 'pass / fail' })),
   })
   groups.push({
-    group: 'Metadati',
-    items: scope.catalog.metaKeys.map((k) => ({ path: `$.meta.${k}`, types: ['string'], hint: 'della richiesta' })),
+    group: tr('fields.meta'),
+    items: scope.catalog.metaKeys.map((k) => ({ path: `$.meta.${k}`, types: ['string'], hint: tr('fields.metaHint') })),
   })
   return groups
 }
@@ -87,8 +91,8 @@ export function FieldPicker({
   value,
   onChange,
   filter,
-  placeholder = 'Scegli un campo',
-  ariaLabel = 'Campo',
+  placeholder,
+  ariaLabel,
 }: {
   value: string
   onChange: (path: string) => void
@@ -97,23 +101,24 @@ export function FieldPicker({
   ariaLabel?: string
 }) {
   const scope = useScope()
+  const { t: tr } = useI18n()
   const [query, setQuery] = useState<string | null>(null)
   const groups = useMemo(() => {
     const q = (query ?? '').toLowerCase()
-    return allChoices(scope)
+    return allChoices(scope, tr)
       .map((g) => ({
         ...g,
         items: g.items.filter((i) => (!filter || filter(i)) && (!q || i.path.toLowerCase().includes(q))),
       }))
       .filter((g) => g.items.length > 0)
-  }, [scope, query, filter])
+  }, [scope, query, filter, tr])
 
   return (
     <Combobox
-      aria-label={ariaLabel}
+      aria-label={ariaLabel ?? tr('fields.label')}
       className="field-picker"
       freeform
-      placeholder={placeholder}
+      placeholder={placeholder ?? tr('fields.placeholder')}
       value={query ?? value}
       selectedOptions={value ? [value] : []}
       onChange={(e) => setQuery(e.target.value)}
