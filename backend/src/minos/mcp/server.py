@@ -226,11 +226,17 @@ def build_server(api: ApiFactory, studio_url: str) -> MCPServer:
         """Create the entity a rule set validates, with its first schema version inferred from
         `samples` (preferred) or given as `json_schema`. A `json_schema` may use other entities
         as field types with `{"$ref": "entity:<key>"}` (see `guide`)."""
-        await post(
-            ctx,
-            f"/workspaces/{_p(workspace)}/entities",
-            {"key": key, "name": name, "description": description},
-        )
+        entities = f"/workspaces/{_p(workspace)}/entities"
+        existing = {e["key"] for e in await get(ctx, entities)}
+        if key in existing:
+            # A previous attempt may have created the entity and then failed on its schema:
+            # retrying completes it, but an entity that already has a schema is not touched.
+            if await get(ctx, f"{entities}/{_p(key)}/schemas"):
+                raise ToolError(
+                    f"entity {key!r} already exists: use update_entity_schema to change it"
+                )
+        else:
+            await post(ctx, entities, {"key": key, "name": name, "description": description})
         sv = await add_schema(ctx, workspace, key, samples, json_schema)
         return {
             "entity": key,
@@ -274,7 +280,11 @@ def build_server(api: ApiFactory, studio_url: str) -> MCPServer:
         path = rs_path(workspace, ruleset)
         info: Json = await get(ctx, path)
         draft = await get(ctx, f"{path}/draft")
-        info["draft"] = {"graph": draft["graph"], "schemaVersion": draft["schemaVersion"]}
+        info["draft"] = {
+            "graph": draft["graph"],
+            "schemaVersion": draft["schemaVersion"],
+            "lockVersion": draft["lockVersion"],
+        }
         info["tests"] = [t["name"] for t in await get(ctx, f"{path}/tests")]
         info["studioUrl"] = ruleset_url(workspace, ruleset)
         return info
@@ -314,13 +324,21 @@ def build_server(api: ApiFactory, studio_url: str) -> MCPServer:
         use_latest_schema: Annotated[
             bool, Field(description="Move the draft to the entity's latest schema version")
         ] = False,
+        lock_version: Annotated[
+            int | None,
+            Field(description="draft.lockVersion from get_ruleset: the save fails if it changed"),
+        ] = None,
     ) -> Json:
         """Replace the draft graph of a rule set (send the whole graph, from `get_ruleset`).
-        Fails if someone saved the draft meanwhile: read it again and reapply the change.
+        Pass `lock_version` from `get_ruleset`: if someone saved the draft since, the update
+        fails instead of overwriting their change; read it again and reapply yours.
         Returns the validation result and, when valid, the test results."""
         body: Json = {"graph": _graph(graph)}
         path = rs_path(workspace, ruleset)
-        current = await call(ctx, "GET", f"{path}/draft")
+        if lock_version is not None:
+            etag = f'"{lock_version}"'
+        else:
+            etag = (await call(ctx, "GET", f"{path}/draft")).headers["ETag"]
         if use_latest_schema:
             info = await get(ctx, path)
             versions = await get(
@@ -328,7 +346,7 @@ def build_server(api: ApiFactory, studio_url: str) -> MCPServer:
             )
             if versions:
                 body["schemaVersion"] = max(v["version"] for v in versions)
-        await call(ctx, "PUT", f"{path}/draft", body, {"If-Match": current.headers["ETag"]})
+        await call(ctx, "PUT", f"{path}/draft", body, {"If-Match": etag})
         return await checked(ctx, workspace, ruleset)
 
     @mcp.tool(annotations=read_only)
@@ -377,14 +395,18 @@ def build_server(api: ApiFactory, studio_url: str) -> MCPServer:
             ),
         ],
         reference_date: Annotated[str | None, Field(description="YYYY-MM-DD")] = None,
+        replace: Annotated[
+            bool, Field(description="Replace a test with the same name (to fix a wrong test)")
+        ] = False,
     ) -> Json:
         """Save a regression test on the rule set. Tests must pass for the rule set to be
-        published."""
-        await post(
-            ctx,
-            f"{rs_path(workspace, ruleset)}/tests",
-            {"name": name, "input": input, "expected": expected, "referenceDate": reference_date},
-        )
+        published. With replace=true an existing test of that name is overwritten."""
+        body = {"name": name, "input": input, "expected": expected, "referenceDate": reference_date}
+        path = f"{rs_path(workspace, ruleset)}/tests"
+        if replace:
+            await call(ctx, "PUT", f"{path}/{_p(name)}", body)
+        else:
+            await post(ctx, path, body)
         return {"test": name, "studioUrl": ruleset_url(workspace, ruleset)}
 
     @mcp.tool(annotations=read_only)

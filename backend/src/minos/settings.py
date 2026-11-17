@@ -41,6 +41,13 @@ def _number(name: str, default: float, minimum: float) -> float:
     return value
 
 
+def _hosts(raw: str | None) -> tuple[str, ...]:
+    local = ("localhost", "127.0.0.1", "::1")
+    if not raw:
+        return local
+    return local + tuple(h.strip().lower() for h in raw.split(",") if h.strip())
+
+
 def _database_url(raw: str | None) -> str | None:
     if not raw:
         return None
@@ -66,6 +73,10 @@ class Settings:
     """Where Minos Studio is reachable: the MCP server links drafts there (MINOS_STUDIO_URL)."""
     exec_time_limit_ms: float = 1000
     """Wall-clock budget of one execution, sub-rule sets included (MINOS_EXEC_TIME_LIMIT_MS)."""
+    allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1", "::1")
+    """Host names an *open* installation answers to (MINOS_ALLOWED_HOSTS, comma-separated;
+    ``*`` for any): a web page cannot reach it through DNS rebinding. Not checked when API
+    keys are required."""
     publish_requires_tests: bool = False
     """Refuse to publish a rule set without tests (MINOS_PUBLISH_REQUIRES_TESTS); recommended
     in production."""
@@ -84,4 +95,5 @@ class Settings:
             studio_url=os.environ.get("MINOS_STUDIO_URL") or "http://localhost:8080",
             exec_time_limit_ms=_number("MINOS_EXEC_TIME_LIMIT_MS", 1000, minimum=1),
             publish_requires_tests=_bool("MINOS_PUBLISH_REQUIRES_TESTS", False),
+            allowed_hosts=_hosts(os.environ.get("MINOS_ALLOWED_HOSTS")),
         )

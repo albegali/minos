@@ -23,6 +23,8 @@ from minos.cli import create_admin_key, main
 from minos.control.keys import generate_key, well_formed
 from minos.settings import Settings
 
+from .conftest import TEST_HOSTS
+
 WS = "/v1/workspaces/aurora"
 RS = f"{WS}/rulesets/studyplan-emba"
 EXEC = "/v1/exec/aurora/studyplan-emba"
@@ -34,6 +36,7 @@ def settings(url: str, **overrides: Any) -> Settings:
         "rulesets_dir": None,
         "require_auth": True,
         "poll_interval_s": 0.2,
+        "allowed_hosts": TEST_HOSTS,
     }
     base.update(overrides)
     return Settings(**base)
@@ -86,6 +89,14 @@ async def setup_aurora(
     r = await c.post(f"{WS}/api-keys", json={"name": "dynamics", "scopes": ["exec"]}, headers=admin)
     assert r.status_code == 201, r.text
     return {"X-Api-Key": r.json()["key"]}
+
+
+async def touch_draft(c: httpx.AsyncClient, admin: dict[str, str]) -> None:
+    """Change the draft, so that the next publish has something new to freeze."""
+    draft = (await c.get(f"{RS}/draft", headers=admin)).json()
+    graph = {**draft["graph"], "constants": {**draft["graph"].get("constants", {}), "rev": 1}}
+    r = await c.put(f"{RS}/draft", json={"graph": graph}, headers=admin)
+    assert r.status_code == 200, r.text
 
 
 async def test_full_lifecycle(
@@ -447,6 +458,7 @@ async def test_polling_repairs_missed_notifications(
     c = client
     exec_key = await setup_aurora(c, admin, aurora_graph, [valid_plan])
     await c.post(f"{RS}/publish", json={"promoteTo": "prod"}, headers=admin)
+    await touch_draft(c, admin)
     await c.post(f"{RS}/publish", json={"bump": "patch"}, headers=admin)
     rt = c.app.state.runtime  # type: ignore[attr-defined]
 
@@ -503,7 +515,7 @@ async def test_split_apps(clean_db: str) -> None:
         mgmt.router.lifespan_context(mgmt),
         exe.router.lifespan_context(exe),
         httpx.AsyncClient(transport=httpx.ASGITransport(app=mgmt), base_url="http://m") as m,
-        httpx.AsyncClient(transport=httpx.ASGITransport(app=exe), base_url="http://e") as e,
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=exe), base_url="http://m") as e,
     ):
         r = await m.post("/v1/workspaces", json={"slug": "a", "name": "A"}, headers=headers)
         assert r.status_code == 201
@@ -539,7 +551,7 @@ async def test_node_types_and_cors(clean_db: str, admin: dict[str, str]) -> None
     )
     async with (
         exe.router.lifespan_context(exe),
-        httpx.AsyncClient(transport=httpx.ASGITransport(app=exe), base_url="http://e") as e,
+        httpx.AsyncClient(transport=httpx.ASGITransport(app=exe), base_url="http://m") as e,
     ):
         r = await e.get("/v1/health", headers={"Origin": "http://studio.example"})
         assert r.headers["access-control-allow-origin"] == "http://studio.example"
@@ -680,6 +692,7 @@ async def test_exec_openapi_follows_publications(
     assert "SP_CFU_MIN" in doc["paths"][path]["post"]["description"]
 
     # a new version promoted to another environment gets its own operation
+    await touch_draft(c, admin)
     await c.post(f"{RS}/publish", json={"bump": "minor", "promoteTo": "test"}, headers=admin)
     await eventually(lambda: listed(f"{path}@test", "0.2.0"))
     assert await listed(path, "0.1.0")
@@ -817,3 +830,62 @@ async def test_metrics_health_and_reserved_slug(
     # API-02: the file-served namespace cannot be taken by a workspace
     r = await c.post("/v1/workspaces", json={"slug": "local", "name": "L"}, headers=admin)
     assert r.status_code == 422 and "reserved" in r.json()["detail"]
+
+
+async def test_publishing_an_unchanged_draft_is_idempotent(
+    client: httpx.AsyncClient,
+    admin: dict[str, str],
+    aurora_graph: dict[str, Any],
+    valid_plan: dict[str, Any],
+) -> None:
+    # FN-02: a retried publish (CI timeout) creates no duplicate version
+    c = client
+    await setup_aurora(c, admin, aurora_graph, [valid_plan])
+    first = await c.post(f"{RS}/publish", json={}, headers=admin)
+    assert first.status_code == 201 and first.json()["created"] is True
+    again = await c.post(f"{RS}/publish", json={"promoteTo": "prod"}, headers=admin)
+    assert again.status_code == 200
+    assert again.json()["version"] == first.json()["version"]
+    assert again.json()["created"] is False and again.json()["promotedTo"] == "prod"
+    assert len((await c.get(f"{RS}/versions", headers=admin)).json()) == 1
+    await touch_draft(c, admin)
+    assert (await c.post(f"{RS}/publish", json={}, headers=admin)).status_code == 201
+
+
+async def test_tests_can_be_replaced_and_versions_withdrawn(
+    client: httpx.AsyncClient,
+    admin: dict[str, str],
+    aurora_graph: dict[str, Any],
+    valid_plan: dict[str, Any],
+) -> None:
+    c = client
+    exec_key = await setup_aurora(c, admin, aurora_graph, [valid_plan])
+    # FN-13: a wrong test is fixed in place
+    wrong = {"name": "x", "input": valid_plan, "expected": {"outcome": "invalid"}}
+    r = await c.put(f"{RS}/tests/plan%20ok", json=wrong, headers=admin)
+    assert r.status_code == 201 and r.json() == {"name": "plan ok", "created": True}
+    assert (await c.post(f"{RS}/publish", json={}, headers=admin)).status_code == 422
+    right = {**wrong, "expected": {"outcome": "valid"}}
+    r = await c.put(f"{RS}/tests/plan%20ok", json=right, headers=admin)
+    assert r.status_code == 200 and r.json()["created"] is False
+    tests = (await c.get(f"{RS}/tests", headers=admin)).json()
+    assert [(t["name"], t["expected"]) for t in tests] == [("plan ok", {"outcome": "valid"})]
+
+    # FN-01: a version in use cannot be withdrawn; once unused it stops being executable
+    v1 = (await c.post(f"{RS}/publish", json={"promoteTo": "prod"}, headers=admin)).json()
+    await touch_draft(c, admin)
+    v2 = (await c.post(f"{RS}/publish", json={}, headers=admin)).json()
+    r = await c.post(f"{RS}/versions/{v1['version']}/archive", headers=admin)
+    assert r.status_code == 409 and "prod" in r.json()["detail"]
+    url = f"/v1/exec/aurora/studyplan-emba/versions/{v2['version']}"
+    assert (await c.post(url, json={"input": valid_plan}, headers=exec_key)).status_code == 200
+    r = await c.post(f"{RS}/versions/{v2['version']}/archive", headers=admin)
+    assert r.status_code == 200 and r.json()["status"] == "archived"
+
+    async def withdrawn() -> bool:
+        res = await c.post(url, json={"input": valid_plan}, headers=exec_key)
+        return res.status_code == 404
+
+    await eventually(withdrawn)
+    body = {"version": v2["version"]}
+    assert (await c.put(f"{RS}/aliases/test", json=body, headers=admin)).status_code == 409

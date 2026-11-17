@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -13,14 +14,18 @@ from minos.api.app import create_app
 from minos.api.exec_docs import embed_schema
 from minos.settings import Settings, SettingsError
 
-from .conftest import EXAMPLES, graph
+from .conftest import EXAMPLES, TEST_HOSTS, graph
 
 EMBA = "/v1/exec/local/aurora.studyplan.emba"
 
 
 def files(directory: Path) -> Settings:
     return Settings(
-        database_url=None, rulesets_dir=directory, require_auth=False, poll_interval_s=30
+        database_url=None,
+        rulesets_dir=directory,
+        require_auth=False,
+        poll_interval_s=30,
+        allowed_hosts=TEST_HOSTS,
     )
 
 
@@ -219,3 +224,15 @@ def test_settings_refuse_unusable_values(
     monkeypatch.setenv(name, value)
     with pytest.raises(SettingsError, match=name):
         Settings.from_env()
+
+
+def test_open_installation_answers_only_to_its_host_names() -> None:
+    # SEC-08: a page served from another name (DNS rebinding) is refused
+    with TestClient(create_app(files(EXAMPLES / "rulesets"))) as client:
+        assert client.get("/v1/health").status_code == 200
+        res = client.get("/v1/health", headers={"Host": "evil.example:8000"})
+        assert res.status_code == 421
+        assert client.get("/v1/health", headers={"Host": "[::1]:8000"}).status_code == 200
+    anyone = dataclasses.replace(files(EXAMPLES / "rulesets"), allowed_hosts=("*",))
+    with TestClient(create_app(anyone)) as client:
+        assert client.get("/v1/health", headers={"Host": "evil.example"}).status_code == 200

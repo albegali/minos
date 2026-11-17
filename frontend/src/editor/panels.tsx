@@ -301,9 +301,11 @@ export function VersionsPanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
           try {
             const v = await publish(ws, rs, { bump, notes: notes || undefined, promoteTo: promoteTo || undefined })
             setMessage(
-              promoteTo
-                ? t('versions.publishedPromoted', { version: v.version, env: promoteTo })
-                : t('versions.published', { version: v.version }),
+              v.created === false
+                ? t('versions.unchanged', { version: v.version })
+                : promoteTo
+                  ? t('versions.publishedPromoted', { version: v.version, env: promoteTo })
+                  : t('versions.published', { version: v.version }),
             )
             await refresh()
           } catch (e) {

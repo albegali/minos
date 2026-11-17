@@ -169,6 +169,9 @@ class RulesetRegistry:
         self._schedules = {**fresh, **kept}
         self.generation += 1
 
+    def drop_version(self, key: Key) -> None:
+        self._versions.pop(key, None)
+
     def put_version(self, key: Key, deployment: Deployment) -> None:
         if len(self._versions) > 1000:  # bounded: fixed-version calls are the exception
             self._versions = {}
@@ -359,7 +362,12 @@ class DbSync:
             .join(Ruleset, Ruleset.id == RulesetVersion.ruleset_id)
             .join(Workspace, Workspace.id == Ruleset.workspace_id)
             .outerjoin(SchemaVersion, SchemaVersion.id == RulesetVersion.schema_version_id)
-            .where(Workspace.slug == ws, Ruleset.key == rs, RulesetVersion.semver == semver)
+            .where(
+                Workspace.slug == ws,
+                Ruleset.key == rs,
+                RulesetVersion.semver == semver,
+                RulesetVersion.status != "archived",
+            )
         )
         async with self.sessions() as s:
             row = (await s.execute(q)).first()
@@ -416,6 +424,8 @@ class DbSync:
             self._spawn(self.reload_one(event["workspace"], event["ruleset"], event["env"]))
         elif event.get("kind") == "apikey":
             self.keys.evict(event.get("keyHash", ""))
+        elif event.get("kind") == "version":  # archived: no longer executable by number
+            self.registry.drop_version((event["workspace"], event["ruleset"], event["semver"]))
 
     def _spawn(self, coro: Any) -> None:
         task = asyncio.get_running_loop().create_task(coro)

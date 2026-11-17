@@ -374,7 +374,7 @@ def create_execution_app(settings: Settings | None = None) -> FastAPI:
     )
     install_problem_handler(app)
     install_cors(app, rt.settings)
-    install_limits(app)
+    install_limits(app, rt.settings)
     return app
 
 

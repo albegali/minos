@@ -19,6 +19,7 @@ Configuration through environment variables:
 | `MINOS_POLL_INTERVAL_S` | `30` | Periodic alias check (safety net for lost NOTIFYs), at least 1 |
 | `MINOS_EXEC_TIME_LIMIT_MS` | `1000` | Wall-clock budget of one execution, sub rule sets included (`422` beyond it) |
 | `MINOS_PUBLISH_REQUIRES_TESTS` | `false` | `true` to refuse publishing a rule set without tests (recommended in production) |
+| `MINOS_ALLOWED_HOSTS` | (local names) | Open installations (no API keys) answer only to `localhost`, `127.0.0.1`, `::1` and these comma-separated names (`421` otherwise; `*` for any), against DNS rebinding |
 | `MINOS_EXAMPLES_DIR` | the repo's `examples/` | Examples loaded by `minos.cli seed-examples` |
 | `MINOS_SEED_EXAMPLES` | `true` only in the Docker image | Loads the examples on the container's first start |
 | `MINOS_STUDIO_URL` | `http://localhost:8080` | Studio address in the links returned by the MCP server |
@@ -180,8 +181,9 @@ All paths under `/v1`. `{ws}` is the workspace slug, `{rs}` the rule set key.
 | `GET/PUT .../rulesets/{rs}/draft` | Draft with `ETag`; `PUT` with `If-Match` for optimistic locking (`412` if changed); optional `schemaVersion` |
 | `POST .../rulesets/{rs}/validate` | Compiles and type-checks: `{"valid", "issues": [{"where", "message"}], "warnings"}` |
 | `POST .../rulesets/{rs}/simulate` | Runs the draft (`full` trace by default) |
-| `GET/POST .../rulesets/{rs}/tests` · `DELETE .../tests/{name}` · `POST .../tests/run` | The rule set's test cases |
-| `POST .../rulesets/{rs}/publish` | `{"bump": "major|minor|patch", "notes"?, "promoteTo"?}`; fails with `422` if the draft does not compile or a test does not pass |
+| `GET/POST .../rulesets/{rs}/tests` · `PUT/DELETE .../tests/{name}` · `POST .../tests/run` | The rule set's test cases; `PUT` creates or replaces one. Test inputs are checked against the entity schema, as executions are |
+| `POST .../rulesets/{rs}/publish` | `{"bump": "major|minor|patch", "notes"?, "promoteTo"?}`; fails with `422` if the draft does not compile or a test does not pass (or there are none, with `MINOS_PUBLISH_REQUIRES_TESTS`). A draft identical to the latest version publishes nothing: `200` with that version and `created: false` (promoted if asked), so retries are harmless |
+| `POST .../rulesets/{rs}/versions/{v}/archive` | Withdraws a version: it can no longer be promoted nor executed by number; `409` while an environment points at it |
 | `GET .../rulesets/{rs}/versions[/{semver}]` | Published (immutable) versions |
 | `GET .../rulesets/{rs}/aliases` | Schedule per environment: `{"prod": [{"version": "1.0.0", "effectiveFrom": null}, {"version": "2.0.0", "effectiveFrom": "2027-08-01"}]}` |
 | `PUT .../aliases/{env}` | `{"version": "2.0.0", "effectiveFrom"?: "2027-08-01"}`: without a date it replaces the undated entry; with a date it adds or updates that entry. Workers update through NOTIFY |

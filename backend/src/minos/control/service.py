@@ -568,6 +568,29 @@ async def list_tests(s: AsyncSession, rs: Ruleset) -> list[TestCase]:
     )
 
 
+async def replace_test(
+    s: AsyncSession,
+    actor: str,
+    ws: Workspace,
+    rs: Ruleset,
+    name: str,
+    data: Any,
+    expected: dict[str, Any],
+    reference_date: str | None,
+) -> tuple[TestCase, bool]:
+    """Create or replace the test ``name``; returns ``(test, created)``."""
+    old = await s.scalar(
+        select(TestCase).where(TestCase.ruleset_id == rs.id, TestCase.name == name)
+    )
+    if old is not None:
+        await s.delete(old)
+        await s.flush()  # the unit of work would otherwise insert before deleting
+    tc = await add_test(s, actor, ws, rs, name, data, expected, reference_date)
+    if old is not None:
+        await audit(s, actor, "test.replace", f"{ws.slug}/{rs.key}/{name}", ws.id)
+    return tc, old is None
+
+
 async def delete_test(s: AsyncSession, actor: str, ws: Workspace, rs: Ruleset, name: str) -> None:
     tc = await s.scalar(select(TestCase).where(TestCase.ruleset_id == rs.id, TestCase.name == name))
     if tc is None:
@@ -616,6 +639,11 @@ async def run_draft_tests(s: AsyncSession, rs: Ruleset) -> dict[str, Any]:
 # --------------------------------------------------------------------------- publish & aliases
 
 
+def _content_hash(graph: dict[str, Any]) -> str:
+    """Hash of a graph's content, without the version stamp publishing adds."""
+    return canonical_hash({k: v for k, v in graph.items() if k != "version"})
+
+
 def _bump(current: tuple[int, int, int] | None, bump: Bump) -> tuple[int, int, int]:
     if current is None:
         return {"major": (1, 0, 0), "minor": (0, 1, 0), "patch": (0, 0, 1)}[bump]
@@ -648,12 +676,25 @@ async def publish(
     promote_to: str | None = None,
     *,
     require_tests: bool = False,
-) -> tuple[RulesetVersion, list[dict[str, Any]]]:
-    """Compile, test and freeze the draft as a new immutable version."""
+) -> tuple[RulesetVersion, list[dict[str, Any]], bool]:
+    """Compile, test and freeze the draft as a new immutable version.
+
+    Returns ``(version, test results, created)``. A draft identical to the latest version
+    (same graph and schema) publishes nothing: that version is returned with ``created``
+    false (and still promoted when asked), so that a retried publish is harmless.
+    """
     rs = await get_ruleset(s, ws, rs.key, for_update=True)  # serialise concurrent publishes
     draft = await get_draft(s, rs)
     sv = await _draft_schema(s, draft)
     latest = await latest_version(s, rs)
+    if (
+        latest is not None
+        and latest.schema_version_id == (sv.id if sv else None)
+        and _content_hash(latest.graph) == _content_hash(draft.graph)
+    ):
+        if promote_to:
+            await set_alias(s, actor, ws, rs, promote_to, latest.semver)
+        return latest, [], False
     numbers = _bump((latest.major, latest.minor, latest.patch) if latest else None, bump)
     semver = "{}.{}.{}".format(*numbers)
 
@@ -698,7 +739,35 @@ async def publish(
     )
     if promote_to:
         await set_alias(s, actor, ws, rs, promote_to, semver)
-    return version, tests
+    return version, tests, True
+
+
+async def archive_version(
+    s: AsyncSession, actor: str, ws: Workspace, rs: Ruleset, semver: str
+) -> RulesetVersion:
+    """Withdraw a published version: it can no longer be promoted nor executed by number.
+    Refused while an environment still points at it (move the environment first)."""
+    await _lock(s, Ruleset, rs.id)
+    version = await get_version(s, rs, semver)
+    envs = list(
+        await s.scalars(
+            select(RulesetAlias.env).where(
+                RulesetAlias.ruleset_id == rs.id, RulesetAlias.version_id == version.id
+            )
+        )
+    )
+    if envs:
+        raise Conflict(
+            f"version {semver} is in use by {', '.join(sorted(set(envs)))}: "
+            "point those environments at another version first"
+        )
+    if version.status != "archived":
+        version.status = "archived"
+        await audit(s, actor, "version.archive", f"{ws.slug}/{rs.key}@{semver}", ws.id)
+        await notify(
+            s, {"kind": "version", "workspace": ws.slug, "ruleset": rs.key, "semver": semver}
+        )
+    return version
 
 
 async def list_versions(s: AsyncSession, rs: Ruleset) -> list[RulesetVersion]:

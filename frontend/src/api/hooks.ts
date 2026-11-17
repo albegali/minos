@@ -206,7 +206,7 @@ export const publish = (
   w: string,
   r: string,
   body: { bump: 'major' | 'minor' | 'patch'; notes?: string; promoteTo?: string },
-) => api<Version & { promotedTo?: string }>(`${rs(w, r)}/publish`, { method: 'POST', body })
+) => api<Version & { promotedTo?: string; created?: boolean }>(`${rs(w, r)}/publish`, { method: 'POST', body })
 
 export const setAlias = (w: string, r: string, env: string, version: string, effectiveFrom?: string | null) =>
   api<{ env: string; version: string }>(`${rs(w, r)}/aliases/${encodeURIComponent(env)}`, {

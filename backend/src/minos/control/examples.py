@@ -204,5 +204,5 @@ async def _seed_ruleset(
             case.get("expected") or {},
             case.get("referenceDate"),
         )
-    version, _ = await svc.publish(s, ACTOR, ws, rs, "minor", "Esempio", promote_to="prod")
+    version, _, _ = await svc.publish(s, ACTOR, ws, rs, "minor", "Esempio", promote_to="prod")
     return version.semver

@@ -414,7 +414,8 @@
     "when": "When",
     "now": "Right away, with no start date (replaces the current version)",
     "fromDate": "From a date: calls with a later reference date will use this version",
-    "effectiveFrom": "In force from"
+    "effectiveFrom": "In force from",
+    "unchanged": "Nothing changed since version {version}: no new version was published."
   },
   "diff": {
     "added": "{path}: added {value}",

@@ -414,7 +414,8 @@
     "when": "Quando",
     "now": "Da subito, senza data di inizio (sostituisce la versione attuale)",
     "fromDate": "Da una data: le chiamate con data di riferimento successiva useranno questa versione",
-    "effectiveFrom": "In vigore dal"
+    "effectiveFrom": "In vigore dal",
+    "unchanged": "Nessuna modifica dalla versione {version}: non è stata pubblicata una nuova versione."
   },
   "diff": {
     "added": "{path}: aggiunto {value}",

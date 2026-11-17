@@ -489,7 +489,7 @@ def management_router(
         async with sessions.begin() as s:
             w = await workspace(s, who, ws)
             r = await svc.get_ruleset(s, w, rs)
-            version, tests = await svc.publish(
+            version, tests, created = await svc.publish(
                 s,
                 who.actor,
                 w,
@@ -501,9 +501,11 @@ def management_router(
             )
         out = _version_out(version)
         out["tests"] = tests
+        out["created"] = created
         if body.promoteTo:
             out["promotedTo"] = body.promoteTo
-        return json_response(out, 201)
+        # 200: nothing changed since this version, which is returned (and promoted if asked)
+        return json_response(out, 201 if created else 200)
 
     @router.get("/workspaces/{ws}/rulesets/{rs}/versions")
     async def versions(ws: str, rs: str, request: Request) -> Response:
@@ -520,6 +522,14 @@ def management_router(
             w = await workspace(s, who, ws)
             v = await svc.get_version(s, await svc.get_ruleset(s, w, rs), semver)
         return json_response(_version_out(v, full=True))
+
+    @router.post("/workspaces/{ws}/rulesets/{rs}/versions/{semver}/archive")
+    async def archive(ws: str, rs: str, semver: str, request: Request) -> Response:
+        who = await principal(request)
+        async with sessions.begin() as s:
+            w = await workspace(s, who, ws)
+            v = await svc.archive_version(s, who.actor, w, await svc.get_ruleset(s, w, rs), semver)
+        return json_response(_version_out(v))
 
     @router.get("/workspaces/{ws}/rulesets/{rs}/aliases")
     async def aliases(ws: str, rs: str, request: Request) -> Response:
@@ -648,6 +658,18 @@ def management_router(
             )
         return json_response({"name": t.name}, 201)
 
+    @router.put("/workspaces/{ws}/rulesets/{rs}/tests/{name}")
+    async def put_test(ws: str, rs: str, name: str, body: TestIn, request: Request) -> Response:
+        """Create or replace a test (the name in the path wins over the body's)."""
+        who = await principal(request)
+        async with sessions.begin() as s:
+            w = await workspace(s, who, ws)
+            r = await svc.get_ruleset(s, w, rs)
+            t, created = await svc.replace_test(
+                s, who.actor, w, r, name, body.input, body.expected, body.referenceDate
+            )
+        return json_response({"name": t.name, "created": created}, 201 if created else 200)
+
     @router.delete("/workspaces/{ws}/rulesets/{rs}/tests/{name}", status_code=204)
     async def delete_test(ws: str, rs: str, name: str, request: Request) -> Response:
         who = await principal(request)
@@ -708,5 +730,5 @@ def create_management_app(settings: Settings | None = None) -> FastAPI:
 
     install_error_handlers(app)
     install_cors(app, cfg)
-    install_limits(app)
+    install_limits(app, cfg)
     return app

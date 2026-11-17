@@ -146,8 +146,52 @@ class _TooLarge(Exception):
     pass
 
 
-def install_limits(app: FastAPI) -> None:
+def hostname(host: str) -> str:
+    """``localhost:8000`` -> ``localhost``; ``[::1]:8000`` -> ``::1``."""
+    if host.startswith("["):
+        end = host.find("]")
+        return host[1:end] if end > 0 else host
+    name, _, _port = host.partition(":") if host.count(":") == 1 else (host, "", "")
+    return name
+
+
+class HostCheck:
+    """ASGI middleware for open installations: answer only to the configured host names, so
+    that a web page cannot drive the API through DNS rebinding (its requests would carry the
+    attacker's host name)."""
+
+    def __init__(self, app: ASGIApp, hosts: tuple[str, ...]) -> None:
+        self.app = app
+        self.hosts = frozenset(h.lower() for h in hosts)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] == "http" and "*" not in self.hosts:
+            raw = dict(scope.get("headers") or []).get(b"host", b"").decode("latin-1").lower()
+            if hostname(raw) not in self.hosts:
+                body = orjson.dumps(
+                    {
+                        "type": "about:blank",
+                        "title": "Misdirected Request",
+                        "status": 421,
+                        "detail": f"host {raw!r} is not allowed (MINOS_ALLOWED_HOSTS)",
+                    }
+                )
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": 421,
+                        "headers": [(b"content-type", b"application/problem+json")],
+                    }
+                )
+                await send({"type": "http.response.body", "body": body})
+                return
+        await self.app(scope, receive, send)
+
+
+def install_limits(app: FastAPI, cfg: Settings | None = None) -> None:
     app.add_middleware(BodyLimit)
+    if cfg is not None and not cfg.require_auth:
+        app.add_middleware(HostCheck, hosts=cfg.allowed_hosts)
 
 
 def install_cors(app: FastAPI, cfg: Settings) -> None:

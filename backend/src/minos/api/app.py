@@ -72,7 +72,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     else:
         install_execution_handlers(app)
     install_cors(app, cfg)
-    install_limits(app)
+    install_limits(app, cfg)
     return app
 
 
