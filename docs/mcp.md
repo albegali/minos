@@ -63,7 +63,7 @@ the same scopes apply. Without a key the tools answer 401.
 | `update_entity_schema` | New schema version (for example one more field) |
 | `list_rulesets`, `get_ruleset` | Rule sets, published versions, environments, draft and tests |
 | `create_ruleset` | New rule set with the graph as a draft; returns the validation and the link |
-| `update_ruleset` | Replaces the draft (with a concurrent-edit check); validation, tests, link Pass `lock_version` (from `get_ruleset`) so that a save made meanwhile is not overwritten |
+| `update_ruleset` | Replaces the draft (with a concurrent-edit check); validation, tests, link. Pass `lock_version` (from `get_ruleset`) so that a save made meanwhile is not overwritten |
 | `validate_ruleset` | Compiles the draft against the schema: problems and warnings |
 | `simulate_ruleset` | Runs the draft on an input: outcome, messages, result, path |
 | `add_test`, `run_tests` | Saves test cases (the publication gate) and runs them on the draft |

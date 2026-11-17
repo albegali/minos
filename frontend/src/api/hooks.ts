@@ -155,6 +155,9 @@ export function useAddSchema(w: string, e: string) {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.schemas(w, e) })
       void qc.invalidateQueries({ queryKey: ['entity', w] }) // "used by" of the referenced ones
+      // Versions are immutable, but their `references[].latest` is not: every schema of the
+      // workspace may now have a newer version to move to.
+      void qc.invalidateQueries({ queryKey: ['schema', w] })
     },
   })
 }

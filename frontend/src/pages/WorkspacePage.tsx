@@ -107,6 +107,7 @@ function NewRuleset({ ws }: { ws: string }) {
 
 function ImportButton({ ws }: { ws: string }) {
   const navigate = useNavigate()
+  const rulesets = useRulesets(ws)
   const qc = useQueryClient()
   const input = useRef<HTMLInputElement>(null)
   const [error, setError] = useState<unknown>(null)
@@ -125,12 +126,34 @@ function ImportButton({ ws }: { ws: string }) {
           if (!file) return
           setError(null)
           try {
-            const result = await importBundle(ws, JSON.parse(await file.text()) as unknown)
+            const bundle = JSON.parse(await file.text()) as {
+              ruleset?: { key?: string }
+              tests?: unknown[]
+            }
+            const key = bundle.ruleset?.key
+            // An existing rule set's draft is overwritten and its tests of the same name are
+            // replaced: say so before doing it.
+            if (
+              key &&
+              rulesets.data?.some((r) => r.key === key) &&
+              !window.confirm(t('workspace.importOverwrite', { ruleset: key, count: bundle.tests?.length ?? 0 }))
+            ) {
+              return
+            }
+            const result = await importBundle(ws, bundle)
             await Promise.all([
               qc.invalidateQueries({ queryKey: keys.rulesets(ws) }),
               qc.invalidateQueries({ queryKey: keys.entities(ws) }),
               qc.invalidateQueries({ queryKey: keys.draft(ws, result.ruleset) }),
             ])
+            if (result.dependencies.length > 0) {
+              // Sub rule sets the bundle pins: the draft will not compile until they exist here.
+              window.alert(
+                t('workspace.importDependencies', {
+                  list: result.dependencies.map((d) => `${d.ruleset}@${d.version}`).join(', '),
+                }),
+              )
+            }
             navigate(`/w/${ws}/rulesets/${result.ruleset}`)
           } catch (err) {
             setError(err instanceof SyntaxError ? new Error(t('workspace.importInvalid')) : err)

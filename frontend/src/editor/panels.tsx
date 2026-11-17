@@ -99,6 +99,7 @@ export function SimulatePanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
   const setSimRequest = useEditor((s) => s.setSimRequest)
   const [error, setError] = useState<unknown>(null)
   const [busy, setBusy] = useState(false)
+  const [inputValid, setInputValid] = useState(true)
   const [testName, setTestName] = useState('')
   const qc = useQueryClient()
   const { t } = useI18n()
@@ -138,7 +139,13 @@ export function SimulatePanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
           </Dropdown>
         </Field>
       )}
-      <JsonField label={t('simulate.input')} value={input} onValid={(v) => setSimRequest({ input: v })} rows={12} />
+      <JsonField
+        label={t('simulate.input')}
+        value={input}
+        onValid={(v) => setSimRequest({ input: v })}
+        onValidity={setInputValid}
+        rows={12}
+      />
       <div className="inline">
         <Field label={t('simulate.referenceDate')}>
           <Input type="date" value={referenceDate} onChange={(_, d) => setSimRequest({ referenceDate: d.value })} />
@@ -150,7 +157,7 @@ export function SimulatePanel({ ws, rs, ensureSaved }: { ws: string; rs: string;
           </Dropdown>
         </Field>
       </div>
-      <Button appearance="primary" onClick={run} disabled={busy}>
+      <Button appearance="primary" onClick={run} disabled={busy || !inputValid}>
         {busy ? t('simulate.running') : t('simulate.run')}
       </Button>
       <ErrorBar error={error} />

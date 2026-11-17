@@ -32,7 +32,8 @@ export interface ApiResponse<T> {
   headers: Headers
 }
 
-const BASE = (import.meta.env.VITE_MINOS_API as string | undefined) ?? ''
+/** Where the API is (VITE_MINOS_API), '' when the Studio is served by the same origin. */
+export const BASE = (import.meta.env.VITE_MINOS_API as string | undefined) ?? ''
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {
   const key = useAuth.getState().apiKey

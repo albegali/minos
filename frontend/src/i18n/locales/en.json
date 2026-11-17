@@ -57,7 +57,9 @@
     "rulesets": "Rule sets",
     "noRulesets": "No rule sets: create one after defining an entity.",
     "entities": "Entities and schemas",
-    "noEntities": "No entities."
+    "noEntities": "No entities.",
+    "importOverwrite": "Rule set {ruleset} already exists here: importing replaces its draft and the {count} tests of the bundle with the same names. Continue?",
+    "importDependencies": "Imported. The rule set uses these sub rule sets, which must be imported and published here too: {list}"
   },
   "entity": {
     "title": "Entity {entity}",

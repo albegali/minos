@@ -99,12 +99,16 @@ export function JsonField({
   onValid,
   rows = 10,
   hint,
+  onValidity,
 }: {
   label: string
   value: unknown
   onValid: (value: unknown) => void
   rows?: number
   hint?: string
+  /** Told whether the text is valid JSON: while it is not, `value` is the last valid one,
+   * not what is shown, so actions using it should be disabled. */
+  onValidity?: (valid: boolean) => void
 }) {
   const serialised = JSON.stringify(value, null, 2) ?? ''
   const [text, setText] = useState(serialised)
@@ -119,6 +123,7 @@ export function JsonField({
     if (!isEcho(text, value)) {
       setText(serialised)
       setError(null)
+      onValidity?.(true)
     }
   }
 
@@ -138,9 +143,11 @@ export function JsonField({
           try {
             const parsed: unknown = JSON.parse(d.value)
             setError(null)
+            onValidity?.(true)
             onValid(parsed)
           } catch (err) {
             setError(t('common.invalidJson', { message: (err as Error).message }))
+            onValidity?.(false)
           }
         }}
       />

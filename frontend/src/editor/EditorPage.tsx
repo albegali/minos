@@ -182,7 +182,11 @@ export function EditorPage() {
       const key = e.key.toLowerCase()
       if (key === 's') {
         e.preventDefault()
-        void save()
+        // Some fields (names, branch labels, table cells) commit on blur: blur the one being
+        // typed in first, then save on the next tick, once its change is in the store.
+        const active = document.activeElement
+        if (active instanceof HTMLElement && active.closest('input, textarea')) active.blur()
+        setTimeout(() => void save(), 0)
         return
       }
       // Inside a text field the browser's own undo applies to the text.

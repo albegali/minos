@@ -215,10 +215,15 @@ export function EntityPage() {
   const [selected, setSelected] = useState<number | null>(null)
   const latest = versions.data?.[0]?.version ?? null
   const current = useSchema(ws, entity, selected ?? latest)
+  // A new version always starts from the latest one, whichever tab is being looked at:
+  // starting from an older tab would silently drop what later versions added.
+  const newest = useSchema(ws, entity, latest)
+  const base = newest.data?.schema
+  const baseLoading = latest !== null && !newest.data
   const add = useAddSchema(ws, entity)
   const { t } = useI18n()
 
-  const [chosenMode, setMode] = useState<Mode>('view')
+  const [chosenMode, setChosenMode] = useState<Mode>('view')
   // An entity without schema versions opens directly on "from samples".
   const mode: Mode = chosenMode === 'view' && versions.data?.length === 0 ? 'samples' : chosenMode
   const [samples, setSamples] = useState<unknown>([{}])
@@ -226,6 +231,11 @@ export function EntityPage() {
   const [previewError, setPreviewError] = useState<unknown>(null)
   const [manual, setManual] = useState<unknown>(null)
   const [rows, setRows] = useState<RefRow[]>([])
+  const [jsonValid, setJsonValid] = useState(true)
+  const setMode = (m: Mode) => {
+    setJsonValid(true) // the JSON box of the new mode starts from a valid value
+    setChosenMode(m)
+  }
 
   useEffect(() => {
     if (mode !== 'samples') return
@@ -249,7 +259,7 @@ export function EntityPage() {
 
   function save() {
     if (mode === 'samples') return store({ samples: Array.isArray(samples) ? samples : [samples] })
-    if (mode === 'compose') return store({ schema: applyRefRows(current.data?.schema, rows) })
+    if (mode === 'compose') return store({ schema: applyRefRows(base, rows) })
     return store({ schema: manual as JsonSchema })
   }
 
@@ -263,8 +273,9 @@ export function EntityPage() {
           <>
             <Button onClick={() => setMode('samples')}>{t('entity.newFromSamples')}</Button>
             <Button
+              disabled={baseLoading}
               onClick={() => {
-                const found = refRows(current.data?.schema)
+                const found = refRows(base)
                 setRows(found.length > 0 ? found : [{ name: '', entity: '', many: false, required: true }])
                 setMode('compose')
               }}
@@ -272,8 +283,9 @@ export function EntityPage() {
               {t('entity.compose')}
             </Button>
             <Button
+              disabled={baseLoading}
               onClick={() => {
-                setManual(current.data?.schema ?? { type: 'object', properties: {} })
+                setManual(base ?? { type: 'object', properties: {} })
                 setMode('manual')
               }}
             >
@@ -286,7 +298,12 @@ export function EntityPage() {
             <Button
               appearance="primary"
               onClick={() => void save()}
-              disabled={add.isPending || (mode === 'samples' && !preview) || composeInvalid}
+              disabled={
+                add.isPending ||
+                (mode === 'samples' && !preview) ||
+                composeInvalid ||
+                ((mode === 'samples' || mode === 'manual') && !jsonValid)
+              }
             >
               {t('entity.saveVersion')}
             </Button>
@@ -316,7 +333,7 @@ export function EntityPage() {
             references={current.data?.references ?? []}
             usedBy={info.data?.usedBy ?? []}
             updating={add.isPending}
-            onUpdate={() => current.data?.schema && void store({ schema: unpinRefs(current.data.schema) })}
+            onUpdate={() => base && void store({ schema: unpinRefs(base) })}
           />
           <FieldTree ws={ws} schema={current.data?.resolved ?? current.data?.schema} />
         </div>
@@ -329,6 +346,7 @@ export function EntityPage() {
             hint={t('entity.samplesHint')}
             value={samples}
             onValid={setSamples}
+            onValidity={setJsonValid}
             rows={22}
           />
           <div className="stack">
@@ -347,6 +365,7 @@ export function EntityPage() {
           hint={t('entity.jsonSchemaHint')}
           value={manual}
           onValid={setManual}
+          onValidity={setJsonValid}
           rows={28}
         />
       )}

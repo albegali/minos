@@ -10,6 +10,7 @@ import {
 } from '@xyflow/react'
 import { useEffect, useState } from 'react'
 
+import { BASE } from '../api/client'
 import { edgesOnPath, type NodeStatus, type RuleGraph, toFlow } from '../rgd'
 import { BrandLockup } from '../components/Brand'
 import { LanguageSwitch } from '../components/LanguageSwitch'
@@ -105,7 +106,7 @@ function DemoView({ graph, onRuleset }: { graph: RuleGraph; onRuleset: (key: str
     setRunning(true)
     setError(null)
     try {
-      const res = await fetch(`/v1/exec/local/${graph.ruleset}`, {
+      const res = await fetch(`${BASE}/v1/exec/local/${graph.ruleset}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ input: samples[sample], options: { trace: 'summary', referenceDate: '2027-09-20' } }),

@@ -57,7 +57,9 @@
     "rulesets": "Rule set",
     "noRulesets": "Nessun rule set: creane uno dopo aver definito un'entità.",
     "entities": "Entità e schemi",
-    "noEntities": "Nessuna entità."
+    "noEntities": "Nessuna entità.",
+    "importOverwrite": "Il rule set {ruleset} esiste già qui: l'import ne sostituisce il draft e i {count} test del bundle con lo stesso nome. Continuare?",
+    "importDependencies": "Importato. Il rule set usa questi rule set annidati, che vanno importati e pubblicati anche qui: {list}"
   },
   "entity": {
     "title": "Entità {entity}",
