@@ -1,5 +1,6 @@
 import { Button, Checkbox, Dropdown, Input, Option, Tooltip } from '@fluentui/react-components'
 import { Add16Regular, Dismiss16Regular } from '@fluentui/react-icons'
+import { useState } from 'react'
 
 import { JsonField } from '../components/forms'
 import { type Key, useI18n } from '../i18n'
@@ -105,14 +106,51 @@ function ValueInput({ value, onChange, hint }: { value: Expr; onChange: (e: Expr
     return <Checkbox label={t('expression.true')} checked={value === true} onChange={(_, d) => onChange(Boolean(d.checked))} />
   }
   const isDate = hint?.format === 'date' || hint?.format === 'date-time'
+  const placeholder =
+    hint?.types?.includes('number') || hint?.types?.includes('integer') ? t('expression.numberPlaceholder') : t('expression.valuePlaceholder')
+  if (isDate) {
+    return (
+      <Input
+        aria-label={t('expression.value')}
+        className="value-input"
+        type="date"
+        value={literalText(value).slice(0, 10)}
+        placeholder={placeholder}
+        onChange={(_, d) => onChange(d.value)}
+      />
+    )
+  }
+  return <TextValue value={value} onChange={onChange} types={hint?.types} placeholder={placeholder} />
+}
+
+/** A value typed as text. What the user types is shown as typed ("3." while writing 3.5)
+ * and parsed on every keystroke; a value changed from outside (undo, another editor)
+ * replaces the text. */
+function TextValue({
+  value,
+  onChange,
+  types,
+  placeholder,
+}: {
+  value: Expr
+  onChange: (v: Expr) => void
+  types?: string[]
+  placeholder: string
+}) {
+  const { t } = useI18n()
+  const [draft, setDraft] = useState<{ text: string; value: Expr }>(() => ({ text: literalText(value), value }))
+  const text = Object.is(draft.value, value) ? draft.text : literalText(value)
   return (
     <Input
       aria-label={t('expression.value')}
       className="value-input"
-      type={isDate ? 'date' : 'text'}
-      value={isDate ? literalText(value).slice(0, 10) : literalText(value)}
-      placeholder={hint?.types?.includes('number') || hint?.types?.includes('integer') ? t('expression.numberPlaceholder') : t('expression.valuePlaceholder')}
-      onChange={(_, d) => onChange(isDate ? d.value : parseLiteral(d.value, hint?.types))}
+      value={text}
+      placeholder={placeholder}
+      onChange={(_, d) => {
+        const parsed = parseLiteral(d.value, types)
+        setDraft({ text: d.value, value: parsed })
+        onChange(parsed)
+      }}
     />
   )
 }

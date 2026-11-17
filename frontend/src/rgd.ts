@@ -75,11 +75,15 @@ export function layered(graph: RuleGraph): Record<string, [number, number]> {
   const start = graph.nodes.find((n) => n.type === 'start')
   const queue: string[] = start ? [start.id] : []
   if (start) depth.set(start.id, 0)
+  // Longest path from start. A valid graph is acyclic, but a draft can hold a cycle (imported,
+  // or written through the API): no path is longer than the node count, so stop there instead
+  // of looping forever.
+  const limit = graph.nodes.length
   while (queue.length > 0) {
     const id = queue.shift() as string
     for (const e of graph.edges.filter((edge) => edge.from === id)) {
       const d = (depth.get(id) ?? 0) + 1
-      if ((depth.get(e.to) ?? -1) < d) {
+      if (d <= limit && (depth.get(e.to) ?? -1) < d) {
         depth.set(e.to, d)
         queue.push(e.to)
       }

@@ -33,6 +33,7 @@ import { useBlocker, useParams } from 'react-router'
 import { ApiError, errorMessage } from '../api/client'
 import { type Key, useI18n } from '../i18n'
 import { translateApiText } from '../i18n/api'
+import type { Draft } from '../api/types'
 import { downloadJson, exportBundle, keys, saveDraft, useCatalog, useDraft, useRuleset, useSchema, useSchemas, validateDraft } from '../api/hooks'
 import { Canvas, Palette } from './Canvas'
 import { type FieldScope, ScopeContext } from './FieldPicker'
@@ -69,7 +70,12 @@ export function EditorPage() {
   const qc = useQueryClient()
   const { t } = useI18n()
 
-  const graph = useEditor((s) => s.graph)
+  const editorKey = `${ws}/${rs}`
+  const loadedKey = useEditor((s) => s.key)
+  // Another rule set's graph may still be in the store (its draft failed to load, or is
+  // loading): never show it, nor save it, under this one's URL.
+  const storedGraph = useEditor((s) => s.graph)
+  const graph = loadedKey === editorKey ? storedGraph : null
   const load = useEditor((s) => s.load)
   const dirty = useEditor((s) => s.dirty)
   const lockVersion = useEditor((s) => s.lockVersion)
@@ -94,8 +100,16 @@ export function EditorPage() {
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    if (draft.data) load(draft.data)
-  }, [draft.data, load])
+    if (!draft.data) return
+    const s = useEditor.getState()
+    if (s.key === editorKey && s.graph) {
+      // Same rule set already open: unsaved edits are never overwritten by a refetch (a
+      // conflicting save gets a 412 instead), and the version just saved is not reloaded
+      // (that would drop undo history and selection).
+      if (s.dirty || s.lockVersion === draft.data.lockVersion) return
+    }
+    load(draft.data, editorKey)
+  }, [draft.data, load, editorKey])
 
   const blocker = useBlocker(({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname)
   useEffect(() => {
@@ -120,19 +134,24 @@ export function EditorPage() {
 
   const save = useCallback(async (): Promise<boolean> => {
     const s = useEditor.getState()
-    if (!s.graph) return false
+    if (!s.graph || s.key !== editorKey) return false
     if (!s.dirty) return true
     setSaveError(null)
     try {
       const lock = await saveDraft(ws, rs, s.graph, s.lockVersion, s.schemaVersion)
       s.saved(lock)
+      // Keep the cached draft in step with what was saved: a later refetch or remount then
+      // starts from it, not from the version loaded before.
+      qc.setQueryData<Draft>(keys.draft(ws, rs), (old) =>
+        old ? { ...old, graph: s.graph ?? old.graph, lockVersion: lock, schemaVersion: s.schemaVersion } : old,
+      )
       await validate()
       return true
     } catch (e) {
       setSaveError(e)
       return false
     }
-  }, [ws, rs, validate])
+  }, [ws, rs, validate, editorKey, qc])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

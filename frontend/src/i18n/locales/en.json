@@ -373,7 +373,8 @@
     "saveAsTestTitle": "Save as test",
     "saveAsTest": "Save this simulation as a test",
     "saveAsTestHint": "The current outcome, message codes and output become the expected result.",
-    "testName": "Test name"
+    "testName": "Test name",
+    "staleResult": "The rule set changed after this simulation: run it again to save it as a test."
   },
   "tests": {
     "intro": "Tests run on every publication: if one fails, the version is not created.",

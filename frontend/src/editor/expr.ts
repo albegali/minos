@@ -112,13 +112,20 @@ export function describe(e: Expr, depth = 0): string {
   return String(e)
 }
 
+// Plain decimal numbers only: no hex (0x10), no Infinity, no empty string.
+const NUMBER = /^-?(\d+\.?\d*|\.\d+)([eE][-+]?\d+)?$/
+// "3,5": a decimal comma, accepted where the field is numeric.
+const COMMA_DECIMAL = /^-?\d+,\d+$/
+
 /** Parse what a user typed in a value box: numbers and booleans as such, the rest as text. */
 export function parseLiteral(text: string, preferred?: string[]): Expr {
   const t = text.trim()
-  if (preferred?.includes('string') && !preferred.includes('number')) return text
+  const numeric = preferred?.some((x) => x === 'number' || x === 'integer') ?? false
+  if (preferred?.includes('string') && !numeric) return text
   if (t === 'true' || t === 'false') return t === 'true'
   if (t === 'null') return null
-  if (t !== '' && !Number.isNaN(Number(t))) return Number(t)
+  if (NUMBER.test(t)) return Number(t)
+  if (numeric && COMMA_DECIMAL.test(t)) return Number(t.replace(',', '.'))
   return text
 }
 
