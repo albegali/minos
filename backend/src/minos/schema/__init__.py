@@ -2,7 +2,7 @@
 
 from .infer import SCHEMA_DIALECT, infer_schema
 from .paths import SchemaNode, resolve_path
-from .refs import EntityRef, def_key, find_refs, pin_refs, resolve_refs
+from .refs import EntityRef, def_key, find_refs, pin_refs, repin_refs, resolve_refs
 from .validate import InputValidator, SchemaError, check_schema
 
 __all__ = [
@@ -16,6 +16,7 @@ __all__ = [
     "find_refs",
     "infer_schema",
     "pin_refs",
+    "repin_refs",
     "resolve_path",
     "resolve_refs",
 ]

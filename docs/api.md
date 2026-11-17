@@ -104,8 +104,8 @@ A rule set on this entity reads every part directly (`$.input.student.birthDate`
 - Only `title` and `description` may sit next to a reference (`422` otherwise), as well as for an
   unknown entity or version.
 - `resolved` embeds the referenced versions under `$defs["entity:<key>@<version>"]`. Execution
-  validates the input against it, the Swagger shows it, and bundles export it, so a bundle imports
-  where the referenced entities do not exist.
+  validates the input against it and the Swagger shows it. Bundles carry the referenced entities
+  too, so a bundle imports where they do not exist and the imported entity keeps its references.
 
 ## Execution API
 
@@ -179,7 +179,7 @@ All paths under `/v1`. `{ws}` is the workspace slug, `{rs}` the rule set key.
 | `DELETE .../aliases/{env}` | Removes the environment; `?effectiveFrom=YYYY-MM-DD` removes only that entry, `?effectiveFrom=always` the undated one |
 | `GET .../rulesets/{rs}/diff?from=<v>&to=<v\|draft>` | Added, removed and changed nodes (field by field), edges, settings and constants; canvas positions are ignored |
 | `GET .../rulesets/{rs}/export[?version=<v>]` | `minos-bundle/1` JSON bundle: rule set, entity schema, tests, dependencies (the draft if `version` is missing) |
-| `POST /workspaces/{ws}/import` | Imports a bundle: creates or updates entity, schema (if different), rule set (as a draft, never published automatically) and tests (replaced by name); the sub rule sets listed in `dependencies` must be imported and published first |
+| `POST /workspaces/{ws}/import` | Imports a bundle: creates or updates entity, schema (if different), rule set (as a draft, never published automatically) and tests (replaced by name); the entities the schema references (`entities`) are matched to identical versions or added as new ones, keeping the references; the sub rule sets listed in `dependencies` must be imported and published first |
 
 ### Test cases
 

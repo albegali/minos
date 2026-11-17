@@ -43,8 +43,10 @@ the plan against the program's offering), and each part needs its own published 
   remains the tool for reusing whole, already published rule sets.
 - Execution validates the whole composite input against every embedded entity in one pass, with
   JSON pointers to the wrong field (`/program/courses/0/cfu`).
-- Bundles carry the resolved schema, so they import into workspaces without the referenced
-  entities. The trade-off is that the imported entity no longer links to them.
+- Bundles carry the resolved schema and, in `entities`, the authored schema of every referenced
+  entity version. On import each of them reuses an identical version of the target workspace or
+  becomes a new version there, and references are renumbered: the imported entity keeps its
+  links, even where the same entity has other version numbers.
 - A change to a shared entity reaches its users only when they update their references:
   explicit, but one step per referencing entity (*Used by* on the entity page shows which
   ones).

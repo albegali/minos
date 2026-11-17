@@ -4,6 +4,7 @@ aliases, tests, API keys and audit. Every function works inside the caller's tra
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import hashlib
 import json
@@ -157,6 +158,7 @@ async def add_schema_version(
         check_schema(resolved)
     except SchemaError as exc:
         raise Invalid(f"invalid JSON Schema: {exc}") from exc
+    await _lock(s, Entity, entity.id)  # serialise version numbering (latest + 1)
     latest = await latest_schema(s, entity)
     digest = canonical_hash(pinned)
     if latest is not None and latest.hash == digest:
@@ -320,12 +322,21 @@ async def list_rulesets(s: AsyncSession, ws: Workspace) -> list[Ruleset]:
     )
 
 
+async def _lock(s: AsyncSession, model: type[Entity] | type[Ruleset], row_id: uuid.UUID) -> None:
+    """Row lock that serialises writers of ``row_id``'s children (version numbers, aliases).
+
+    ``FOR NO KEY UPDATE``: unlike ``FOR UPDATE`` it does not block inserts of rows that only
+    reference it (tests, aliases), which take a ``KEY SHARE`` lock.
+    """
+    await s.execute(select(model.id).where(model.id == row_id).with_for_update(key_share=True))
+
+
 async def get_ruleset(
     s: AsyncSession, ws: Workspace, key: str, *, for_update: bool = False
 ) -> Ruleset:
     q = select(Ruleset).where(Ruleset.workspace_id == ws.id, Ruleset.key == key)
     if for_update:
-        q = q.with_for_update()
+        q = q.with_for_update(key_share=True)
     rs = await s.scalar(q)
     if rs is None:
         raise NotFound(f"ruleset {key!r} not found")
@@ -463,7 +474,11 @@ async def validate_draft(s: AsyncSession, rs: Ruleset) -> Validation:
     ws = await s.get(Workspace, rs.workspace_id)
     assert ws is not None
     resolve = await resolver_for(s, ws.slug, draft.graph)
-    return compile_checked(draft.graph, sv.resolved_schema if sv else None, resolve)
+    # Compiling and running rules is CPU-bound: worker threads keep the event loop, which also
+    # serves executions, responsive.
+    return await asyncio.to_thread(
+        compile_checked, draft.graph, sv.resolved_schema if sv else None, resolve
+    )
 
 
 async def simulate_draft(
@@ -539,7 +554,8 @@ async def run_draft_tests(s: AsyncSession, rs: Ruleset) -> dict[str, Any]:
     validation = await validate_draft(s, rs)
     if validation.compiled is None:
         raise Invalid("the draft does not compile", {"issues": validation.issues})
-    results = run_tests(validation.compiled, await list_tests(s, rs))
+    cases = await list_tests(s, rs)
+    results = await asyncio.to_thread(run_tests, validation.compiled, cases)
     return {"passed": all(r["passed"] for r in results), "tests": results}
 
 
@@ -587,10 +603,13 @@ async def publish(
 
     graph = dict(draft.graph, version=semver)
     resolve = await resolver_for(s, ws.slug, graph)
-    validation = compile_checked(graph, sv.resolved_schema if sv else None, resolve)
+    cases = await list_tests(s, rs)
+    validation = await asyncio.to_thread(
+        compile_checked, graph, sv.resolved_schema if sv else None, resolve
+    )
     if validation.compiled is None:
         raise Invalid("the draft does not compile", {"issues": validation.issues})
-    tests = run_tests(validation.compiled, await list_tests(s, rs))
+    tests = await asyncio.to_thread(run_tests, validation.compiled, cases)
     failed = [t for t in tests if not t["passed"]]
     if failed:
         raise Invalid(f"{len(failed)} test(s) failed", {"tests": tests})
@@ -663,7 +682,10 @@ async def set_alias(
     version = await get_version(s, rs, semver)
     if version.status == "archived":
         raise Conflict(f"version {semver} is archived")
-    alias = await s.get(RulesetAlias, (rs.id, env, start), with_for_update=True)
+    # Lock the rule set, not the entry: a missing entry cannot be locked, and two first-time
+    # writers would both insert it.
+    await _lock(s, Ruleset, rs.id)
+    alias = await s.get(RulesetAlias, (rs.id, env, start))
     previous = None
     if alias is None:
         alias = RulesetAlias(

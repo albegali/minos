@@ -100,6 +100,17 @@ def pin_refs(schema: dict[str, Any], latest: Mapping[str, int]) -> dict[str, Any
     return out
 
 
+def repin_refs(schema: dict[str, Any], versions: Mapping[tuple[str, int], int]) -> dict[str, Any]:
+    """Copy of a pinned ``schema`` with ``entity:K@v`` moved to ``entity:K@versions[(K, v)]``
+    (used when a schema moves to a workspace where the same entities have other numbers)."""
+    out = copy.deepcopy(schema)
+    for node in _subschemas(out):
+        ref = parse_ref(node.get("$ref"))
+        if ref is not None and ref[1] is not None and ref in versions:
+            node["$ref"] = def_key(ref[0], versions[(ref[0], ref[1])])
+    return out
+
+
 def _relocate(node: Any, base: str) -> None:
     """Rewrite the local references of a schema moved under ``base`` (a JSON pointer), except
     those to hoisted entity definitions, which stay at the root."""
