@@ -29,6 +29,20 @@ Line numbers refer to the commit above and drift as the code changes.
 Suggested first batch, by risk: SEC-01, SEC-02, SEC-03, ENG-01, ENG-02, ENG-03, CTL-01, CTL-02,
 CTL-03, CTL-04, API-01, UI-01, UI-02, UI-03, UI-04.
 
+## Before production
+
+What stands between this release and a production deployment, tracked as GitHub issues:
+
+| Issue | Topic |
+| --- | --- |
+| #16 | Production configuration (auth, tests gate, no examples, TLS, allowed hosts) |
+| #17 | Database backup and a tested restore |
+| #18 | User identity, roles and audit (FN-04) |
+| #19 | Lifecycle: delete, rename, archive, pagination (FN-01, FN-06) |
+| #20 | Execution sizing and API load test (FN-05) |
+| #21 | Deployment hardening (SEC-15) |
+| #22 | Studio component tests (CQ-05) |
+
 ## Security
 
 | ID | Sev | Status | Checked | Issue | Where |
