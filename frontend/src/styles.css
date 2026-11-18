@@ -1526,3 +1526,15 @@ pre.mini {
 .node-panel > .fui-Button:last-child {
   justify-self: start;
 }
+
+/* label + control on one line (role pickers) */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.grow {
+  flex: 1;
+  min-width: 0;
+}

@@ -43,3 +43,8 @@ class Forbidden(ControlError):
 class Unauthorized(ControlError):
     status = 401
     title = "Unauthorized"
+
+
+class TooManyRequests(ControlError):
+    status = 429
+    title = "Too Many Requests"

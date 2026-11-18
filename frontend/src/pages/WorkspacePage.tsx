@@ -2,6 +2,13 @@ import {
   Button,
   Card,
   CardHeader,
+  Dialog,
+  DialogActions,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
+  DialogTrigger,
   Dropdown,
   Field,
   Input,
@@ -9,15 +16,37 @@ import {
   Spinner,
   Text,
 } from '@fluentui/react-components'
-import { Add20Regular, ArrowUpload20Regular, Database20Regular, Flowchart20Regular } from '@fluentui/react-icons'
+import {
+  Add20Regular,
+  ArrowUpload20Regular,
+  Database20Regular,
+  Flowchart20Regular,
+  People20Regular,
+} from '@fluentui/react-icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router'
 
-import { importBundle, keys, useCreateEntity, useCreateRuleset, useEntities, useRulesets } from '../api/hooks'
+import {
+  importBundle,
+  keys,
+  roleAllows,
+  useCreateEntity,
+  useCreateRuleset,
+  useEntities,
+  useMembers,
+  useRulesets,
+  useSetWorkspaceRole,
+  useWorkspaceMembers,
+  useWorkspaceRole,
+} from '../api/hooks'
+import type { WorkspaceRole } from '../api/types'
+import { useAuth } from '../auth/store'
 import { ErrorBar, FormDialog, slugify } from '../components/forms'
 import { Page } from '../components/Shell'
 import { useI18n } from '../i18n'
+import { RolePicker, WORKSPACE_ROLES } from './MembersPage'
+import { RoleLabel } from './OrganizationsPage'
 
 function NewEntity({ ws }: { ws: string }) {
   const create = useCreateEntity(ws)
@@ -168,21 +197,91 @@ function ImportButton({ ws }: { ws: string }) {
   )
 }
 
+/**
+ * Who can open the workspace: the organization's owners and admins (always admins here) and
+ * the members with a role of their own, which workspace admins give and take away.
+ */
+function AccessDialog({ ws, canManage }: { ws: string; canManage: boolean }) {
+  const org = useAuth((s) => s.session?.organization?.slug)
+  const [open, setOpen] = useState(false)
+  const access = useWorkspaceMembers(ws)
+  const members = useMembers(open ? org : undefined)
+  const setRole = useSetWorkspaceRole(ws)
+  const { t } = useI18n()
+  const roleOf = new Map(access.data?.map((m) => [m.id, m]))
+  const people = members.data ?? access.data?.map((m) => ({ ...m, role: m.inherited ? 'admin' : 'member' })) ?? []
+  return (
+    <Dialog open={open} onOpenChange={(_, d) => setOpen(d.open)}>
+      <DialogTrigger disableButtonEnhancement>
+        <Button icon={<People20Regular />}>{t('workspace.access')}</Button>
+      </DialogTrigger>
+      <DialogSurface>
+        <DialogBody>
+          <DialogTitle>{t('workspace.accessTitle', { ws })}</DialogTitle>
+          <DialogContent className="stack">
+            <Text size={200}>{t('workspace.accessIntro')}</Text>
+            {(access.isLoading || members.isLoading) && <Spinner size="tiny" />}
+            <ErrorBar error={access.error ?? members.error ?? setRole.error} />
+            {people.map((p) => {
+              const entry = roleOf.get(p.id)
+              const inherited = p.role === 'owner' || p.role === 'admin'
+              return (
+                <div key={p.id} className="row">
+                  <div className="grow">
+                    <Text weight="semibold">{p.name}</Text> <Text size={200}>{p.email}</Text>
+                  </div>
+                  {inherited || !canManage ? (
+                    <Text>
+                      {entry ? <RoleLabel role={entry.role} /> : t('members.noRole')}
+                      {inherited && ` (${t('workspace.inherited')})`}
+                    </Text>
+                  ) : (
+                    <RolePicker<WorkspaceRole>
+                      label={p.name}
+                      value={entry?.role ?? null}
+                      roles={WORKSPACE_ROLES}
+                      allowNone
+                      onChange={(role) => setRole.mutate({ id: p.id, role })}
+                    />
+                  )}
+                </div>
+              )
+            })}
+          </DialogContent>
+          <DialogActions>
+            <DialogTrigger disableButtonEnhancement>
+              <Button appearance="primary">{t('common.close')}</Button>
+            </DialogTrigger>
+          </DialogActions>
+        </DialogBody>
+      </DialogSurface>
+    </Dialog>
+  )
+}
+
 export function WorkspacePage() {
   const ws = useParams().ws as string
   const entities = useEntities(ws)
   const rulesets = useRulesets(ws)
   const navigate = useNavigate()
+  const role = useWorkspaceRole(ws)
+  const signedIn = useAuth((s) => s.session !== null)
   const { t } = useI18n()
+  const canWrite = roleAllows(role, 'author')
 
   return (
     <Page
       title={t('workspace.title', { ws })}
       actions={
         <>
-          <ImportButton ws={ws} />
-          <NewEntity ws={ws} />
-          <NewRuleset ws={ws} />
+          {signedIn && <AccessDialog ws={ws} canManage={role === 'admin'} />}
+          {canWrite && (
+            <>
+              <ImportButton ws={ws} />
+              <NewEntity ws={ws} />
+              <NewRuleset ws={ws} />
+            </>
+          )}
         </>
       }
     >

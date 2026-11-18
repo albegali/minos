@@ -24,6 +24,12 @@ const cases: [string, string][] = [
   ['result.total: expected 3, got 4', 'result.total: atteso 3, ottenuto 4'],
   ['result.x: missing', 'result.x: mancante'],
   ["workspace 'esempi' not found", "workspace 'esempi' non trovato"],
+  [
+    "this needs the 'author' role in workspace 'rules' (you are 'viewer')",
+    "serve il ruolo 'author' nel workspace 'rules' (il tuo è 'viewer')",
+  ],
+  ['wrong e-mail address or password', 'indirizzo o password errati'],
+  ["an active API key is already named 'ci': the audit could not tell them apart", "una chiave API attiva si chiama già 'ci': l'audit non saprebbe distinguerle"],
   ['draft changed since version 3 (now 4)', 'il draft è cambiato dalla versione 3 (ora 4)'],
   [
     "invalid ruleset key 'A B': lowercase letters, digits, '.', '-', '_'",

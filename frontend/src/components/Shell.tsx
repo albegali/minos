@@ -4,15 +4,26 @@ import {
   BreadcrumbDivider,
   BreadcrumbItem,
   Button,
+  Menu,
+  MenuDivider,
+  MenuGroup,
+  MenuGroupHeader,
+  MenuItem,
+  MenuItemRadio,
+  MenuList,
+  MenuPopover,
+  MenuTrigger,
   Spinner,
   Text,
 } from '@fluentui/react-components'
-import { SignOut20Regular } from '@fluentui/react-icons'
-import { Fragment, type ReactNode } from 'react'
+import { Add20Regular, Building20Regular, People20Regular, Person20Regular, SignOut20Regular } from '@fluentui/react-icons'
+import { useQueryClient } from '@tanstack/react-query'
+import { Fragment, type ReactNode, useState } from 'react'
 import { Link, Navigate, Outlet, useLocation, useNavigate, useParams } from 'react-router'
 
-import { useServerInfo } from '../api/hooks'
-import { useAuth } from '../auth/store'
+import { signOut, useOrganizations, useServerInfo } from '../api/hooks'
+import { isSession, useAuth } from '../auth/store'
+import { useSwitchOrganization } from '../pages/OrganizationsPage'
 import { useI18n } from '../i18n'
 import { BrandLockup } from './Brand'
 import { ErrorBar } from './forms'
@@ -23,7 +34,8 @@ import { LanguageSwitch } from './LanguageSwitch'
  * without a database have no management API, so the Studio falls back to the demo.
  */
 export function RequireAuth({ children }: { children: ReactNode }) {
-  const apiKey = useAuth((s) => s.apiKey)
+  const apiKey = useAuth((s) => s.token)
+  const session = useAuth((s) => s.session)
   const location = useLocation()
   const info = useServerInfo()
   const { t } = useI18n()
@@ -32,6 +44,10 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   if (info.data && !info.data.management) return <Navigate to="/demo" replace />
   if (info.data?.authRequired && !apiKey) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />
+  }
+  if (info.data?.authRequired && isSession(apiKey) && !session?.organization) {
+    // signed in with an address of several organizations: choose one first
+    return <Navigate to="/organizations" replace state={{ from: location.pathname }} />
   }
   return <>{children}</>
 }
@@ -60,8 +76,140 @@ function Crumbs() {
   )
 }
 
+/** Organization switcher and user menu of a signed-in session. */
+function AccountMenu() {
+  const session = useAuth((s) => s.session)
+  const logout = useAuth((s) => s.logout)
+  const switchTo = useSwitchOrganization()
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+  const [error, setError] = useState<unknown>(null)
+  const info = useServerInfo()
+  const { t } = useI18n()
+  if (!session) return null
+  const current = session.organization?.slug ?? ''
+  return (
+    <>
+      <Menu
+        checkedValues={{ org: [current] }}
+        onCheckedValueChange={async (_, d) => {
+          const slug = d.checkedItems[0]
+          if (!slug || slug === current) return
+          setError(null)
+          try {
+            await switchTo(slug)
+            navigate('/w')
+          } catch (err) {
+            setError(err)
+          }
+        }}
+      >
+        <MenuTrigger disableButtonEnhancement>
+          <Button appearance="subtle" icon={<Building20Regular />} title={t('shell.organization')}>
+            {session.organization?.name ?? t('shell.noOrganization')}
+          </Button>
+        </MenuTrigger>
+        <MenuPopover>
+          <MenuList>
+            <MenuGroup>
+              <MenuGroupHeader>{t('shell.organizations')}</MenuGroupHeader>
+              {session.organizations.map((o) => (
+                <MenuItemRadio key={o.slug} name="org" value={o.slug}>
+                  {o.name}
+                </MenuItemRadio>
+              ))}
+            </MenuGroup>
+            <MenuDivider />
+            <MenuItem icon={<People20Regular />} onClick={() => navigate('/members')}>
+              {t('shell.members')}
+            </MenuItem>
+            {info.data?.signup && (
+              <MenuItem icon={<Add20Regular />} onClick={() => navigate('/signup')}>
+                {t('shell.newOrganization')}
+              </MenuItem>
+            )}
+          </MenuList>
+        </MenuPopover>
+      </Menu>
+      <Menu>
+        <MenuTrigger disableButtonEnhancement>
+          <Button appearance="subtle" icon={<Person20Regular />} title={t('shell.account')}>
+            {session.user.name}
+          </Button>
+        </MenuTrigger>
+        <MenuPopover>
+          <MenuList>
+            <MenuGroup>
+              <MenuGroupHeader>{session.user.emails.join(', ')}</MenuGroupHeader>
+            </MenuGroup>
+            <MenuItem
+              icon={<SignOut20Regular />}
+              onClick={async () => {
+                await signOut().catch(() => undefined)
+                logout()
+                qc.clear()
+              }}
+            >
+              {t('shell.signOut')}
+            </MenuItem>
+          </MenuList>
+        </MenuPopover>
+      </Menu>
+      {error !== null && <ErrorBar error={error} />}
+    </>
+  )
+}
+
+/**
+ * Organization picker without a session (open installation, admin key): workspace slugs are
+ * unique only within an organization, so the Studio works in one at a time. Hidden while the
+ * installation has a single organization.
+ */
+function OrganizationScope() {
+  const token = useAuth((s) => s.token)
+  const current = useAuth((s) => s.organization)
+  const setOrganization = useAuth((s) => s.setOrganization)
+  const orgs = useOrganizations(!isSession(token))
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+  const { t } = useI18n()
+  if (isSession(token) || !orgs.data || (orgs.data.length < 2 && current === 'default')) return null
+  const name = orgs.data.find((o) => o.slug === current)?.name ?? current
+  return (
+    <Menu
+      checkedValues={{ org: [current] }}
+      onCheckedValueChange={(_, d) => {
+        const slug = d.checkedItems[0]
+        if (!slug || slug === current) return
+        setOrganization(slug)
+        qc.clear()
+        navigate('/w')
+      }}
+    >
+      <MenuTrigger disableButtonEnhancement>
+        <Button appearance="subtle" icon={<Building20Regular />} title={t('shell.organization')}>
+          {name}
+        </Button>
+      </MenuTrigger>
+      <MenuPopover>
+        <MenuList>
+          <MenuGroup>
+            <MenuGroupHeader>{t('shell.allOrganizations')}</MenuGroupHeader>
+            {orgs.data.map((o) => (
+              <MenuItemRadio key={o.slug} name="org" value={o.slug}>
+                {o.name}
+              </MenuItemRadio>
+            ))}
+          </MenuGroup>
+        </MenuList>
+      </MenuPopover>
+    </Menu>
+  )
+}
+
 export function Shell() {
   const logout = useAuth((s) => s.logout)
+  const token = useAuth((s) => s.token)
   const info = useServerInfo()
   const { t } = useI18n()
   return (
@@ -73,7 +221,9 @@ export function Shell() {
         <span className="shell-divider" aria-hidden="true" />
         <Crumbs />
         <LanguageSwitch />
-        {info.data?.authRequired && (
+        <OrganizationScope />
+        {info.data?.authRequired && isSession(token) && <AccountMenu />}
+        {info.data?.authRequired && !isSession(token) && (
           <Button appearance="subtle" icon={<SignOut20Regular />} onClick={logout}>
             {t('shell.signOut')}
           </Button>

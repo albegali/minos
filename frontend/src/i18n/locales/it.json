@@ -21,7 +21,14 @@
     "entityCrumb": "Entità {key}",
     "rulesetCrumb": "Rule set {key}",
     "home": "Minos Studio, torna ai workspace",
-    "signOut": "Esci"
+    "signOut": "Esci",
+    "organization": "Organizzazione",
+    "noOrganization": "Nessuna organizzazione",
+    "organizations": "Le tue organizzazioni",
+    "members": "Membri e inviti",
+    "account": "Account",
+    "newOrganization": "Nuova organizzazione",
+    "allOrganizations": "Tutte le organizzazioni"
   },
   "login": {
     "intro": "Accedi con una API key con scope {manage} o {admin}.",
@@ -31,14 +38,22 @@
     "invalidKey": "Chiave non valida o revocata.",
     "unreachable": "API non raggiungibile.",
     "noDatabase": "Senza database? Apri la {demo} con gli esempi Aurora.",
-    "demoLink": "demo"
+    "demoLink": "demo",
+    "passwordIntro": "Accedi con il tuo indirizzo e-mail e la password: vale qualunque indirizzo del tuo account.",
+    "email": "Indirizzo e-mail",
+    "password": "Password",
+    "wrongPassword": "Indirizzo o password errati.",
+    "tooMany": "Troppi tentativi falliti per questo indirizzo: riprova più tardi.",
+    "useApiKey": "Accedi con una chiave API",
+    "usePassword": "Accedi con e-mail e password"
   },
   "workspaces": {
     "title": "Workspace",
     "new": "Nuovo workspace",
     "slug": "Identificativo",
-    "slugHint": "Usato negli URL delle API. Richiede una chiave admin.",
-    "empty": "Nessun workspace. Creane uno per iniziare."
+    "slugHint": "Usato negli URL delle API; unico nell'organizzazione.",
+    "empty": "Nessun workspace. Creane uno per iniziare.",
+    "titleIn": "Workspace di {org}"
   },
   "workspace": {
     "title": "Workspace {ws}",
@@ -59,7 +74,11 @@
     "entities": "Entità e schemi",
     "noEntities": "Nessuna entità.",
     "importOverwrite": "Il rule set {ruleset} esiste già qui: l'import ne sostituisce il draft e i {count} test del bundle con lo stesso nome. Continuare?",
-    "importDependencies": "Importato. Il rule set usa questi rule set annidati, che vanno importati e pubblicati anche qui: {list}"
+    "importDependencies": "Importato. Il rule set usa questi rule set annidati, che vanno importati e pubblicati anche qui: {list}",
+    "access": "Accesso",
+    "accessTitle": "Chi può aprire {ws}",
+    "accessIntro": "Proprietari e amministratori dell'organizzazione sono sempre amministratori; agli altri membri dai un ruolo qui.",
+    "inherited": "dall'organizzazione"
   },
   "entity": {
     "title": "Entità {entity}",
@@ -153,7 +172,8 @@
     "emptyHint": "Trascina un nodo dalla palette sul canvas, collega le uscite agli ingressi e seleziona un nodo per configurarlo.",
     "panels": "Pannelli",
     "issues": "Problemi",
-    "validateFailed": "Bozza salvata, ma non è stato possibile validarla: {error}"
+    "validateFailed": "Bozza salvata, ma non è stato possibile validarla: {error}",
+    "readOnly": "Sei {role} in questo workspace: puoi leggere, validare e simulare, non modificare."
   },
   "canvas": {
     "groupSummary": "{count} regole · {operator}",
@@ -454,6 +474,27 @@
     "error": "errore"
   },
   "api": {
+    "signupDisabled": "su questa installazione la registrazione di organizzazioni è disattivata",
+    "addressHasAccount": "questo indirizzo ha già un account: usa la sua password",
+    "orgExists": "l'organizzazione {org} esiste già",
+    "wrongCredentials": "indirizzo o password errati",
+    "sessionExpired": "la sessione è scaduta: accedi di nuovo",
+    "needsRole": "serve il ruolo {needed} nel workspace {ws} (il tuo è {role})",
+    "noRoleIn": "non hai un ruolo nel workspace {ws}",
+    "needsOrgRole": "serve il ruolo {needed} nell'organizzazione {org}",
+    "onlyOwners": "solo i proprietari gestiscono i proprietari",
+    "lastOwner": "un'organizzazione deve avere almeno un proprietario",
+    "manageMembers": "gestire i membri richiede il ruolo di amministratore o proprietario",
+    "alreadyMember": "{email} fa già parte di {org}",
+    "passwordShort": "la password deve avere almeno {n} caratteri",
+    "invitationInvalid": "questo invito non è valido: è già stato usato, revocato o è scaduto",
+    "keyNameTaken": "una chiave API attiva si chiama già {name}: l'audit non saprebbe distinguerle",
+    "chooseOrg": "scegli prima un'organizzazione",
+    "otherAccount": "{email} appartiene a un altro account: accedi con quello per accettare",
+    "currentPassword": "la password attuale è sbagliata",
+    "installationAdmin": "serve un amministratore dell'installazione (una chiave admin)",
+    "notMemberOf": "non fai parte dell'organizzazione {org}",
+    "orgNotFound": "organizzazione {org} non trovata",
     "invalidIdentifier": "{what} {value} non valido: ammessi solo lettere minuscole, cifre, '.', '-', '_'",
     "workspaceNotFound": "workspace {name} non trovato",
     "workspaceExists": "il workspace {name} esiste già",
@@ -594,5 +635,71 @@
     "alwaysFalse": "falso",
     "alwaysTrue": "vero",
     "more": "(+{count} altri)"
+  },
+  "orgs": {
+    "hello": "Ciao {name}",
+    "choose": "Il tuo account fa parte di più organizzazioni: scegli in quale entrare. Potrai cambiarla dal menu in alto.",
+    "none": "Il tuo account non fa ancora parte di nessuna organizzazione: chiedi un invito a un amministratore."
+  },
+  "roles": {
+    "owner": "proprietario",
+    "admin": "amministratore",
+    "member": "membro",
+    "viewer": "lettore",
+    "author": "autore",
+    "publisher": "pubblicatore"
+  },
+  "invite": {
+    "intro": "{by} ti invita in {org}",
+    "asSignedIn": "L'indirizzo {email} sarà aggiunto al tuo account ({account}): potrai accedere con l'uno o con l'altro, con la stessa password.",
+    "name": "Nome e cognome",
+    "passwordHint": "Almeno 12 caratteri.",
+    "existingAccount": "Questo indirizzo ha già un account: usa la sua password.",
+    "confirm": "Ripeti la password",
+    "mismatch": "Le due password non coincidono.",
+    "accept": "Accetta l'invito",
+    "otherAccount": "Usa un altro account",
+    "haveAccount": "Hai già un account con un altro indirizzo?",
+    "signInFirst": "Accedi prima con quello",
+    "toLogin": "Vai all'accesso"
+  },
+  "members": {
+    "title": "Membri di {org}",
+    "members": "Membri",
+    "emails": "Indirizzi",
+    "orgRole": "Ruolo nell'organizzazione",
+    "orgRoleHint": "Proprietari e amministratori gestiscono membri e workspace e sono amministratori di tutti i workspace.",
+    "workspaceRoles": "Ruoli nei workspace",
+    "workspaceRolesHint": "Lettore: legge e simula. Autore: modifica. Pubblicatore: pubblica e sposta gli ambienti (prod compreso). Amministratore: chiavi API, membri, audit.",
+    "noRole": "nessun accesso",
+    "allWorkspaces": "tutti (amministratore)",
+    "invite": "Invita",
+    "createInvite": "Crea l'invito",
+    "linkTitle": "Link di invito",
+    "linkIntro": "Manda questo link a {email}: Minos non invia e-mail. Il link vale una sola volta e lo vedi solo ora.",
+    "copy": "Copia",
+    "copied": "Copiato.",
+    "leave": "Esci",
+    "leaveConfirm": "Uscire dall'organizzazione {org}?",
+    "removeConfirm": "Togliere {name} dall'organizzazione?",
+    "pending": "Inviti in sospeso",
+    "noPending": "Nessun invito in sospeso.",
+    "invitedBy": "Invitato da",
+    "expires": "Scade il",
+    "revoke": "Revoca"
+  },
+  "signup": {
+    "title": "Registra una nuova organizzazione",
+    "intro": "Crei l'organizzazione e ne diventi proprietario. Se l'indirizzo ha già un account, usa la sua password: l'organizzazione si aggiunge a quelle dell'account.",
+    "introSignedIn": "L'organizzazione sarà del tuo account ({email}), che ne diventa proprietario.",
+    "orgName": "Nome dell'organizzazione",
+    "slugHint": "Lettere minuscole, cifre, '.', '-', '_'.",
+    "passwordHint": "Almeno 12 caratteri. Account esistente: la sua password (il nome viene ignorato).",
+    "submit": "Crea l'organizzazione",
+    "existingAccount": "Questo indirizzo ha già un account e la password non è la sua.",
+    "question": "Nuovo su Minos?",
+    "link": "Registra un'organizzazione",
+    "haveAccount": "Hai già un account? Accedi",
+    "back": "Torna ai workspace"
   }
 }

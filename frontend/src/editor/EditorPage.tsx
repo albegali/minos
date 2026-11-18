@@ -34,7 +34,20 @@ import { ApiError, errorMessage } from '../api/client'
 import { type Key, useI18n } from '../i18n'
 import { translateApiText } from '../i18n/api'
 import type { Draft } from '../api/types'
-import { downloadJson, exportBundle, keys, saveDraft, useCatalog, useDraft, useRuleset, useSchema, useSchemas, validateDraft } from '../api/hooks'
+import {
+  downloadJson,
+  exportBundle,
+  keys,
+  roleAllows,
+  saveDraft,
+  useCatalog,
+  useDraft,
+  useRuleset,
+  useSchema,
+  useSchemas,
+  useWorkspaceRole,
+  validateDraft,
+} from '../api/hooks'
 import { Canvas, Palette } from './Canvas'
 import { type FieldScope, ScopeContext } from './FieldPicker'
 import { addNode, defaultNode, frozenPositions, issueNode, newNodeId, variableNames } from './graph'
@@ -69,6 +82,8 @@ export function EditorPage() {
   const catalog = useCatalog()
   const qc = useQueryClient()
   const { t } = useI18n()
+  const role = useWorkspaceRole(ws)
+  const canWrite = roleAllows(role, 'author')
 
   const editorKey = `${ws}/${rs}`
   const loadedKey = useEditor((s) => s.key)
@@ -296,7 +311,7 @@ export function EditorPage() {
               </Button>
             </Tooltip>
             <Tooltip content="Ctrl+S" relationship="description">
-              <Button icon={<Save20Regular />} disabled={!dirty || busy} onClick={() => void save()}>
+              <Button icon={<Save20Regular />} disabled={!dirty || busy || !canWrite} onClick={() => void save()}>
                 {t('editor.save')}
               </Button>
             </Tooltip>
@@ -343,6 +358,11 @@ export function EditorPage() {
           </div>
         </div>
 
+        {!canWrite && (
+          <MessageBar intent="info">
+            <MessageBarBody>{t('editor.readOnly', { role: t(`roles.${role ?? 'viewer'}`) })}</MessageBarBody>
+          </MessageBar>
+        )}
         {saveError !== null && (
           <MessageBar intent="error">
             <MessageBarBody>

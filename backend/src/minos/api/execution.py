@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from minos import __version__
 from minos.control.errors import ControlError, Unauthorized
 from minos.control.keys import hash_key
+from minos.control.service import DEFAULT_ORGANIZATION, qualified_name, split_name
 from minos.db import ALWAYS, asyncpg_dsn, make_engine, make_sessionmaker
 from minos.engine import EvaluationError, ExecuteOptions, ExecutionLimitError
 from minos.engine.expressions import to_date
@@ -43,6 +44,7 @@ def execution_router(
     require_auth: bool,
     management: bool = False,
     time_limit_ms: float = DEFAULT_TIME_LIMIT_MS,
+    signup: bool = False,
 ) -> APIRouter:
     router = APIRouter(prefix="/v1")
 
@@ -56,14 +58,24 @@ def execution_router(
                 "authRequired": require_auth,
                 "management": management,
                 "database": sync is not None,
+                "signup": signup and management,
             }
         )
+
+    def qualify(request: Request, caller: Principal | None, workspace: str) -> str:
+        """The execution plane's name of the URL's workspace: in the organization of the
+        caller's key, else the one named by ``X-Minos-Organization``, else ``default``."""
+        if caller is not None and caller.workspace is not None:
+            org = split_name(caller.workspace)[0]
+        else:
+            org = request.headers.get("x-minos-organization", "").strip() or DEFAULT_ORGANIZATION
+        return qualified_name(org, workspace)
 
     async def authenticate(
         request: Request, workspace: str | None
     ) -> tuple[Response | None, Principal | None]:
-        """``(denial, caller)``; ``workspace=None`` requires an admin key. The caller is
-        ``None`` on an open installation."""
+        """``(denial, caller)``; ``workspace=None`` requires an admin key, otherwise it is the
+        URL's workspace slug. The caller is ``None`` on an open installation."""
         if not require_auth:
             return None, None
         try:
@@ -78,7 +90,7 @@ def execution_router(
         if workspace is None:
             if not principal.is_admin():
                 return problem(403, "Forbidden", "an admin API key is required"), principal
-        elif not principal.can_execute(workspace):
+        elif not principal.can_execute(qualify(request, principal, workspace)):
             return (
                 problem(403, "Forbidden", "the API key cannot execute in this workspace"),
                 principal,
@@ -285,6 +297,7 @@ def execution_router(
         denied, caller = await authenticate(request, workspace)
         if denied is not None:
             return denied
+        workspace = qualify(request, caller, workspace)
         name = env or DEFAULT_ENV
         return await run(
             request,
@@ -300,6 +313,7 @@ def execution_router(
         denied, caller = await authenticate(request, workspace)
         if denied is not None:
             return denied
+        workspace = qualify(request, caller, workspace)
         try:
             dep = await sync.load_version(workspace, ruleset, semver) if sync else None
         except Exception:

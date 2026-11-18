@@ -12,3 +12,4 @@ Every relevant architectural decision is an `NNNN-title.md` file with a status
 | [0005](0005-api-keys-and-authorization.md) | API keys and authorization | Accepted |
 | [0006](0006-mcp-server.md) | MCP server on top of the Management API, drafts only | Accepted |
 | [0007](0007-entity-references.md) | Entities that reference other entities | Accepted |
+| [0008](0008-users-organizations-roles.md) | Users, organizations and roles | Accepted |

@@ -13,7 +13,8 @@ Configuration through environment variables:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `MINOS_DATABASE_URL` | — | `postgresql+asyncpg://user:pass@host:5432/db` |
-| `MINOS_REQUIRE_AUTH` | `false` | `true` to require API keys; any value other than `true/false/1/0/yes/no/on/off` stops the start-up |
+| `MINOS_REQUIRE_AUTH` | `false` | `true` to require authentication: users sign in (e-mail and password), machines use API keys; any value other than `true/false/1/0/yes/no/on/off` stops the start-up |
+| `MINOS_ALLOW_SIGNUP` | `false` | `true` lets anyone who reaches the Studio register a new organization and become its owner |
 | `MINOS_CORS_ORIGINS` | — | Allowed browser origins, comma-separated |
 | `MINOS_RULESETS_DIR` | — | RGD files served as workspace `local`, environment `prod` |
 | `MINOS_POLL_INTERVAL_S` | `30` | Periodic alias check (safety net for lost NOTIFYs), at least 1 |
@@ -22,140 +23,111 @@ Configuration through environment variables:
 | `MINOS_ALLOWED_HOSTS` | (local names) | Open installations (no API keys) answer only to `localhost`, `127.0.0.1`, `::1` and these comma-separated names (`421` otherwise; `*` for any), against DNS rebinding |
 | `MINOS_EXAMPLES_DIR` | the repo's `examples/` | Examples loaded by `minos.cli seed-examples` |
 | `MINOS_SEED_EXAMPLES` | `true` only in the Docker image | Loads the examples on the container's first start |
-| `MINOS_STUDIO_URL` | `http://localhost:8080` | Studio address in the links returned by the MCP server |
+| `MINOS_STUDIO_URL` | `http://localhost:8080` | Studio address in the links returned by the MCP server and in invitation links |
+| `MINOS_SESSION_HOURS` | `12` | How long a Studio sign-in lasts |
+| `MINOS_INVITATION_DAYS` | `7` | How long an invitation link can be used |
+| `MINOS_AUDIT_RETENTION_DAYS` | `90` | `minos.cli prune-audit` deletes draft-save events older than this |
 
 With neither a database nor a directory, `minos.api.app:app` serves the repo's examples: this is
 the demo mode used by Minos Studio. With the database, `minos.api.app:app` also exposes the MCP
 server on `/mcp` (see [`mcp.md`](mcp.md)).
 
 `GET /v1/info` (always public) describes the installation:
-`{"name", "version", "authRequired", "management", "database"}`. The Studio uses it to decide
-whether to ask for a key and whether to open the demo.
+`{"name", "version", "authRequired", "management", "database", "signup"}`. The Studio uses it to
+decide whether to ask for a sign-in, whether to offer registration and whether to open the demo.
 
 ## Authentication (optional)
 
-By default the installation is **open**: no key required (`compose.yaml` publishes the ports on `127.0.0.1` only). With `MINOS_REQUIRE_AUTH=true` you need
-`Authorization: Bearer mns_...` or `X-Api-Key: mns_...`, with these scopes (ADR 0005):
+By default the installation is **open**: no key required (`compose.yaml` publishes the ports on
+`127.0.0.1` only). With `MINOS_REQUIRE_AUTH=true` every call needs `Authorization: Bearer <token>`
+(or `X-Api-Key`), where the token is either an **API key** (machines) or a **session** of a
+signed-in user (people, the Studio). See ADR 0005 and ADR 0008.
+
+### API keys (machines)
 
 | Scope | Reach | Allows |
 | --- | --- | --- |
-| `admin` | global | everything, including creating workspaces and admin keys |
-| `manage` | one workspace | the workspace's Management API |
+| `admin` | global | everything: organizations, workspaces, admin keys, all audit |
+| `manage` | one workspace | the workspace's Management API (admin role in it) |
 | `exec` | one workspace | the workspace's Execution API |
 
-The first admin key is created from the command line:
+Key names are unique among the active keys of a workspace (`409` otherwise), and every key
+records who created it (`createdBy`).
+
+### Users, organizations, roles (people)
+
+Organizations are tenants: each workspace belongs to one (the pre-existing ones, and those created
+by admin keys without naming one, to `default`). A user has one password and any number of e-mail
+addresses, each of which signs in; a session works in one organization at a time.
+
+Workspace slugs are unique **within an organization** (two organizations can both have `rules`),
+and URLs carry only the slug: the organization comes from the caller.
+
+| Caller | Organization of `/v1/workspaces/{ws}/...` and `/v1/exec/{ws}/...` |
+| --- | --- |
+| Signed-in user | the one chosen for the session |
+| `manage` / `exec` key | the one of the key's workspace |
+| `admin` key, open installation | `X-Minos-Organization: <slug>` if sent, else `default` |
+
+`GET /v1/workspaces` with an admin key and no header lists every organization's workspaces, each
+with its `organization`. `GET /v1/deployments` names workspaces by slug in `default` and
+`<organization>/<slug>` elsewhere. The MCP server forwards `X-Minos-Organization` too.
+
+| Role | Where | Allows |
+| --- | --- | --- |
+| `owner` | organization | everything in it; manages owners; the last one cannot leave |
+| `admin` | organization | members, invitations, workspaces; admin of every workspace |
+| `member` | organization | only the workspaces where they have a role |
+| `viewer` | workspace | read, validate, simulate, run tests, diff, export |
+| `author` | workspace | + entities, schemas, rule sets, drafts, tests, import |
+| `publisher` | workspace | + publish, archive, environments (`prod` included) |
+| `admin` | workspace | + API keys, members, audit |
+
+| Method and path | Description |
+| --- | --- |
+| `POST /auth/login` | `{"email", "password", "organization"?}` → `{token, user, organization, organizations, expiresAt}`; with several organizations and none named, `organization` is `null`: choose one next. `401` wrong credentials, `429` too many failures for the address |
+| `POST /auth/signup` | Only with `MINOS_ALLOW_SIGNUP=true` (`403` otherwise). `{"organization": {"slug", "name"}}` plus, when not signed in, `{"email", "password"}` of an existing account or `{"name", "email", "password"}` for a new one; signed in, the current account owns it. Creates the organization with the caller as owner and returns a session in it (`409` slug taken) |
+| `POST /auth/organization` | `{"organization"}`: move the session to another of the user's organizations |
+| `GET /auth/me` | The signed-in user and their organizations, or the API key (`kind`, `name`, `scopes`) |
+| `PUT /auth/password` | `{"current", "new"}` (at least 12 characters) |
+| `POST /auth/logout` | Ends the session |
+| `GET /auth/invitations/{token}` | Public: organization, address, role, whether the address has an account |
+| `POST /auth/invitations/{token}/accept` | Signed in: the address joins the current account. Otherwise `{"password"}` of the account using the address, or `{"name", "password"}` for a new one. Returns a session in that organization |
+| `GET/POST /organizations` | Your organizations (users) or all (admin keys); create (admin keys; users through `/auth/signup`) |
+| `GET /organizations/{org}/members` | Members with all their addresses and workspace roles |
+| `PUT/DELETE /organizations/{org}/members/{userId}` | `{"role"}` / remove (owners and admins; anyone can remove themselves) |
+| `GET/POST /organizations/{org}/invitations` · `DELETE .../{id}` | Pending invitations; `{"email", "role", "workspaces": [{"workspace", "role"}]}` returns the link (`url`, `token`) once: Minos sends no e-mail |
+| `GET /organizations/{org}/audit` | Audit of the organization and its workspaces (owners, admins) |
+| `GET /admin/audit?scope=all\|global` | Whole audit, or only events of no organization (admin keys) |
+| `GET /workspaces/{ws}/members` · `PUT/DELETE .../members/{userId}` | Who can open the workspace; give or take a member's role (workspace admins) |
+
+The first organization and its owner come from the command line:
 
 ```bash
 MINOS_DATABASE_URL=... uv run python -m minos.cli migrate
+MINOS_DATABASE_URL=... uv run python -m minos.cli create-organization --slug gsom --name "GSoM"
+MINOS_DATABASE_URL=... uv run python -m minos.cli create-user --email ada@example.org \
+    --name "Ada" --organization gsom --role owner      # asks the password (or MINOS_PASSWORD)
 ```
+
+and the first admin key too:
 
 ```bash
 MINOS_DATABASE_URL=... uv run python -m minos.cli create-admin-key --name ops
 MINOS_DATABASE_URL=... uv run python -m minos.cli list-admin-keys
 MINOS_DATABASE_URL=... uv run python -m minos.cli revoke-key <id>   # any key, admin or workspace
+MINOS_DATABASE_URL=... uv run python -m minos.cli prune-audit       # audit retention (draft saves)
 ```
 
-## Ready-made examples
+### Audit
 
-```bash
-MINOS_DATABASE_URL=... uv run python -m minos.cli seed-examples
-```
-
-Creates the `esempi` workspace with every example in the repo (Aurora study plan, e-commerce
-order, loan, enrollment): entities with the schema derived from the sample inputs, or written in
-`entities/<key>.json` (these can use other entities as field types), rule sets with their tests,
-version `0.1.0` published (the tests act as the gate) and moved to `prod`. If the workspace already
-exists it only adds the examples it lacks: existing entities and rule sets (by key) are left
-alone, so changes made in the Studio are kept. `--workspace` picks another
-name, `--dir` another folder (`rulesets/`, `inputs/`, `tests/`, optionally `entities/`). The Docker image runs it on every
-start (`MINOS_SEED_EXAMPLES=false` to start empty).
-
-Errors are `application/problem+json` (`status`, `title`, `detail` plus specific fields).
-
-### References allowed in schemas
-
-A schema is self-contained: `$ref` may point inside it (`#/$defs/...`) or at another entity
-(`entity:Key`, see below). Any other reference (`http://...`, `file://...`, `other.json`) is
-rejected with `422`, and the server never downloads schemas.
-
-### Entities made of other entities
-
-When the input combines several objects (a student, their study plan, the program and its
-courses), create one entity per kind of object, then one for the whole input that uses them as
-field types:
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "student": { "$ref": "entity:Student" },
-    "plan": { "$ref": "entity:StudyPlan" },
-    "program": { "$ref": "entity:Program" }
-  },
-  "required": ["student", "plan", "program"]
-}
-```
-
-`Program` can itself hold `"courses": {"type": "array", "items": {"$ref": "entity:Course"}}`.
-A rule set on this entity reads every part directly (`$.input.student.birthDate`,
-`$.input.program.courses[*].cfu`); no `subruleset` is needed.
-
-- When the schema is saved, `entity:Course` is pinned to Course's latest version and stored as
-  `entity:Course@2`. A version written explicitly is kept. A new version of Course does not change
-  the schemas that use it: `references[].latest` shows that it exists, and saving the schema again
-  with unpinned references moves them forward (*Update references* in the Studio).
-- Only `title` and `description` may sit next to a reference (`422` otherwise), as well as for an
-  unknown entity or version.
-- `resolved` embeds the referenced versions under `$defs["entity:<key>@<version>"]`. Execution
-  validates the input against it and the Swagger shows it. Bundles carry the referenced entities
-  too, so a bundle imports where they do not exist and the imported entity keeps its references.
-
-## Execution API
-
-| Method and path | Description |
-| --- | --- |
-| `POST /v1/exec/{ws}/{ruleset}` | Runs the `prod` alias (the version in force on the reference date) |
-| `POST /v1/exec/{ws}/{ruleset}@{env}` | Runs the `env` alias (`test`, `dev`, ...) |
-| `POST /v1/exec/{ws}/{ruleset}/versions/{semver}` | Runs a pinned version (loaded on the first request, then cached) |
-| `GET /v1/health` · `GET /v1/ready` | Probes; `ready` after the initial load. `health` is always `200`, with `status: degraded` and `problems` when the worker is not listening for changes (polling only) or a deployment failed to reload (the previous version keeps serving) |
-| `GET /v1/metrics` | Prometheus text: executions by outcome, engine time, requests refused (too large, invalid input, limits), deployments, reloads and their failures, NOTIFY connection (admin key) |
-| `GET /v1/deployments` | Aliases loaded in the worker, with version and hash (admin key) |
-| `GET /v1/exec/openapi.json[?workspace=<ws>]` | OpenAPI 3.1 of the deployed rule sets (see below) |
-| `GET /v1/exec/docs[?workspace=<ws>]` | Swagger UI on the same document |
-
-### Rule set Swagger
-
-FastAPI's `/openapi.json` and `/docs` describe the platform: a single execution endpoint with a
-free-form `input`. `/v1/exec/openapi.json` instead describes what is deployed: one operation per
-rule set and environment (`/v1/exec/{ws}/{rs}` for `prod`, `/v1/exec/{ws}/{rs}@{env}` for the
-others), with the entity schema as the request body, the version in force and the schedule of
-planned versions, and the feedback codes declared by the graph.
-
-The document is generated from the worker's in-memory registry, so it updates itself when a version
-is published to an environment (`promoteTo`) or an alias changes: no extra steps. A version that is
-published but not moved to any environment does not appear (it can still be run through
-`/versions/{semver}`).
-
-With `MINOS_REQUIRE_AUTH=true` the document lists only the rule sets the key can run (all of them
-for an admin key, those of its workspace for an `exec` key, none without a key). In the Swagger UI:
-*Authorize* with the key, then reload the page. The key stays in the browser and is also sent with
-the document request.
-
-Body: `{"input": {...}, "options": {"trace": "none|summary|full", "locale": "it",
-"referenceDate": "2027-09-20", "validateSchema": true}}`.
-
-- `referenceDate` (default: today, UTC) is the rules' "reference" date: it feeds `today()` and
-  `age()` and picks the version when the environment has scheduled versions.
-- `validateSchema: false` skips the input check against the entity schema: with API keys on, only
-  an `admin` or `manage` key may ask for it (`403` otherwise). Values of an unexpected type then
-  end with outcome `error`.
-- `200` with the outcome in the body (`valid`, `invalid`, `warning`); `422` if execution fails or
-  exceeds `maxSteps` or the time limit; `400` if the input does not match the entity schema (`errors` list with JSON
-  pointers); `401`/`403` for keys; `404` if the rule set or the alias is not deployed.
-- Headers: `X-Ruleset-Version`, `X-Ruleset-Hash`, `X-Request-Id` (echo of the one received),
-  `Server-Timing: engine;dur=<ms>`.
-
-## Limits
+Every change records the actor (`user:<e-mail>`, `apikey:<name>`, `cli`), the channel `via`
+(`studio`, `api`, `mcp`, `cli`: the Studio and the MCP server send `X-Minos-Via`), the
+organization and the workspace. Listings (`/workspaces/{ws}/audit`, `/organizations/{org}/audit`,
+`/admin/audit`) take `action` (exact, or a family ending with a dot: `alias.`), `target` (prefix),
+`actor`, `via`, `since`, `until` (ISO dates or date-times), `limit` (≤ 1000) and `cursor`, and
+return `{"items": [...], "next": <cursor or null>}`, newest first. Consecutive draft saves of the
+same actor through the same channel within 15 minutes are one event (`detail.saves`).
 
 Request bodies over 10 MB get `413` on every endpoint (the execution input is limited to 1 MB).
 `POST .../import` accepts only `Content-Type: application/json`. API keys that do not have the
@@ -167,10 +139,10 @@ All paths under `/v1`. `{ws}` is the workspace slug, `{rs}` the rule set key.
 
 | Method and path | Description |
 | --- | --- |
-| `GET/POST /workspaces` | List (filtered by key) and create (admin) |
+| `GET/POST /workspaces` | List the workspaces you can open, with `organization` and your `role`; create (`{"slug", "name", "organization"?}`: organization owners and admins, admin keys) |
 | `GET/POST /workspaces/{ws}/api-keys` · `DELETE .../api-keys/{id}` | Workspace keys; the plaintext key is returned only on creation |
 | `GET/POST /admin/api-keys` · `DELETE .../api-keys/{id}` | Global admin keys (admin): list, create, revoke |
-| `GET /workspaces/{ws}/audit?limit=100` | Change log |
+| `GET /workspaces/{ws}/audit` | Change log (see *Audit* above) |
 | `POST /schemas/infer` | `{"samples": [...], "title"?}` → JSON Schema 2020-12, without saving it |
 | `GET/POST /workspaces/{ws}/entities` | Entities |
 | `GET .../entities/{entity}` | One entity with `usedBy`: the entities whose latest schema references it |

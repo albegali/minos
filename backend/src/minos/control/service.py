@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Final, Literal
 
-from sqlalchemy import func, select, text
+from sqlalchemy import delete, func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +24,7 @@ from minos.db import (
     ApiClient,
     AuditEvent,
     Entity,
+    Organization,
     Ruleset,
     RulesetAlias,
     RulesetDraft,
@@ -51,6 +52,7 @@ from minos.schema import (
 )
 
 from .errors import Conflict, Invalid, NotFound, PreconditionFailed
+from .identity import Actor
 from .keys import SCOPES, display_prefix, generate_key, hash_key, well_formed
 from .testing import EXPECTATION_KEYS, compare
 
@@ -84,18 +86,28 @@ def _check_slug(value: str, what: str) -> None:
 
 async def audit(
     s: AsyncSession,
-    actor: str,
+    actor: Actor,
     action: str,
     target: str,
-    workspace_id: uuid.UUID | None,
+    scope: Workspace | Organization | None,
     detail: dict[str, Any] | None = None,
 ) -> None:
+    """Record a change. ``scope``: the workspace or organization it belongs to (``None``:
+    installation-wide, e.g. global API keys), which decides who may read the event."""
+    workspace_id: uuid.UUID | None = None
+    organization_id: uuid.UUID | None = None
+    if isinstance(scope, Workspace):
+        workspace_id, organization_id = scope.id, scope.organization_id
+    elif scope is not None:
+        organization_id = scope.id
     s.add(
         AuditEvent(
-            actor=actor[:200],
+            actor=actor.id[:200],
+            via=actor.via,
             action=action,
             target=target[:300],
             workspace_id=workspace_id,
+            organization_id=organization_id,
             detail=detail,
         )
     )
@@ -116,37 +128,71 @@ RESERVED_WORKSPACES: Final = frozenset({"local"})
 """``local`` is where the execution API serves rule sets read from files."""
 
 
-async def create_workspace(s: AsyncSession, actor: str, slug: str, name: str) -> Workspace:
+async def create_workspace(
+    s: AsyncSession, actor: Actor, org: Organization, slug: str, name: str
+) -> Workspace:
     _check_slug(slug, "workspace slug")
     if slug in RESERVED_WORKSPACES:
         raise Invalid(f"workspace slug {slug!r} is reserved")
     _check_name(name, "workspace name")
-    ws = Workspace(slug=slug, name=name)
+    ws = Workspace(slug=slug, name=name, organization_id=org.id)
     s.add(ws)
     try:
         await s.flush()
     except IntegrityError as exc:
         raise Conflict(f"workspace {slug!r} already exists") from exc
-    await audit(s, actor, "workspace.create", slug, ws.id)
+    await audit(s, actor, "workspace.create", slug, ws)
     return ws
 
 
-async def list_workspaces(s: AsyncSession) -> list[Workspace]:
-    return list((await s.scalars(select(Workspace).order_by(Workspace.slug))).all())
+async def list_workspaces(s: AsyncSession, org: uuid.UUID | None = None) -> list[Workspace]:
+    """All workspaces, or those of one organization."""
+    query = select(Workspace).order_by(Workspace.slug)
+    if org is not None:
+        query = query.where(Workspace.organization_id == org)
+    return list((await s.scalars(query)).all())
 
 
-async def get_workspace(s: AsyncSession, slug: str) -> Workspace:
-    ws = await s.scalar(select(Workspace).where(Workspace.slug == slug))
+async def get_workspace(s: AsyncSession, org: uuid.UUID, slug: str) -> Workspace:
+    """A workspace of an organization: slugs are unique within an organization only."""
+    ws = await s.scalar(
+        select(Workspace).where(Workspace.organization_id == org, Workspace.slug == slug)
+    )
     if ws is None:
         raise NotFound(f"workspace {slug!r} not found")
     return ws
+
+
+DEFAULT_ORGANIZATION: Final = "default"
+"""Home of the workspaces that existed before organizations, and of those an admin key or an
+open installation creates without naming an organization."""
+DEFAULT_ORGANIZATION_ID: Final = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+
+def qualified_name(org: str, workspace: str) -> str:
+    """How the execution plane names a workspace: its slug in the ``default`` organization
+    (unchanged from before organizations), ``<org>/<slug>`` elsewhere. Slugs contain no
+    ``/``, so the name is unambiguous."""
+    return workspace if org == DEFAULT_ORGANIZATION else f"{org}/{workspace}"
+
+
+def split_name(name: str) -> tuple[str, str]:
+    """``(organization slug, workspace slug)`` of a :func:`qualified_name`."""
+    org, sep, workspace = name.rpartition("/")
+    return (org if sep else DEFAULT_ORGANIZATION), workspace
+
+
+async def workspace_name(s: AsyncSession, ws: Workspace) -> str:
+    org = await s.get(Organization, ws.organization_id)
+    assert org is not None
+    return qualified_name(org.slug, ws.slug)
 
 
 # --------------------------------------------------------------------------- entities & schemas
 
 
 async def create_entity(
-    s: AsyncSession, actor: str, ws: Workspace, key: str, name: str, description: str | None
+    s: AsyncSession, actor: Actor, ws: Workspace, key: str, name: str, description: str | None
 ) -> Entity:
     _check_slug(key.lower(), "entity key")
     _check_name(name, "entity name")
@@ -156,7 +202,7 @@ async def create_entity(
         await s.flush()
     except IntegrityError as exc:
         raise Conflict(f"entity {key!r} already exists") from exc
-    await audit(s, actor, "entity.create", f"{ws.slug}/{key}", ws.id)
+    await audit(s, actor, "entity.create", f"{ws.slug}/{key}", ws)
     return entity
 
 
@@ -175,7 +221,7 @@ async def get_entity(s: AsyncSession, ws: Workspace, key: str) -> Entity:
 
 async def add_schema_version(
     s: AsyncSession,
-    actor: str,
+    actor: Actor,
     ws: Workspace,
     entity: Entity,
     json_schema: dict[str, Any],
@@ -201,11 +247,11 @@ async def add_schema_version(
         resolved_schema=resolved,
         source=source,
         hash=digest,
-        created_by=actor,
+        created_by=actor.id,
     )
     s.add(sv)
     await s.flush()
-    await audit(s, actor, "schema.publish", f"{ws.slug}/{entity.key}@{sv.version}", ws.id)
+    await audit(s, actor, "schema.publish", f"{ws.slug}/{entity.key}@{sv.version}", ws)
     return sv
 
 
@@ -316,7 +362,7 @@ def starter_graph(key: str) -> dict[str, Any]:
 
 async def create_ruleset(
     s: AsyncSession,
-    actor: str,
+    actor: Actor,
     ws: Workspace,
     entity: Entity,
     key: str,
@@ -340,11 +386,11 @@ async def create_ruleset(
             ruleset_id=rs.id,
             schema_version_id=schema.id if schema else None,
             graph=_normalise_graph(graph or starter_graph(key), key),
-            updated_by=actor,
+            updated_by=actor.id,
         )
     )
     await s.flush()
-    await audit(s, actor, "ruleset.create", f"{ws.slug}/{key}", ws.id)
+    await audit(s, actor, "ruleset.create", f"{ws.slug}/{key}", ws)
     return rs
 
 
@@ -392,7 +438,7 @@ async def get_draft(s: AsyncSession, rs: Ruleset) -> RulesetDraft:
 
 async def save_draft(
     s: AsyncSession,
-    actor: str,
+    actor: Actor,
     ws: Workspace,
     rs: Ruleset,
     graph: dict[str, Any],
@@ -412,10 +458,46 @@ async def save_draft(
         assert entity is not None
         draft.schema_version_id = (await get_schema_version(s, entity, schema_version)).id
     draft.lock_version += 1
-    draft.updated_by = actor
+    draft.updated_by = actor.id
     await s.flush()
-    await audit(s, actor, "draft.save", f"{ws.slug}/{rs.key}", ws.id, {"lock": draft.lock_version})
+    await _audit_draft_save(s, actor, ws, rs, draft.lock_version)
     return draft
+
+
+DRAFT_SAVE_WINDOW: Final = dt.timedelta(minutes=15)
+"""Consecutive saves of a draft by the same actor within this time are one audit event (the
+Studio saves every few seconds while someone edits)."""
+
+
+async def _audit_draft_save(
+    s: AsyncSession, actor: Actor, ws: Workspace, rs: Ruleset, lock: int
+) -> None:
+    target = f"{ws.slug}/{rs.key}"
+    last = await s.scalar(
+        select(AuditEvent)
+        .where(AuditEvent.workspace_id == ws.id, AuditEvent.target == target)
+        .order_by(AuditEvent.id.desc())
+        .limit(1)
+        .with_for_update()
+    )
+    now: dt.datetime | None = await s.scalar(select(func.now()))
+    assert now is not None
+    if (
+        last is not None
+        and last.action == "draft.save"
+        and last.actor == actor.id[:200]
+        and last.via == actor.via
+        and now - last.ts < DRAFT_SAVE_WINDOW
+    ):
+        before = last.detail or {}
+        last.detail = {
+            "lock": lock,
+            "firstLock": before.get("firstLock", before.get("lock", lock)),
+            "saves": int(before.get("saves", 1)) + 1,
+        }
+        last.ts = now
+        return
+    await audit(s, actor, "draft.save", target, ws, {"lock": lock})
 
 
 async def _draft_schema(s: AsyncSession, draft: RulesetDraft) -> SchemaVersion | None:
@@ -444,7 +526,7 @@ def compile_checked(
     return Validation(True, [], list(compiled.warnings), compiled)
 
 
-async def resolver_for(s: AsyncSession, workspace: str, graph: dict[str, Any]) -> Resolver:
+async def resolver_for(s: AsyncSession, workspace: uuid.UUID, graph: dict[str, Any]) -> Resolver:
     """Load (recursively) the published versions a graph's sub-ruleset nodes pin, and return
     a resolver that compiles them on demand, once each."""
     sources: dict[tuple[str, str], tuple[dict[str, Any], dict[str, Any] | None]] = {}
@@ -460,7 +542,7 @@ async def resolver_for(s: AsyncSession, workspace: str, graph: dict[str, Any]) -
                     .join(Workspace, Workspace.id == Ruleset.workspace_id)
                     .outerjoin(SchemaVersion, SchemaVersion.id == RulesetVersion.schema_version_id)
                     .where(
-                        Workspace.slug == workspace,
+                        Workspace.id == workspace,
                         Ruleset.key == key,
                         RulesetVersion.semver == version,
                     )
@@ -505,7 +587,7 @@ async def validate_draft(s: AsyncSession, rs: Ruleset) -> Validation:
     sv = await _draft_schema(s, draft)
     ws = await s.get(Workspace, rs.workspace_id)
     assert ws is not None
-    resolve = await resolver_for(s, ws.slug, draft.graph)
+    resolve = await resolver_for(s, ws.id, draft.graph)
     # Compiling and running rules is CPU-bound: worker threads keep the event loop, which also
     # serves executions, responsive.
     return await asyncio.to_thread(
@@ -530,7 +612,7 @@ async def simulate_draft(
 
 async def add_test(
     s: AsyncSession,
-    actor: str,
+    actor: Actor,
     ws: Workspace,
     rs: Ruleset,
     name: str,
@@ -556,7 +638,7 @@ async def add_test(
         await s.flush()
     except IntegrityError as exc:
         raise Conflict(f"test {name!r} already exists") from exc
-    await audit(s, actor, "test.create", f"{ws.slug}/{rs.key}/{name}", ws.id)
+    await audit(s, actor, "test.create", f"{ws.slug}/{rs.key}/{name}", ws)
     return tc
 
 
@@ -570,7 +652,7 @@ async def list_tests(s: AsyncSession, rs: Ruleset) -> list[TestCase]:
 
 async def replace_test(
     s: AsyncSession,
-    actor: str,
+    actor: Actor,
     ws: Workspace,
     rs: Ruleset,
     name: str,
@@ -587,16 +669,16 @@ async def replace_test(
         await s.flush()  # the unit of work would otherwise insert before deleting
     tc = await add_test(s, actor, ws, rs, name, data, expected, reference_date)
     if old is not None:
-        await audit(s, actor, "test.replace", f"{ws.slug}/{rs.key}/{name}", ws.id)
+        await audit(s, actor, "test.replace", f"{ws.slug}/{rs.key}/{name}", ws)
     return tc, old is None
 
 
-async def delete_test(s: AsyncSession, actor: str, ws: Workspace, rs: Ruleset, name: str) -> None:
+async def delete_test(s: AsyncSession, actor: Actor, ws: Workspace, rs: Ruleset, name: str) -> None:
     tc = await s.scalar(select(TestCase).where(TestCase.ruleset_id == rs.id, TestCase.name == name))
     if tc is None:
         raise NotFound(f"test {name!r} not found")
     await s.delete(tc)
-    await audit(s, actor, "test.delete", f"{ws.slug}/{rs.key}/{name}", ws.id)
+    await audit(s, actor, "test.delete", f"{ws.slug}/{rs.key}/{name}", ws)
 
 
 def run_tests(
@@ -668,7 +750,7 @@ async def latest_version(s: AsyncSession, rs: Ruleset) -> RulesetVersion | None:
 
 async def publish(
     s: AsyncSession,
-    actor: str,
+    actor: Actor,
     ws: Workspace,
     rs: Ruleset,
     bump: Bump,
@@ -699,7 +781,7 @@ async def publish(
     semver = "{}.{}.{}".format(*numbers)
 
     graph = dict(draft.graph, version=semver)
-    resolve = await resolver_for(s, ws.slug, graph)
+    resolve = await resolver_for(s, ws.id, graph)
     cases = await list_tests(s, rs)
     validation = await asyncio.to_thread(
         compile_checked, graph, sv.resolved_schema if sv else None, resolve
@@ -725,7 +807,7 @@ async def publish(
         graph=graph,
         hash=validation.compiled.hash,
         notes=notes,
-        published_by=actor,
+        published_by=actor.id,
     )
     s.add(version)
     await s.flush()
@@ -734,7 +816,7 @@ async def publish(
         actor,
         "ruleset.publish",
         f"{ws.slug}/{rs.key}@{semver}",
-        ws.id,
+        ws,
         {"hash": version.hash, "tests": len(tests)},
     )
     if promote_to:
@@ -743,7 +825,7 @@ async def publish(
 
 
 async def archive_version(
-    s: AsyncSession, actor: str, ws: Workspace, rs: Ruleset, semver: str
+    s: AsyncSession, actor: Actor, ws: Workspace, rs: Ruleset, semver: str
 ) -> RulesetVersion:
     """Withdraw a published version: it can no longer be promoted nor executed by number.
     Refused while an environment still points at it (move the environment first)."""
@@ -763,9 +845,15 @@ async def archive_version(
         )
     if version.status != "archived":
         version.status = "archived"
-        await audit(s, actor, "version.archive", f"{ws.slug}/{rs.key}@{semver}", ws.id)
+        await audit(s, actor, "version.archive", f"{ws.slug}/{rs.key}@{semver}", ws)
         await notify(
-            s, {"kind": "version", "workspace": ws.slug, "ruleset": rs.key, "semver": semver}
+            s,
+            {
+                "kind": "version",
+                "workspace": await workspace_name(s, ws),
+                "ruleset": rs.key,
+                "semver": semver,
+            },
         )
     return version
 
@@ -797,7 +885,7 @@ async def get_version(s: AsyncSession, rs: Ruleset, semver: str) -> RulesetVersi
 
 async def set_alias(
     s: AsyncSession,
-    actor: str,
+    actor: Actor,
     ws: Workspace,
     rs: Ruleset,
     env: str,
@@ -818,27 +906,34 @@ async def set_alias(
     previous = None
     if alias is None:
         alias = RulesetAlias(
-            ruleset_id=rs.id, env=env, effective_from=start, version_id=version.id, updated_by=actor
+            ruleset_id=rs.id,
+            env=env,
+            effective_from=start,
+            version_id=version.id,
+            updated_by=actor.id,
         )
         s.add(alias)
     else:
         previous = alias.version_id
         alias.version_id = version.id
-        alias.updated_by = actor
+        alias.updated_by = actor.id
     await s.flush()
     await audit(
         s,
         actor,
         "alias.set",
         f"{ws.slug}/{rs.key}@{env}",
-        ws.id,
+        ws,
         {
             "version": semver,
             "effectiveFrom": effective_from.isoformat() if effective_from else None,
             "previousVersionId": str(previous) if previous else None,
         },
     )
-    await notify(s, {"kind": "alias", "workspace": ws.slug, "ruleset": rs.key, "env": env})
+    await notify(
+        s,
+        {"kind": "alias", "workspace": await workspace_name(s, ws), "ruleset": rs.key, "env": env},
+    )
     return alias
 
 
@@ -873,7 +968,7 @@ def current_aliases(entries: list[AliasEntry], on: dt.date) -> dict[str, str]:
 
 async def delete_alias(
     s: AsyncSession,
-    actor: str,
+    actor: Actor,
     ws: Workspace,
     rs: Ruleset,
     env: str,
@@ -895,10 +990,13 @@ async def delete_alias(
         actor,
         "alias.delete",
         f"{ws.slug}/{rs.key}@{env}",
-        ws.id,
+        ws,
         {"effectiveFrom": None if all_entries else str(effective_from or "")},
     )
-    await notify(s, {"kind": "alias", "workspace": ws.slug, "ruleset": rs.key, "env": env})
+    await notify(
+        s,
+        {"kind": "alias", "workspace": await workspace_name(s, ws), "ruleset": rs.key, "env": env},
+    )
 
 
 # --------------------------------------------------------------------------- API keys
@@ -906,7 +1004,7 @@ async def delete_alias(
 
 async def create_api_client(
     s: AsyncSession,
-    actor: str,
+    actor: Actor,
     ws: Workspace | None,
     name: str,
     scopes: list[str],
@@ -920,6 +1018,14 @@ async def create_api_client(
         raise Invalid("the admin scope is global: create it without a workspace")
     if "admin" not in scopes and ws is None:
         raise Invalid("non-admin keys belong to a workspace")
+    owner = ApiClient.workspace_id == ws.id if ws else ApiClient.workspace_id.is_(None)
+    taken = await s.scalar(
+        select(ApiClient.id).where(owner, ApiClient.name == name, ApiClient.revoked_at.is_(None))
+    )
+    if taken is not None:
+        raise Conflict(
+            f"an active API key is already named {name!r}: the audit could not tell them apart"
+        )
     key = generate_key()
     client = ApiClient(
         workspace_id=ws.id if ws else None,
@@ -927,15 +1033,19 @@ async def create_api_client(
         key_prefix=display_prefix(key),
         key_hash=hash_key(key),
         scopes=sorted(set(scopes)),
+        created_by=actor.id[:200],
     )
     s.add(client)
-    await s.flush()
+    try:
+        await s.flush()
+    except IntegrityError as exc:  # created concurrently
+        raise Conflict(f"an active API key is already named {name!r}") from exc
     await audit(
         s,
         actor,
         "apikey.create",
         client.key_prefix,
-        ws.id if ws else None,
+        ws,
         {"name": name, "scopes": client.scopes},
     )
     return client, key
@@ -948,7 +1058,7 @@ async def list_api_clients(s: AsyncSession, ws: Workspace | None) -> list[ApiCli
 
 
 async def revoke_api_client(
-    s: AsyncSession, actor: str, ws: Workspace | None, client_id: uuid.UUID
+    s: AsyncSession, actor: Actor, ws: Workspace | None, client_id: uuid.UUID
 ) -> None:
     """Revoke a key of ``ws``, or a global (admin) key when ``ws`` is ``None``."""
     client = await s.get(ApiClient, client_id)
@@ -956,7 +1066,7 @@ async def revoke_api_client(
         raise NotFound("API key not found")
     if client.revoked_at is None:
         client.revoked_at = await s.scalar(select(func.now()))
-        await audit(s, actor, "apikey.revoke", client.key_prefix, ws.id if ws else None)
+        await audit(s, actor, "apikey.revoke", client.key_prefix, ws, {"name": client.name})
         await notify(s, {"kind": "apikey", "keyHash": client.key_hash})
 
 
@@ -969,12 +1079,77 @@ async def find_api_client(s: AsyncSession, key: str) -> ApiClient | None:
     return client
 
 
-async def list_audit(s: AsyncSession, ws: Workspace, limit: int = 100) -> list[AuditEvent]:
-    return list(
-        await s.scalars(
-            select(AuditEvent)
-            .where(AuditEvent.workspace_id == ws.id)
-            .order_by(AuditEvent.id.desc())
-            .limit(limit)
-        )
-    )
+@dataclass(frozen=True, slots=True)
+class AuditQuery:
+    """Filters of an audit listing; events come newest first, ``before`` is the cursor (the id
+    of the last event of the previous page)."""
+
+    action: str | None = None
+    """Exact action (``ruleset.publish``) or a family ending with a dot (``alias.``)."""
+    target: str | None = None
+    """Prefix of the target (``ws/ruleset`` matches its versions, tests and aliases)."""
+    actor: str | None = None
+    via: str | None = None
+    since: dt.datetime | None = None
+    until: dt.datetime | None = None
+    before: int | None = None
+    limit: int = 100
+
+
+def _like_prefix(value: str) -> str:
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
+async def list_audit(
+    s: AsyncSession,
+    q: AuditQuery,
+    *,
+    workspace: Workspace | None = None,
+    organization: Organization | None = None,
+    global_only: bool = False,
+) -> tuple[list[AuditEvent], int | None]:
+    """A page of events of a workspace, of an organization (its workspaces included), of the
+    installation (``global_only``: events of no organization, such as admin keys) or of
+    everything; returns the events and the cursor of the next page (``None``: last page)."""
+    query = select(AuditEvent)
+    if workspace is not None:
+        query = query.where(AuditEvent.workspace_id == workspace.id)
+    if organization is not None:
+        query = query.where(AuditEvent.organization_id == organization.id)
+    if global_only:
+        query = query.where(AuditEvent.organization_id.is_(None))
+    if q.action:
+        if q.action.endswith("."):
+            query = query.where(AuditEvent.action.like(_like_prefix(q.action), escape="\\"))
+        else:
+            query = query.where(AuditEvent.action == q.action)
+    if q.target:
+        query = query.where(AuditEvent.target.like(_like_prefix(q.target), escape="\\"))
+    if q.actor:
+        query = query.where(AuditEvent.actor == q.actor)
+    if q.via:
+        query = query.where(AuditEvent.via == q.via)
+    if q.since:
+        query = query.where(AuditEvent.ts >= q.since)
+    if q.until:
+        query = query.where(AuditEvent.ts < q.until)
+    if q.before is not None:
+        query = query.where(AuditEvent.id < q.before)
+    limit = min(max(q.limit, 1), 1000)
+    rows = list(await s.scalars(query.order_by(AuditEvent.id.desc()).limit(limit + 1)))
+    more = len(rows) > limit
+    rows = rows[:limit]
+    return rows, (rows[-1].id if more and rows else None)
+
+
+async def prune_audit(
+    s: AsyncSession, older_than: dt.timedelta, actions: tuple[str, ...] | None = ("draft.save",)
+) -> int:
+    """Retention: delete events older than ``older_than``; only the given actions (by default
+    the draft saves, which are routine), or all of them with ``actions=None``."""
+    cutoff = await s.scalar(select(func.now() - older_than))
+    query = delete(AuditEvent).where(AuditEvent.ts < cutoff)
+    if actions is not None:
+        query = query.where(AuditEvent.action.in_(actions))
+    result = await s.execute(query)
+    return int(result.rowcount or 0)  # type: ignore[attr-defined]

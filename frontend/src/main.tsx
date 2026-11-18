@@ -8,7 +8,11 @@ import { createBrowserRouter, Navigate, RouterProvider } from 'react-router'
 
 import { ApiError } from './api/client'
 import { RequireAuth, Shell } from './components/Shell'
+import { InvitePage } from './pages/InvitePage'
 import { LoginPage } from './pages/LoginPage'
+import { MembersPage } from './pages/MembersPage'
+import { OrganizationsPage } from './pages/OrganizationsPage'
+import { SignupPage } from './pages/SignupPage'
 import { WorkspacePage } from './pages/WorkspacePage'
 import { WorkspacesPage } from './pages/WorkspacesPage'
 import { useI18n } from './i18n'
@@ -36,6 +40,9 @@ const queryClient = new QueryClient({
 
 const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
+  { path: '/organizations', element: <OrganizationsPage /> },
+  { path: '/signup', element: <SignupPage /> },
+  { path: '/invite/:token', element: <InvitePage /> },
   { path: '/demo', element: page(<DemoPage />) },
   {
     element: (
@@ -46,6 +53,7 @@ const router = createBrowserRouter([
     children: [
       { path: '/', element: <Navigate to="/w" replace /> },
       { path: '/w', element: <WorkspacesPage /> },
+      { path: '/members', element: <MembersPage /> },
       { path: '/w/:ws', element: <WorkspacePage /> },
       { path: '/w/:ws/entities/:entity', element: page(<EntityPage />) },
       { path: '/w/:ws/rulesets/:rs', element: page(<EditorPage />) },

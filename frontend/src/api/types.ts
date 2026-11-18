@@ -4,9 +4,82 @@ import type { RuleGraph } from '../rgd'
 
 export type Localized = Record<string, string>
 
+export type WorkspaceRole = 'viewer' | 'author' | 'publisher' | 'admin'
+export type OrgRole = 'member' | 'admin' | 'owner'
+
 export interface Workspace {
   slug: string
   name: string
+  /** Slug of the organization the workspace belongs to. */
+  organization?: string | null
+  /** The caller's role in the workspace. */
+  role?: WorkspaceRole
+}
+
+export interface Organization {
+  slug: string
+  name: string
+  /** The user's role in it (absent for administrators of the installation). */
+  role?: OrgRole
+}
+
+export interface User {
+  id: string
+  name: string
+  /** Primary address: how the audit names the person. */
+  email: string
+  /** Every address of the account: any of them signs in. */
+  emails: string[]
+}
+
+/** A sign-in: the user, the organization the session works in, all of theirs. */
+export interface SessionInfo {
+  user: User
+  organization: Organization | null
+  organizations: Organization[]
+  expiresAt: string
+  token?: string
+}
+
+export interface Member {
+  id: string
+  name: string
+  email: string
+  emails: string[]
+  role: OrgRole
+  workspaces: { workspace: string; role: WorkspaceRole }[]
+  disabled: boolean
+}
+
+export interface WorkspaceMember {
+  id: string
+  name: string
+  email: string
+  role: WorkspaceRole
+  /** Admin because owner or admin of the organization. */
+  inherited: boolean
+}
+
+export interface Invitation {
+  id: string
+  email: string
+  role: OrgRole
+  workspaces: { workspace: string; role: WorkspaceRole }[]
+  invitedBy: string
+  createdAt: string
+  expiresAt: string
+  /** Only in the response that creates it. */
+  token?: string
+  url?: string
+}
+
+export interface InvitationPreview {
+  organization: { slug: string; name: string }
+  email: string
+  role: OrgRole
+  invitedBy: string
+  expiresAt: string
+  accountExists: boolean
 }
 
 export interface Entity {

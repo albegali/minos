@@ -21,7 +21,14 @@
     "entityCrumb": "Entity {key}",
     "rulesetCrumb": "Rule set {key}",
     "home": "Minos Studio, back to the workspaces",
-    "signOut": "Sign out"
+    "signOut": "Sign out",
+    "organization": "Organization",
+    "noOrganization": "No organization",
+    "organizations": "Your organizations",
+    "members": "Members and invitations",
+    "account": "Account",
+    "newOrganization": "New organization",
+    "allOrganizations": "All organizations"
   },
   "login": {
     "intro": "Sign in with an API key with scope {manage} or {admin}.",
@@ -31,14 +38,22 @@
     "invalidKey": "Invalid or revoked key.",
     "unreachable": "API unreachable.",
     "noDatabase": "No database? Open the {demo} with the Aurora examples.",
-    "demoLink": "demo"
+    "demoLink": "demo",
+    "passwordIntro": "Sign in with your e-mail address and password: any address of your account works.",
+    "email": "E-mail address",
+    "password": "Password",
+    "wrongPassword": "Wrong e-mail address or password.",
+    "tooMany": "Too many failed attempts for this address: try again later.",
+    "useApiKey": "Sign in with an API key",
+    "usePassword": "Sign in with e-mail and password"
   },
   "workspaces": {
     "title": "Workspaces",
     "new": "New workspace",
     "slug": "Identifier",
-    "slugHint": "Used in the API URLs. Requires an admin key.",
-    "empty": "No workspaces yet. Create one to get started."
+    "slugHint": "Used in the API URLs; unique within the organization.",
+    "empty": "No workspaces yet. Create one to get started.",
+    "titleIn": "Workspaces of {org}"
   },
   "workspace": {
     "title": "Workspace {ws}",
@@ -59,7 +74,11 @@
     "entities": "Entities and schemas",
     "noEntities": "No entities.",
     "importOverwrite": "Rule set {ruleset} already exists here: importing replaces its draft and the {count} tests of the bundle with the same names. Continue?",
-    "importDependencies": "Imported. The rule set uses these sub rule sets, which must be imported and published here too: {list}"
+    "importDependencies": "Imported. The rule set uses these sub rule sets, which must be imported and published here too: {list}",
+    "access": "Access",
+    "accessTitle": "Who can open {ws}",
+    "accessIntro": "The organization's owners and admins are always admins; give the other members a role here.",
+    "inherited": "from the organization"
   },
   "entity": {
     "title": "Entity {entity}",
@@ -153,7 +172,8 @@
     "emptyHint": "Drag a node from the palette onto the canvas, connect outputs to inputs and select a node to configure it.",
     "panels": "Panels",
     "issues": "Problems",
-    "validateFailed": "Draft saved, but it could not be validated: {error}"
+    "validateFailed": "Draft saved, but it could not be validated: {error}",
+    "readOnly": "You are {role} in this workspace: you can read, validate and simulate, not edit."
   },
   "canvas": {
     "groupSummary": "{count} rules · {operator}",
@@ -454,6 +474,27 @@
     "error": "error"
   },
   "api": {
+    "signupDisabled": "registering organizations is disabled on this installation",
+    "addressHasAccount": "this address already has an account: use its password",
+    "orgExists": "organization {org} already exists",
+    "wrongCredentials": "wrong e-mail address or password",
+    "sessionExpired": "your session has expired: sign in again",
+    "needsRole": "this needs the {needed} role in workspace {ws} (you are {role})",
+    "noRoleIn": "you have no role in workspace {ws}",
+    "needsOrgRole": "this needs the {needed} role in organization {org}",
+    "onlyOwners": "only owners can manage owners",
+    "lastOwner": "an organization needs at least one owner",
+    "manageMembers": "managing members requires the admin or owner role in the organization",
+    "alreadyMember": "{email} is already a member of {org}",
+    "passwordShort": "the password must have at least {n} characters",
+    "invitationInvalid": "this invitation is not valid: it was used, revoked or has expired",
+    "keyNameTaken": "an active API key is already named {name}: the audit could not tell them apart",
+    "chooseOrg": "choose an organization first",
+    "otherAccount": "{email} belongs to another account: sign in with it to accept",
+    "currentPassword": "the current password is wrong",
+    "installationAdmin": "this needs an administrator of the installation (an admin key)",
+    "notMemberOf": "you are not a member of organization {org}",
+    "orgNotFound": "organization {org} not found",
     "invalidIdentifier": "invalid {what} {value}: lowercase letters, digits, '.', '-', '_'",
     "workspaceNotFound": "workspace {name} not found",
     "workspaceExists": "workspace {name} already exists",
@@ -594,5 +635,71 @@
     "alwaysFalse": "false",
     "alwaysTrue": "true",
     "more": "(+{count} more)"
+  },
+  "orgs": {
+    "hello": "Hello {name}",
+    "choose": "Your account belongs to several organizations: choose one. You can switch from the menu at the top.",
+    "none": "Your account does not belong to any organization yet: ask an administrator for an invitation."
+  },
+  "roles": {
+    "owner": "owner",
+    "admin": "admin",
+    "member": "member",
+    "viewer": "viewer",
+    "author": "author",
+    "publisher": "publisher"
+  },
+  "invite": {
+    "intro": "{by} invites you to {org}",
+    "asSignedIn": "The address {email} will be added to your account ({account}): you will be able to sign in with either, with the same password.",
+    "name": "Full name",
+    "passwordHint": "At least 12 characters.",
+    "existingAccount": "This address already has an account: use its password.",
+    "confirm": "Repeat the password",
+    "mismatch": "The two passwords differ.",
+    "accept": "Accept the invitation",
+    "otherAccount": "Use another account",
+    "haveAccount": "Already have an account with another address?",
+    "signInFirst": "Sign in with it first",
+    "toLogin": "Go to sign-in"
+  },
+  "members": {
+    "title": "Members of {org}",
+    "members": "Members",
+    "emails": "Addresses",
+    "orgRole": "Organization role",
+    "orgRoleHint": "Owners and admins manage members and workspaces and are admins of every workspace.",
+    "workspaceRoles": "Workspace roles",
+    "workspaceRolesHint": "Viewer: reads and simulates. Author: edits. Publisher: publishes and moves environments (prod included). Admin: API keys, members, audit.",
+    "noRole": "no access",
+    "allWorkspaces": "all (admin)",
+    "invite": "Invite",
+    "createInvite": "Create the invitation",
+    "linkTitle": "Invitation link",
+    "linkIntro": "Send this link to {email}: Minos sends no e-mail. It works once and is shown only now.",
+    "copy": "Copy",
+    "copied": "Copied.",
+    "leave": "Leave",
+    "leaveConfirm": "Leave organization {org}?",
+    "removeConfirm": "Remove {name} from the organization?",
+    "pending": "Pending invitations",
+    "noPending": "No pending invitations.",
+    "invitedBy": "Invited by",
+    "expires": "Expires",
+    "revoke": "Revoke"
+  },
+  "signup": {
+    "title": "Register a new organization",
+    "intro": "You create the organization and become its owner. If the address already has an account, use its password: the organization joins that account's.",
+    "introSignedIn": "The organization will belong to your account ({email}), as its owner.",
+    "orgName": "Organization name",
+    "slugHint": "Lowercase letters, digits, '.', '-', '_'.",
+    "passwordHint": "At least 12 characters. Existing account: its password (the name is ignored).",
+    "submit": "Create the organization",
+    "existingAccount": "This address already has an account and the password is not its own.",
+    "question": "New to Minos?",
+    "link": "Register an organization",
+    "haveAccount": "Already have an account? Sign in",
+    "back": "Back to the workspaces"
   }
 }

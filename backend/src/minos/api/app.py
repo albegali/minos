@@ -59,12 +59,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             cfg.require_auth,
             management=rt.engine is not None,
             time_limit_ms=cfg.exec_time_limit_ms,
+            signup=cfg.allow_signup,
         )
     )
     if rt.engine is not None:
         app.include_router(
             management_router(
-                make_sessionmaker(rt.engine), cfg.require_auth, cfg.publish_requires_tests
+                make_sessionmaker(rt.engine), cfg.require_auth, cfg.publish_requires_tests, cfg
             )
         )
         install_error_handlers(app)
@@ -111,7 +112,10 @@ def _mount_mcp(app: FastAPI, cfg: Settings) -> MCPServer:
     async def in_process(headers: dict[str, str]) -> AsyncIterator[httpx.AsyncClient]:
         transport = httpx.ASGITransport(app=app)
         async with httpx.AsyncClient(
-            transport=transport, base_url="http://minos", headers=headers, timeout=30
+            transport=transport,
+            base_url="http://minos",
+            headers={**headers, "X-Minos-Via": "mcp"},
+            timeout=30,
         ) as client:
             yield client
 

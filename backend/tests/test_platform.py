@@ -246,7 +246,8 @@ async def test_full_lifecycle(
     assert [r["key"] for r in (await c.get(f"{WS}/rulesets", headers=admin)).json()] == [
         "studyplan-emba"
     ]
-    actions = [e["action"] for e in (await c.get(f"{WS}/audit", headers=admin)).json()]
+    events = (await c.get(f"{WS}/audit", headers=admin)).json()["items"]
+    actions = [e["action"] for e in events]
     assert {"ruleset.publish", "alias.set", "draft.save", "test.create"} <= set(actions)
 
     # alias removal undeploys
@@ -544,6 +545,16 @@ async def test_node_types_and_cors(clean_db: str, admin: dict[str, str]) -> None
             headers={"Origin": "http://studio.example", "Access-Control-Request-Method": "POST"},
         )
         assert pre.headers["access-control-allow-origin"] == "http://studio.example"
+        # the headers the Studio sends (organization of an administrator, audit channel)
+        pre = await c.options(
+            "/v1/workspaces",
+            headers={
+                "Origin": "http://studio.example",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "x-minos-organization, x-minos-via",
+            },
+        )
+        assert pre.status_code == 200
     exe = create_execution_app(
         settings(
             None, rulesets_dir=None, require_auth=False, cors_origins=("http://studio.example",)

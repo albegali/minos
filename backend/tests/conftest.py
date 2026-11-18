@@ -84,8 +84,9 @@ def database_url() -> str:
 
 
 TABLES = (
-    "audit_event, api_client, test_case, ruleset_alias, ruleset_version, ruleset_draft, "
-    "ruleset, schema_version, entity, workspace"
+    "audit_event, user_session, invitation, workspace_member, org_member, user_email, app_user, "
+    "api_client, test_case, ruleset_alias, ruleset_version, ruleset_draft, "
+    "ruleset, schema_version, entity, workspace, organization"
 )
 
 
@@ -95,6 +96,11 @@ async def clean_db(database_url: str) -> AsyncIterator[str]:
     conn = await asyncpg.connect(dsn)
     try:
         await conn.execute(f"TRUNCATE {TABLES} RESTART IDENTITY CASCADE")
+        # the organization the migration creates for workspaces created without one
+        await conn.execute(
+            "INSERT INTO organization (id, slug, name) "
+            "VALUES ('00000000-0000-0000-0000-000000000001', 'default', 'Default')"
+        )
     finally:
         await conn.close()
     yield database_url

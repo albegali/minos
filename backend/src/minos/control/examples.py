@@ -22,12 +22,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from minos.db import Entity, Workspace
 from minos.schema import find_refs, infer_schema, pin_refs, resolve_refs
 
+from . import accounts
 from . import service as svc
 from .errors import ControlError, NotFound
+from .identity import Actor
 
 WORKSPACE: Final = "esempi"
 WORKSPACE_NAME: Final = "Esempi"
-ACTOR: Final = "examples"
+ACTOR: Final = Actor("examples", "cli")
 
 # Friendlier names for the entities of the bundled examples; others keep their key.
 ENTITY_NAMES: Final = {
@@ -141,9 +143,10 @@ async def seed_examples(
     edited in the Studio) is skipped and reported, and never stops the others nor the start-up.
     """
     try:
-        ws = await svc.get_workspace(s, workspace)
+        ws = await svc.get_workspace(s, svc.DEFAULT_ORGANIZATION_ID, workspace)
     except NotFound:
-        ws = await svc.create_workspace(s, ACTOR, workspace, name)
+        org = await accounts.get_organization(s, svc.DEFAULT_ORGANIZATION)
+        ws = await svc.create_workspace(s, ACTOR, org, workspace, name)
 
     entities = {}
     skipped: list[str] = []

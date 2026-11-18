@@ -5,16 +5,23 @@
     python -m minos.cli list-admin-keys              # global admin API keys
     python -m minos.cli revoke-key <id>              # revoke any API key (admin or workspace)
     python -m minos.cli seed-examples                # load the examples into workspace "esempi"
+    python -m minos.cli create-organization --slug gsom --name "GSoM"
+    python -m minos.cli create-user --email a@x.it --name "Ada" --organization gsom --role owner
+    python -m minos.cli prune-audit [--days 90] [--all]  # audit retention
 
-All read ``MINOS_DATABASE_URL``. ``seed-examples`` reads the examples from ``--dir``, else
-``MINOS_EXAMPLES_DIR``, else the repository's ``examples`` directory; it only adds the examples
-the workspace lacks, leaving existing entities and rule sets alone.
+All read ``MINOS_DATABASE_URL``. ``create-user`` reads the password from ``MINOS_PASSWORD`` or
+asks for it; for an address that already has an account it only adds the membership.
+``seed-examples`` reads the examples from ``--dir``, else ``MINOS_EXAMPLES_DIR``, else the
+repository's ``examples`` directory; it only adds the examples the workspace lacks, leaving
+existing entities and rule sets alone.
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import datetime as dt
+import getpass
 import os
 import sys
 import uuid
@@ -24,8 +31,11 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import text
 
+from minos.control import accounts
 from minos.control import service as svc
+from minos.control.errors import ControlError
 from minos.control.examples import WORKSPACE, Seeded, load_examples, seed_examples
+from minos.control.identity import CLI, ORG_ROLES
 from minos.db import ApiClient, Workspace, make_engine, make_sessionmaker
 from minos.settings import Settings
 
@@ -49,7 +59,7 @@ async def create_admin_key(url: str, name: str) -> str:
     engine = make_engine(url)
     try:
         async with make_sessionmaker(engine).begin() as s:
-            _, key = await svc.create_api_client(s, "cli", None, name, ["admin"])
+            _, key = await svc.create_api_client(s, CLI, None, name, ["admin"])
     finally:
         await engine.dispose()
     return key
@@ -77,10 +87,55 @@ async def revoke_key(url: str, key_id: uuid.UUID) -> bool:
             if client is None:
                 return False
             ws = await s.get(Workspace, client.workspace_id) if client.workspace_id else None
-            await svc.revoke_api_client(s, "cli", ws, key_id)
+            await svc.revoke_api_client(s, CLI, ws, key_id)
     finally:
         await engine.dispose()
     return True
+
+
+async def create_organization(url: str, slug: str, name: str) -> None:
+    engine = make_engine(url)
+    try:
+        async with make_sessionmaker(engine).begin() as s:
+            await accounts.create_organization(s, CLI, slug, name)
+    finally:
+        await engine.dispose()
+
+
+async def create_user(
+    url: str,
+    email: str,
+    name: str,
+    password: str | None,
+    organization: str | None,
+    role: str,
+) -> bool:
+    """Create an account (or reuse the one of ``email``) and add it to ``organization``;
+    returns whether the account is new."""
+    engine = make_engine(url)
+    try:
+        async with make_sessionmaker(engine).begin() as s:
+            user = await accounts.find_user(s, email)
+            created = user is None
+            if user is None:
+                user = await accounts.create_user(s, email, name, password)
+            if organization:
+                org = await accounts.get_organization(s, organization)
+                await accounts.add_member(s, CLI, org, user, role)
+    finally:
+        await engine.dispose()
+    return created
+
+
+async def prune_audit(url: str, days: float, everything: bool) -> int:
+    engine = make_engine(url)
+    try:
+        async with make_sessionmaker(engine).begin() as s:
+            return await svc.prune_audit(
+                s, dt.timedelta(days=days), None if everything else ("draft.save",)
+            )
+    finally:
+        await engine.dispose()
 
 
 async def seed(url: str, root: Path, workspace: str) -> Seeded:
@@ -111,9 +166,21 @@ def main(argv: list[str] | None = None) -> int:
     examples = sub.add_parser("seed-examples", help="load the examples into a new workspace")
     examples.add_argument("--dir", help="examples directory (rulesets/, inputs/, tests/)")
     examples.add_argument("--workspace", default=WORKSPACE)
+    org = sub.add_parser("create-organization", help="create an organization")
+    org.add_argument("--slug", required=True)
+    org.add_argument("--name", required=True)
+    user = sub.add_parser("create-user", help="create a user, optionally in an organization")
+    user.add_argument("--email", required=True)
+    user.add_argument("--name", required=True)
+    user.add_argument("--organization")
+    user.add_argument("--role", choices=ORG_ROLES, default="member")
+    prune = sub.add_parser("prune-audit", help="delete old draft-save audit events")
+    prune.add_argument("--days", type=float, help="default: MINOS_AUDIT_RETENTION_DAYS (90)")
+    prune.add_argument("--all", action="store_true", help="every kind of event, not only drafts")
     args = parser.parse_args(argv)
 
-    url = Settings.from_env().database_url
+    settings = Settings.from_env()
+    url = settings.database_url
     if not url:
         print("MINOS_DATABASE_URL is not set", file=sys.stderr)
         return 2
@@ -132,6 +199,24 @@ def main(argv: list[str] | None = None) -> int:
             print(f"workspace {args.workspace!r}: nothing to add")
         else:
             print(f"workspace {args.workspace!r}: published {', '.join(seeded.published)} in prod")
+    elif args.cmd in ("create-organization", "create-user"):
+        try:
+            if args.cmd == "create-organization":
+                asyncio.run(create_organization(url, args.slug, args.name))
+                print(f"organization {args.slug!r} created")
+            else:
+                password = os.environ.get("MINOS_PASSWORD") or getpass.getpass("Password: ")
+                created = asyncio.run(
+                    create_user(url, args.email, args.name, password, args.organization, args.role)
+                )
+                print(f"user {args.email} {'created' if created else 'already exists'}")
+        except ControlError as exc:
+            print(exc.detail, file=sys.stderr)
+            return 1
+    elif args.cmd == "prune-audit":
+        days = args.days if args.days is not None else settings.audit_retention_days
+        removed = asyncio.run(prune_audit(url, days, args.all))
+        print(f"{removed} audit event(s) older than {days:g} days removed")
     elif args.cmd == "list-admin-keys":
         for line in asyncio.run(list_admin_keys(url)):
             print(line)

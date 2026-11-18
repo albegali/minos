@@ -12,15 +12,22 @@ import type {
   ExecutionResult,
   GraphDiff,
   ImportResult,
+  Invitation,
+  InvitationPreview,
   JsonSchema,
+  Member,
+  OrgRole,
   RulesetInfo,
   RulesetSummary,
   SchemaVersion,
   TestCase,
   TestRun,
   Validation,
+  SessionInfo,
   Version,
   Workspace,
+  WorkspaceMember,
+  WorkspaceRole,
 } from './types'
 
 const ws = (slug: string) => `/workspaces/${encodeURIComponent(slug)}`
@@ -39,6 +46,9 @@ export const keys = {
   draft: (w: string, r: string) => ['draft', w, r] as const,
   versions: (w: string, r: string) => ['versions', w, r] as const,
   tests: (w: string, r: string) => ['tests', w, r] as const,
+  members: (o: string) => ['members', o] as const,
+  invitations: (o: string) => ['invitations', o] as const,
+  workspaceMembers: (w: string) => ['workspaceMembers', w] as const,
 }
 
 export interface ServerInfo {
@@ -47,6 +57,8 @@ export interface ServerInfo {
   authRequired: boolean
   management: boolean
   database: boolean
+  /** New organizations can be registered from the Studio (MINOS_ALLOW_SIGNUP). */
+  signup?: boolean
 }
 
 /** Public description of the installation: does it need API keys, has it a database? */
@@ -56,6 +68,139 @@ export function useServerInfo() {
 
 export function useWorkspaces() {
   return useQuery({ queryKey: keys.workspaces, queryFn: () => api<Workspace[]>('/workspaces') })
+}
+
+/** The caller's role in a workspace (undefined while loading or when unknown). */
+export function useWorkspaceRole(w: string): WorkspaceRole | undefined {
+  const list = useWorkspaces()
+  return list.data?.find((x) => x.slug === w)?.role
+}
+
+const ROLE_ORDER: WorkspaceRole[] = ['viewer', 'author', 'publisher', 'admin']
+
+/** Whether `role` includes `needed`; an unknown role (old server, loading) is not limited. */
+export function roleAllows(role: WorkspaceRole | undefined, needed: WorkspaceRole): boolean {
+  return role === undefined || ROLE_ORDER.indexOf(role) >= ROLE_ORDER.indexOf(needed)
+}
+
+// ----------------------------------------------------------------------------- sign-in
+
+export const signIn = (email: string, password: string, organization?: string) =>
+  api<SessionInfo & { token: string }>('/auth/login', {
+    method: 'POST',
+    body: { email, password, organization },
+    keepSessionOn401: true,
+  })
+
+/** Register an organization: as the signed-in user, or with an e-mail address and password
+ * (an existing account's, or a new account's with `name`). */
+export const signUp = (body: {
+  organization: { slug: string; name: string }
+  name?: string
+  email?: string
+  password?: string
+}) => api<SessionInfo & { token: string }>('/auth/signup', { method: 'POST', body, keepSessionOn401: true })
+
+export const signOut = () => api<null>('/auth/logout', { method: 'POST', keepSessionOn401: true })
+
+export const chooseOrganization = (organization: string) =>
+  api<SessionInfo>('/auth/organization', { method: 'POST', body: { organization } })
+
+export const changePassword = (current: string, next: string) =>
+  api<null>('/auth/password', { method: 'PUT', body: { current, new: next } })
+
+export const fetchInvitation = (token: string) =>
+  api<InvitationPreview>(`/auth/invitations/${encodeURIComponent(token)}`, { keepSessionOn401: true })
+
+export const acceptInvitation = (token: string, body: { name?: string; password?: string }) =>
+  api<SessionInfo & { token: string }>(`/auth/invitations/${encodeURIComponent(token)}/accept`, {
+    method: 'POST',
+    body,
+    keepSessionOn401: true,
+  })
+
+// ----------------------------------------------------------------------------- organizations
+
+/** Organizations the caller can see: theirs (users) or all (administrators). */
+export function useOrganizations(enabled = true) {
+  return useQuery({
+    queryKey: ['organizations'],
+    queryFn: () => api<import('./types').Organization[]>('/organizations'),
+    enabled,
+  })
+}
+
+const org = (slug: string) => `/organizations/${encodeURIComponent(slug)}`
+
+export function useMembers(o: string | undefined) {
+  return useQuery({
+    queryKey: keys.members(o ?? ''),
+    queryFn: () => api<Member[]>(`${org(o ?? '')}/members`),
+    enabled: Boolean(o),
+  })
+}
+
+export function useInvitations(o: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: keys.invitations(o ?? ''),
+    queryFn: () => api<Invitation[]>(`${org(o ?? '')}/invitations`),
+    enabled: Boolean(o) && enabled,
+  })
+}
+
+export function useInvite(o: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (body: { email: string; role: OrgRole; workspaces: { workspace: string; role: WorkspaceRole }[] }) =>
+      api<Invitation>(`${org(o)}/invitations`, { method: 'POST', body }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.invitations(o) }),
+  })
+}
+
+export function useRevokeInvitation(o: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api<null>(`${org(o)}/invitations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.invitations(o) }),
+  })
+}
+
+export function useSetMemberRole(o: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, role }: { id: string; role: OrgRole }) =>
+      api<null>(`${org(o)}/members/${encodeURIComponent(id)}`, { method: 'PUT', body: { role } }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.members(o) }),
+  })
+}
+
+export function useRemoveMember(o: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => api<null>(`${org(o)}/members/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.members(o) }),
+  })
+}
+
+export function useWorkspaceMembers(w: string) {
+  return useQuery({
+    queryKey: keys.workspaceMembers(w),
+    queryFn: () => api<WorkspaceMember[]>(`${ws(w)}/members`),
+  })
+}
+
+export function useSetWorkspaceRole(w: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, role }: { id: string; role: WorkspaceRole | null }) =>
+      role
+        ? api<null>(`${ws(w)}/members/${encodeURIComponent(id)}`, { method: 'PUT', body: { role } })
+        : api<null>(`${ws(w)}/members/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: keys.workspaceMembers(w) })
+      void qc.invalidateQueries({ queryKey: ['members'] })
+    },
+  })
 }
 
 export function useCatalog() {
