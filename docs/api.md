@@ -13,7 +13,8 @@ Configuration through environment variables:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `MINOS_DATABASE_URL` | — | `postgresql+asyncpg://user:pass@host:5432/db` |
-| `MINOS_REQUIRE_AUTH` | `false` | `true` to require API keys; any value other than `true/false/1/0/yes/no/on/off` stops the start-up |
+| `MINOS_REQUIRE_AUTH` | `false` | `true` to require authentication: users sign in (e-mail and password), machines use API keys; any value other than `true/false/1/0/yes/no/on/off` stops the start-up |
+| `MINOS_ALLOW_SIGNUP` | `false` | `true` lets anyone who reaches the Studio register a new organization and become its owner |
 | `MINOS_CORS_ORIGINS` | — | Allowed browser origins, comma-separated |
 | `MINOS_RULESETS_DIR` | — | RGD files served as workspace `local`, environment `prod` |
 | `MINOS_POLL_INTERVAL_S` | `30` | Periodic alias check (safety net for lost NOTIFYs), at least 1 |
@@ -32,8 +33,8 @@ the demo mode used by Minos Studio. With the database, `minos.api.app:app` also 
 server on `/mcp` (see [`mcp.md`](mcp.md)).
 
 `GET /v1/info` (always public) describes the installation:
-`{"name", "version", "authRequired", "management", "database"}`. The Studio uses it to decide
-whether to ask for a key and whether to open the demo.
+`{"name", "version", "authRequired", "management", "database", "signup"}`. The Studio uses it to
+decide whether to ask for a sign-in, whether to offer registration and whether to open the demo.
 
 ## Authentication (optional)
 
@@ -59,6 +60,19 @@ Organizations are tenants: each workspace belongs to one (the pre-existing ones,
 by admin keys without naming one, to `default`). A user has one password and any number of e-mail
 addresses, each of which signs in; a session works in one organization at a time.
 
+Workspace slugs are unique **within an organization** (two organizations can both have `rules`),
+and URLs carry only the slug: the organization comes from the caller.
+
+| Caller | Organization of `/v1/workspaces/{ws}/...` and `/v1/exec/{ws}/...` |
+| --- | --- |
+| Signed-in user | the one chosen for the session |
+| `manage` / `exec` key | the one of the key's workspace |
+| `admin` key, open installation | `X-Minos-Organization: <slug>` if sent, else `default` |
+
+`GET /v1/workspaces` with an admin key and no header lists every organization's workspaces, each
+with its `organization`. `GET /v1/deployments` names workspaces by slug in `default` and
+`<organization>/<slug>` elsewhere. The MCP server forwards `X-Minos-Organization` too.
+
 | Role | Where | Allows |
 | --- | --- | --- |
 | `owner` | organization | everything in it; manages owners; the last one cannot leave |
@@ -72,13 +86,14 @@ addresses, each of which signs in; a session works in one organization at a time
 | Method and path | Description |
 | --- | --- |
 | `POST /auth/login` | `{"email", "password", "organization"?}` → `{token, user, organization, organizations, expiresAt}`; with several organizations and none named, `organization` is `null`: choose one next. `401` wrong credentials, `429` too many failures for the address |
+| `POST /auth/signup` | Only with `MINOS_ALLOW_SIGNUP=true` (`403` otherwise). `{"organization": {"slug", "name"}}` plus, when not signed in, `{"email", "password"}` of an existing account or `{"name", "email", "password"}` for a new one; signed in, the current account owns it. Creates the organization with the caller as owner and returns a session in it (`409` slug taken) |
 | `POST /auth/organization` | `{"organization"}`: move the session to another of the user's organizations |
 | `GET /auth/me` | The signed-in user and their organizations, or the API key (`kind`, `name`, `scopes`) |
 | `PUT /auth/password` | `{"current", "new"}` (at least 12 characters) |
 | `POST /auth/logout` | Ends the session |
 | `GET /auth/invitations/{token}` | Public: organization, address, role, whether the address has an account |
 | `POST /auth/invitations/{token}/accept` | Signed in: the address joins the current account. Otherwise `{"password"}` of the account using the address, or `{"name", "password"}` for a new one. Returns a session in that organization |
-| `GET/POST /organizations` | Your organizations (users) or all (admin keys); create (admin keys) |
+| `GET/POST /organizations` | Your organizations (users) or all (admin keys); create (admin keys; users through `/auth/signup`) |
 | `GET /organizations/{org}/members` | Members with all their addresses and workspace roles |
 | `PUT/DELETE /organizations/{org}/members/{userId}` | `{"role"}` / remove (owners and admins; anyone can remove themselves) |
 | `GET/POST /organizations/{org}/invitations` · `DELETE .../{id}` | Pending invitations; `{"email", "role", "workspaces": [{"workspace", "role"}]}` returns the link (`url`, `token`) once: Minos sends no e-mail |

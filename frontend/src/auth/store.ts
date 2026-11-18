@@ -10,6 +10,7 @@ import type { SessionInfo } from '../api/types'
 
 const TOKEN_KEY = 'minos.apiKey'
 const SESSION_KEY = 'minos.session'
+const ORG_KEY = 'minos.organization'
 
 function read(key: string): string | null {
   try {
@@ -50,6 +51,12 @@ interface AuthState {
   /** New details of the current session (e.g. another organization chosen). */
   updateSession: (info: SessionInfo) => void
   logout: () => void
+  /**
+   * Organization the Studio works in without a session (open installation, admin key): sent
+   * as `X-Minos-Organization`. Workspace slugs are unique only within an organization.
+   */
+  organization: string
+  setOrganization: (slug: string) => void
 }
 
 export const useAuth = create<AuthState>((set) => ({
@@ -74,6 +81,11 @@ export const useAuth = create<AuthState>((set) => ({
     write(TOKEN_KEY, null)
     write(SESSION_KEY, null)
     set({ token: null, session: null })
+  },
+  organization: read(ORG_KEY) ?? 'default',
+  setOrganization: (slug) => {
+    write(ORG_KEY, slug)
+    set({ organization: slug })
   },
 }))
 

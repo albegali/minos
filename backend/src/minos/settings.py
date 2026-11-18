@@ -84,6 +84,9 @@ class Settings:
     """How long a Studio sign-in lasts (MINOS_SESSION_HOURS)."""
     invitation_days: float = 7
     """How long an invitation link can be used (MINOS_INVITATION_DAYS)."""
+    allow_signup: bool = False
+    """Anyone who reaches the Studio can register a new organization and become its owner
+    (MINOS_ALLOW_SIGNUP); off by default, when organizations come from the administrators."""
     audit_retention_days: float = 90
     """``minos.cli prune-audit`` deletes draft-save events older than this
     (MINOS_AUDIT_RETENTION_DAYS); publications, environments, keys and members are kept."""
@@ -105,5 +108,6 @@ class Settings:
             allowed_hosts=_hosts(os.environ.get("MINOS_ALLOWED_HOSTS")),
             session_hours=_number("MINOS_SESSION_HOURS", 12, minimum=0.1),
             invitation_days=_number("MINOS_INVITATION_DAYS", 7, minimum=0.1),
+            allow_signup=_bool("MINOS_ALLOW_SIGNUP", False),
             audit_retention_days=_number("MINOS_AUDIT_RETENTION_DAYS", 90, minimum=1),
         )

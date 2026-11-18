@@ -26,7 +26,7 @@ from pydantic import Field
 from minos import __version__
 
 HERE = Path(__file__).resolve().parent
-AUTH_HEADERS = ("authorization", "x-api-key")
+AUTH_HEADERS = ("authorization", "x-api-key", "x-minos-organization")
 
 INSTRUCTIONS = """\
 Minos is a JSON rule engine. With these tools you turn a description of business rules into a

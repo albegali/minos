@@ -2,9 +2,9 @@ import { Button, Card, CardHeader, Spinner, Text } from '@fluentui/react-compone
 import { Building20Regular } from '@fluentui/react-icons'
 import { useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { Navigate, useLocation, useNavigate } from 'react-router'
+import { Link, Navigate, useLocation, useNavigate } from 'react-router'
 
-import { chooseOrganization, signOut } from '../api/hooks'
+import { chooseOrganization, signOut, useServerInfo } from '../api/hooks'
 import type { Organization } from '../api/types'
 import { isSession, useAuth } from '../auth/store'
 import { ErrorBar } from '../components/forms'
@@ -40,6 +40,7 @@ export function OrganizationsPage() {
   const from = (location.state as { from?: string } | null)?.from ?? '/w'
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<unknown>(null)
+  const info = useServerInfo()
   const { t } = useI18n()
 
   if (!token || !isSession(token) || !session) return <Navigate to="/login" replace />
@@ -61,7 +62,10 @@ export function OrganizationsPage() {
     <AuthCard>
       <Text weight="semibold">{t('orgs.hello', { name: session.user.name })}</Text>
       {session.organizations.length === 0 ? (
-        <Text>{t('orgs.none')}</Text>
+        <>
+          <Text>{t('orgs.none')}</Text>
+          {info.data?.signup && <Link to="/signup">{t('signup.link')}</Link>}
+        </>
       ) : (
         <>
           <Text>{t('orgs.choose')}</Text>

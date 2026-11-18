@@ -67,6 +67,31 @@ sign-in (people with e-mail and password, in organizations with roles) and API k
 set `MINOS_REQUIRE_AUTH=true` (see [`docs/api.md`](docs/api.md)). The
 [Studio guide](docs/studio.md) walks through the whole path, from entity to publication.
 
+### With sign-in and organizations
+
+The default installation is open: no sign-in, no organizations to choose. To try users,
+organizations, invitations and roles, set in `compose.yaml` under `api.environment`:
+
+```yaml
+MINOS_REQUIRE_AUTH: "true"
+MINOS_ALLOW_SIGNUP: "true"   # optional: anyone can register a new organization from the Studio
+```
+
+then `docker compose up --build`. With `MINOS_ALLOW_SIGNUP` on, open http://localhost:8080 and
+choose *Register an organization*. Otherwise create the first organization and its owner from the
+command line (the second command asks for a password of at least 12 characters):
+
+```bash
+docker compose exec api python -m minos.cli create-organization --slug gsom --name "GSoM"
+docker compose exec -it api python -m minos.cli create-user --email you@example.org \
+    --name "Your Name" --organization gsom --role owner
+```
+
+The examples loaded on first start live in the `default` organization: run `create-user` again
+with `--organization default` (an existing account only gets the membership) to see them too.
+From the Studio, *Members and invitations* creates invitation links; an account that belongs to
+several organizations chooses one after signing in. See [ADR 0008](docs/adr/0008-users-organizations-roles.md).
+
 ### Development without Docker
 
 Requirements: [uv](https://docs.astral.sh/uv/), Node.js 22 or later (CI on Node 24 LTS),

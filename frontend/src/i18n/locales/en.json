@@ -26,7 +26,9 @@
     "noOrganization": "No organization",
     "organizations": "Your organizations",
     "members": "Members and invitations",
-    "account": "Account"
+    "account": "Account",
+    "newOrganization": "New organization",
+    "allOrganizations": "All organizations"
   },
   "login": {
     "intro": "Sign in with an API key with scope {manage} or {admin}.",
@@ -49,7 +51,7 @@
     "title": "Workspaces",
     "new": "New workspace",
     "slug": "Identifier",
-    "slugHint": "Used in the API URLs. Requires an admin key.",
+    "slugHint": "Used in the API URLs; unique within the organization.",
     "empty": "No workspaces yet. Create one to get started.",
     "titleIn": "Workspaces of {org}"
   },
@@ -472,6 +474,9 @@
     "error": "error"
   },
   "api": {
+    "signupDisabled": "registering organizations is disabled on this installation",
+    "addressHasAccount": "this address already has an account: use its password",
+    "orgExists": "organization {org} already exists",
     "wrongCredentials": "wrong e-mail address or password",
     "sessionExpired": "your session has expired: sign in again",
     "needsRole": "this needs the {needed} role in workspace {ws} (you are {role})",
@@ -682,5 +687,19 @@
     "invitedBy": "Invited by",
     "expires": "Expires",
     "revoke": "Revoke"
+  },
+  "signup": {
+    "title": "Register a new organization",
+    "intro": "You create the organization and become its owner. If the address already has an account, use its password: the organization joins that account's.",
+    "introSignedIn": "The organization will belong to your account ({email}), as its owner.",
+    "orgName": "Organization name",
+    "slugHint": "Lowercase letters, digits, '.', '-', '_'.",
+    "passwordHint": "At least 12 characters. Existing account: its password (the name is ignored).",
+    "submit": "Create the organization",
+    "existingAccount": "This address already has an account and the password is not its own.",
+    "question": "New to Minos?",
+    "link": "Register an organization",
+    "haveAccount": "Already have an account? Sign in",
+    "back": "Back to the workspaces"
   }
 }

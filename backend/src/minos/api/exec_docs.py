@@ -16,6 +16,7 @@ import re
 from typing import Any
 
 from minos import __version__
+from minos.control.service import DEFAULT_ORGANIZATION, split_name
 from minos.db import ALWAYS
 
 from .registry import DEFAULT_ENV, Deployment, Key, RulesetRegistry, Schedule, pick
@@ -143,7 +144,14 @@ def _current(schedule: Schedule, today: dt.date) -> Deployment:
 
 def _describe(key: Key, schedule: Schedule, current: Deployment, today: dt.date) -> str:
     ws, rs, env = key
-    lines = [f"Executes **{rs}** in workspace `{ws}`, environment `{env}`.", ""]
+    org, slug = split_name(ws)
+    lines = [f"Executes **{rs}** in workspace `{slug}`, environment `{env}`.", ""]
+    if org != DEFAULT_ORGANIZATION:
+        lines[-1:-1] = [
+            "",
+            f"Organization `{org}`: its API keys select it; admin keys send "
+            f"`X-Minos-Organization: {org}`.",
+        ]
     lines.append("| From | Version | Hash |")
     lines.append("| --- | --- | --- |")
     for start, dep in schedule:
@@ -191,7 +199,7 @@ def build_openapi(
             schemas[name] = embed_schema(current.schema, name)
             input_schema = {"$ref": f"#/components/schemas/{name}"}
         target = rs if env == DEFAULT_ENV else f"{rs}@{env}"
-        paths[f"/v1/exec/{ws}/{target}"] = {
+        paths[f"/v1/exec/{split_name(ws)[1]}/{target}"] = {
             "post": {
                 "tags": [ws],
                 "operationId": _component_name("exec", ws, rs, env),

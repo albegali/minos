@@ -26,7 +26,9 @@
     "noOrganization": "Nessuna organizzazione",
     "organizations": "Le tue organizzazioni",
     "members": "Membri e inviti",
-    "account": "Account"
+    "account": "Account",
+    "newOrganization": "Nuova organizzazione",
+    "allOrganizations": "Tutte le organizzazioni"
   },
   "login": {
     "intro": "Accedi con una API key con scope {manage} o {admin}.",
@@ -49,7 +51,7 @@
     "title": "Workspace",
     "new": "Nuovo workspace",
     "slug": "Identificativo",
-    "slugHint": "Usato negli URL delle API. Richiede una chiave admin.",
+    "slugHint": "Usato negli URL delle API; unico nell'organizzazione.",
     "empty": "Nessun workspace. Creane uno per iniziare.",
     "titleIn": "Workspace di {org}"
   },
@@ -472,6 +474,9 @@
     "error": "errore"
   },
   "api": {
+    "signupDisabled": "su questa installazione la registrazione di organizzazioni è disattivata",
+    "addressHasAccount": "questo indirizzo ha già un account: usa la sua password",
+    "orgExists": "l'organizzazione {org} esiste già",
     "wrongCredentials": "indirizzo o password errati",
     "sessionExpired": "la sessione è scaduta: accedi di nuovo",
     "needsRole": "serve il ruolo {needed} nel workspace {ws} (il tuo è {role})",
@@ -682,5 +687,19 @@
     "invitedBy": "Invitato da",
     "expires": "Scade il",
     "revoke": "Revoca"
+  },
+  "signup": {
+    "title": "Registra una nuova organizzazione",
+    "intro": "Crei l'organizzazione e ne diventi proprietario. Se l'indirizzo ha già un account, usa la sua password: l'organizzazione si aggiunge a quelle dell'account.",
+    "introSignedIn": "L'organizzazione sarà del tuo account ({email}), che ne diventa proprietario.",
+    "orgName": "Nome dell'organizzazione",
+    "slugHint": "Lettere minuscole, cifre, '.', '-', '_'.",
+    "passwordHint": "Almeno 12 caratteri. Account esistente: la sua password (il nome viene ignorato).",
+    "submit": "Crea l'organizzazione",
+    "existingAccount": "Questo indirizzo ha già un account e la password non è la sua.",
+    "question": "Nuovo su Minos?",
+    "link": "Registra un'organizzazione",
+    "haveAccount": "Hai già un account? Accedi",
+    "back": "Torna ai workspace"
   }
 }

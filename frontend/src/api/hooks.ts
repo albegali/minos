@@ -57,6 +57,8 @@ export interface ServerInfo {
   authRequired: boolean
   management: boolean
   database: boolean
+  /** New organizations can be registered from the Studio (MINOS_ALLOW_SIGNUP). */
+  signup?: boolean
 }
 
 /** Public description of the installation: does it need API keys, has it a database? */
@@ -90,6 +92,15 @@ export const signIn = (email: string, password: string, organization?: string) =
     keepSessionOn401: true,
   })
 
+/** Register an organization: as the signed-in user, or with an e-mail address and password
+ * (an existing account's, or a new account's with `name`). */
+export const signUp = (body: {
+  organization: { slug: string; name: string }
+  name?: string
+  email?: string
+  password?: string
+}) => api<SessionInfo & { token: string }>('/auth/signup', { method: 'POST', body, keepSessionOn401: true })
+
 export const signOut = () => api<null>('/auth/logout', { method: 'POST', keepSessionOn401: true })
 
 export const chooseOrganization = (organization: string) =>
@@ -109,6 +120,15 @@ export const acceptInvitation = (token: string, body: { name?: string; password?
   })
 
 // ----------------------------------------------------------------------------- organizations
+
+/** Organizations the caller can see: theirs (users) or all (administrators). */
+export function useOrganizations(enabled = true) {
+  return useQuery({
+    queryKey: ['organizations'],
+    queryFn: () => api<import('./types').Organization[]>('/organizations'),
+    enabled,
+  })
+}
 
 const org = (slug: string) => `/organizations/${encodeURIComponent(slug)}`
 

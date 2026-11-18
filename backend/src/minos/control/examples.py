@@ -143,9 +143,9 @@ async def seed_examples(
     edited in the Studio) is skipped and reported, and never stops the others nor the start-up.
     """
     try:
-        ws = await svc.get_workspace(s, workspace)
+        ws = await svc.get_workspace(s, svc.DEFAULT_ORGANIZATION_ID, workspace)
     except NotFound:
-        org = await accounts.get_organization(s, accounts.DEFAULT_ORGANIZATION)
+        org = await accounts.get_organization(s, svc.DEFAULT_ORGANIZATION)
         ws = await svc.create_workspace(s, ACTOR, org, workspace, name)
 
     entities = {}

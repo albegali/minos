@@ -99,6 +99,13 @@ class AcceptIn(BaseModel):
     password: str | None = Field(default=None, max_length=1024)
 
 
+class SignupIn(BaseModel):
+    organization: OrganizationIn
+    name: str | None = None
+    email: str | None = Field(default=None, max_length=320)
+    password: str | None = Field(default=None, max_length=1024)
+
+
 class RoleIn(BaseModel):
     role: str
 
@@ -358,6 +365,7 @@ def management_router(
     invitation_ttl = dt.timedelta(days=cfg.invitation_days if cfg else 7)
     studio_url = (cfg.studio_url if cfg else "http://localhost:8080").rstrip("/")
     throttle = LoginThrottle()
+    allow_signup = cfg.allow_signup if cfg else False
 
     async def user_principal(s: AsyncSession, session: UserSession, user: User) -> Principal:
         grants = await accounts.access(s, user.id, session.organization_id)
@@ -373,9 +381,22 @@ def management_router(
             via="studio",
         )
 
+    async def chosen_org(s: AsyncSession, request: Request) -> uuid.UUID:
+        """Organization of an administrator's request: ``X-Minos-Organization``, else
+        ``default``."""
+        slug = request.headers.get("x-minos-organization", "").strip()
+        if not slug or slug == svc.DEFAULT_ORGANIZATION:
+            return svc.DEFAULT_ORGANIZATION_ID
+        return (await accounts.get_organization(s, slug)).id
+
     async def principal(request: Request) -> Principal:
+        """The caller, and the organization its request works in: the session's, the one of
+        the key's workspace, or for administrators (admin keys, open installations) the one
+        named by ``X-Minos-Organization`` (``default`` otherwise)."""
         if not require_auth:
-            return dataclasses.replace(DEV_PRINCIPAL, via=via_from(request))
+            async with sessions() as s:
+                org = await chosen_org(s, request)
+            return dataclasses.replace(DEV_PRINCIPAL, via=via_from(request), organization_id=org)
         key = api_key_from(request)
         async with sessions() as s:
             if key.startswith(SESSION_PREFIX):
@@ -384,14 +405,26 @@ def management_router(
                     raise Unauthorized("your session has expired: sign in again")
                 return await user_principal(s, *found)
             client = await svc.find_api_client(s, key)
-        if client is None:
-            raise Unauthorized("invalid or revoked API key")
+            if client is None:
+                raise Unauthorized("invalid or revoked API key")
+            if client.workspace_id is not None:
+                bound = await s.get(Workspace, client.workspace_id)
+                assert bound is not None
+                org = bound.organization_id
+            else:
+                org = await chosen_org(s, request)
         return Principal(
-            client.name, client.workspace_id, frozenset(client.scopes), via=via_from(request)
+            client.name,
+            client.workspace_id,
+            frozenset(client.scopes),
+            organization_id=org,
+            via=via_from(request),
         )
 
     async def workspace(s: AsyncSession, who: Principal, slug: str, needed: str) -> Workspace:
-        ws = await svc.get_workspace(s, slug)
+        if who.organization_id is None:
+            raise Invalid("choose an organization first")
+        ws = await svc.get_workspace(s, who.organization_id, slug)
         who.require_role(ws, needed)
         return ws
 
@@ -563,6 +596,54 @@ def management_router(
             out = await session_out(s, session, user, new_token)
         return json_response(out)
 
+    @router.post("/auth/signup", status_code=201)
+    async def signup(body: SignupIn, request: Request) -> Response:
+        """Register a new organization and become its owner (``MINOS_ALLOW_SIGNUP``):
+
+        * signed in (``Authorization: Bearer mss_...``): the current account owns it;
+        * ``email`` of an existing account: its ``password``;
+        * otherwise a new account: ``name``, ``email`` and ``password``.
+
+        Returns a session in the new organization.
+        """
+        if not allow_signup:
+            raise Forbidden("registering organizations is disabled on this installation")
+        header = request.headers.get("authorization", "")
+        current = None
+        if header.lower().startswith("bearer ") and header[7:].strip().startswith(SESSION_PREFIX):
+            current = await signed_in(request)
+        email = ""
+        if current is None:
+            if not body.email or not body.password:
+                raise Invalid("an e-mail address and a password are required")
+            email = normalise_email(body.email) or body.email.strip().lower()
+            if throttle.blocked(email):
+                raise TooManyRequests("too many failed sign-ins for this address: try again later")
+        async with sessions.begin() as s:
+            if current is not None:
+                user = await s.get(User, current[1].id)
+                assert user is not None
+            else:
+                assert body.password is not None
+                user = await accounts.find_user(s, email)
+                if user is not None:
+                    if not await accounts.authenticate(s, email, body.password):
+                        throttle.failed(email)
+                        raise Unauthorized("this address already has an account: use its password")
+                    throttle.succeeded(email)
+                else:
+                    if not body.name:
+                        raise Invalid("a new account needs a name and a password")
+                    user = await accounts.create_user(s, email, body.name, body.password)
+            actor = Actor(f"user:{user.email}", "studio")
+            org = await accounts.create_organization(
+                s, actor, body.organization.slug, body.organization.name
+            )
+            await accounts.add_member(s, actor, org, user, "owner")
+            session, token = await accounts.create_session(s, user, org, session_ttl)
+            out = await session_out(s, session, user, token)
+        return json_response(out, 201)
+
     # ---------------------------------------------------------------- organizations
 
     @router.get("/organizations")
@@ -689,8 +770,10 @@ def management_router(
                 items = (
                     await svc.list_workspaces(s, who.organization_id) if who.organization_id else []
                 )
+            elif who.is_admin() and not request.headers.get("x-minos-organization"):
+                items = await svc.list_workspaces(s)  # administrators: every organization
             else:
-                items = await svc.list_workspaces(s)
+                items = await svc.list_workspaces(s, who.organization_id)
             orgs = {o.id: o.slug for o, _ in await accounts.list_organizations(s)}
         out = []
         for w in items:
@@ -714,14 +797,12 @@ def management_router(
         async with sessions.begin() as s:
             if body.organization:
                 slug = body.organization
-            elif who.kind == "user":
+            else:
                 if who.organization_id is None:
                     raise Invalid("choose an organization first")
                 org_row = await s.get(Organization, who.organization_id)
                 assert org_row is not None
                 slug = org_row.slug
-            else:
-                slug = accounts.DEFAULT_ORGANIZATION
             if who.kind == "apikey" and not who.is_admin():
                 raise Forbidden("creating workspaces needs an admin key")
             o, _ = await organization(s, who, slug, "admin")
@@ -1255,6 +1336,7 @@ def create_management_app(settings: Settings | None = None) -> FastAPI:
                 "authRequired": cfg.require_auth,
                 "management": True,
                 "database": True,
+                "signup": cfg.allow_signup,
             }
         )
 

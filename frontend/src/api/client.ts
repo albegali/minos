@@ -38,10 +38,12 @@ export interface ApiResponse<T> {
 export const BASE = (import.meta.env.VITE_MINOS_API as string | undefined) ?? ''
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {
-  const key = useAuth.getState().token
+  const { token: key, organization } = useAuth.getState()
   // The audit records which channel a change came from.
   const headers: Record<string, string> = { 'X-Minos-Via': 'studio', ...options.headers }
   if (key) headers.Authorization = `Bearer ${key}`
+  // Without a session the organization is chosen in the Studio (a session carries its own).
+  if (!key?.startsWith('mss_')) headers['X-Minos-Organization'] = organization
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
 
   const res = await fetch(`${BASE}/v1${path}`, {

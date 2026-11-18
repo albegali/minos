@@ -140,8 +140,6 @@ async def create_workspace(
     try:
         await s.flush()
     except IntegrityError as exc:
-        # Slugs are unique in the whole installation (execution URLs carry them): the other
-        # workspace may belong to another organization, so do not say more.
         raise Conflict(f"workspace {slug!r} already exists") from exc
     await audit(s, actor, "workspace.create", slug, ws)
     return ws
@@ -155,11 +153,39 @@ async def list_workspaces(s: AsyncSession, org: uuid.UUID | None = None) -> list
     return list((await s.scalars(query)).all())
 
 
-async def get_workspace(s: AsyncSession, slug: str) -> Workspace:
-    ws = await s.scalar(select(Workspace).where(Workspace.slug == slug))
+async def get_workspace(s: AsyncSession, org: uuid.UUID, slug: str) -> Workspace:
+    """A workspace of an organization: slugs are unique within an organization only."""
+    ws = await s.scalar(
+        select(Workspace).where(Workspace.organization_id == org, Workspace.slug == slug)
+    )
     if ws is None:
         raise NotFound(f"workspace {slug!r} not found")
     return ws
+
+
+DEFAULT_ORGANIZATION: Final = "default"
+"""Home of the workspaces that existed before organizations, and of those an admin key or an
+open installation creates without naming an organization."""
+DEFAULT_ORGANIZATION_ID: Final = uuid.UUID("00000000-0000-0000-0000-000000000001")
+
+
+def qualified_name(org: str, workspace: str) -> str:
+    """How the execution plane names a workspace: its slug in the ``default`` organization
+    (unchanged from before organizations), ``<org>/<slug>`` elsewhere. Slugs contain no
+    ``/``, so the name is unambiguous."""
+    return workspace if org == DEFAULT_ORGANIZATION else f"{org}/{workspace}"
+
+
+def split_name(name: str) -> tuple[str, str]:
+    """``(organization slug, workspace slug)`` of a :func:`qualified_name`."""
+    org, sep, workspace = name.rpartition("/")
+    return (org if sep else DEFAULT_ORGANIZATION), workspace
+
+
+async def workspace_name(s: AsyncSession, ws: Workspace) -> str:
+    org = await s.get(Organization, ws.organization_id)
+    assert org is not None
+    return qualified_name(org.slug, ws.slug)
 
 
 # --------------------------------------------------------------------------- entities & schemas
@@ -500,7 +526,7 @@ def compile_checked(
     return Validation(True, [], list(compiled.warnings), compiled)
 
 
-async def resolver_for(s: AsyncSession, workspace: str, graph: dict[str, Any]) -> Resolver:
+async def resolver_for(s: AsyncSession, workspace: uuid.UUID, graph: dict[str, Any]) -> Resolver:
     """Load (recursively) the published versions a graph's sub-ruleset nodes pin, and return
     a resolver that compiles them on demand, once each."""
     sources: dict[tuple[str, str], tuple[dict[str, Any], dict[str, Any] | None]] = {}
@@ -516,7 +542,7 @@ async def resolver_for(s: AsyncSession, workspace: str, graph: dict[str, Any]) -
                     .join(Workspace, Workspace.id == Ruleset.workspace_id)
                     .outerjoin(SchemaVersion, SchemaVersion.id == RulesetVersion.schema_version_id)
                     .where(
-                        Workspace.slug == workspace,
+                        Workspace.id == workspace,
                         Ruleset.key == key,
                         RulesetVersion.semver == version,
                     )
@@ -561,7 +587,7 @@ async def validate_draft(s: AsyncSession, rs: Ruleset) -> Validation:
     sv = await _draft_schema(s, draft)
     ws = await s.get(Workspace, rs.workspace_id)
     assert ws is not None
-    resolve = await resolver_for(s, ws.slug, draft.graph)
+    resolve = await resolver_for(s, ws.id, draft.graph)
     # Compiling and running rules is CPU-bound: worker threads keep the event loop, which also
     # serves executions, responsive.
     return await asyncio.to_thread(
@@ -755,7 +781,7 @@ async def publish(
     semver = "{}.{}.{}".format(*numbers)
 
     graph = dict(draft.graph, version=semver)
-    resolve = await resolver_for(s, ws.slug, graph)
+    resolve = await resolver_for(s, ws.id, graph)
     cases = await list_tests(s, rs)
     validation = await asyncio.to_thread(
         compile_checked, graph, sv.resolved_schema if sv else None, resolve
@@ -821,7 +847,13 @@ async def archive_version(
         version.status = "archived"
         await audit(s, actor, "version.archive", f"{ws.slug}/{rs.key}@{semver}", ws)
         await notify(
-            s, {"kind": "version", "workspace": ws.slug, "ruleset": rs.key, "semver": semver}
+            s,
+            {
+                "kind": "version",
+                "workspace": await workspace_name(s, ws),
+                "ruleset": rs.key,
+                "semver": semver,
+            },
         )
     return version
 
@@ -898,7 +930,10 @@ async def set_alias(
             "previousVersionId": str(previous) if previous else None,
         },
     )
-    await notify(s, {"kind": "alias", "workspace": ws.slug, "ruleset": rs.key, "env": env})
+    await notify(
+        s,
+        {"kind": "alias", "workspace": await workspace_name(s, ws), "ruleset": rs.key, "env": env},
+    )
     return alias
 
 
@@ -958,7 +993,10 @@ async def delete_alias(
         ws,
         {"effectiveFrom": None if all_entries else str(effective_from or "")},
     )
-    await notify(s, {"kind": "alias", "workspace": ws.slug, "ruleset": rs.key, "env": env})
+    await notify(
+        s,
+        {"kind": "alias", "workspace": await workspace_name(s, ws), "ruleset": rs.key, "env": env},
+    )
 
 
 # --------------------------------------------------------------------------- API keys

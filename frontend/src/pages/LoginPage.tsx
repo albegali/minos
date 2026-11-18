@@ -145,6 +145,11 @@ export function LoginPage() {
           </Button>
         </form>
       )}
+      {info.data?.signup && (
+        <Text size={200}>
+          {t('signup.question')} <Link to="/signup">{t('signup.link')}</Link>
+        </Text>
+      )}
       <FluentLink as="button" onClick={() => setWithKey(!withKey)}>
         {withKey ? t('login.usePassword') : t('login.useApiKey')}
       </FluentLink>

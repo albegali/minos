@@ -55,13 +55,15 @@ class Organization(Base):
 
 class Workspace(Base):
     __tablename__ = "workspace"
+    __table_args__ = (UniqueConstraint("organization_id", "slug"),)
 
     id: Mapped[uuid.UUID] = _uuid()
     organization_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("organization.id", ondelete="CASCADE"), index=True
     )
-    slug: Mapped[str] = mapped_column(String(64), unique=True)
-    """Unique in the installation: execution URLs (``/v1/exec/{workspace}/...``) carry it."""
+    slug: Mapped[str] = mapped_column(String(64))
+    """Unique within the organization. URLs carry only the slug: the organization comes from
+    the caller (session, API key, or ``X-Minos-Organization`` / ``default``)."""
     name: Mapped[str] = mapped_column(String(200))
     created_at: Mapped[dt.datetime] = _created()
 

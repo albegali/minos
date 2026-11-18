@@ -47,9 +47,7 @@ from .identity import (
     verify_password,
 )
 
-DEFAULT_ORGANIZATION: Final = "default"
-"""Home of the workspaces that existed before organizations, and of those an admin key or an
-open installation creates without naming an organization."""
+DEFAULT_ORGANIZATION: Final = svc.DEFAULT_ORGANIZATION
 
 
 def _email(value: str) -> str:
@@ -485,11 +483,10 @@ async def create_invitation(
     grants: list[dict[str, str]] = []
     for slug, ws_role in workspaces:
         _check_workspace_role(ws_role)
-        ws = await s.scalar(
-            select(Workspace).where(Workspace.slug == slug, Workspace.organization_id == org.id)
-        )
-        if ws is None:
-            raise NotFound(f"workspace {slug!r} not found in organization {org.slug!r}")
+        try:
+            ws = await svc.get_workspace(s, org.id, slug)
+        except NotFound:
+            raise NotFound(f"workspace {slug!r} not found in organization {org.slug!r}") from None
         grants.append({"workspace": str(ws.id), "role": ws_role})
     user = await find_user(s, address)
     if user is not None and await org_role(s, user.id, org) is not None:

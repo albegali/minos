@@ -59,6 +59,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             cfg.require_auth,
             management=rt.engine is not None,
             time_limit_ms=cfg.exec_time_limit_ms,
+            signup=cfg.allow_signup,
         )
     )
     if rt.engine is not None:

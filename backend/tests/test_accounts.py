@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as dt
 from collections.abc import AsyncIterator
 from typing import Any
@@ -15,7 +16,7 @@ from minos.api.management import LoginThrottle
 from minos.cli import create_admin_key, create_organization, create_user, main, prune_audit
 from minos.control.identity import hash_password, normalise_email, verify_password
 
-from .test_platform import settings
+from .test_platform import eventually, settings
 
 PASSWORD = "correct horse battery"
 
@@ -500,7 +501,10 @@ async def test_api_keys_and_open_installations(clean_db: str, admin: dict[str, s
                 headers={"X-Minos-Via": "studio"},
             )
             assert r.status_code == 201
-            event = (await c.get("/v1/workspaces/a/audit")).json()["items"][0]
+            # another organization's workspace: named by X-Minos-Organization
+            assert (await c.get("/v1/workspaces/a/audit")).status_code == 404
+            acme = {"X-Minos-Organization": "acme"}
+            event = (await c.get("/v1/workspaces/a/audit", headers=acme)).json()["items"][0]
             assert (event["actor"], event["via"]) == ("apikey:dev", "studio")
             me = (await c.get("/v1/auth/me")).json()
             assert me["kind"] == "apikey" and me["admin"] is True
@@ -571,3 +575,175 @@ def test_cli_accounts(
     assert main(["create-user", "--email", "b@acme.example", "--name", "B"]) == 1
     assert main(["prune-audit"]) == 0
     assert "0 audit event(s) older than 90 days" in capsys.readouterr().out
+
+
+async def test_organization_sign_up(clean_db: str) -> None:
+    # off by default
+    app = create_app(settings(clean_db))
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://minos") as c:
+            assert (await c.get("/v1/info")).json()["signup"] is False
+            body = {
+                "organization": {"slug": "acme", "name": "Acme"},
+                "name": "Ada",
+                "email": "ada@acme.example",
+                "password": PASSWORD,
+            }
+            assert (await c.post("/v1/auth/signup", json=body)).status_code == 403
+
+    app = create_app(dataclasses.replace(settings(clean_db), allow_signup=True))
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://minos") as c:
+            assert (await c.get("/v1/info")).json()["signup"] is True
+
+            # a new account and its organization
+            r = await c.post("/v1/auth/signup", json=body)
+            assert r.status_code == 201, r.text
+            assert r.json()["organization"] == {"slug": "acme", "name": "Acme", "role": "owner"}
+            ada = bearer(r.json()["token"])
+            r = await c.post("/v1/workspaces", json={"slug": "w", "name": "W"}, headers=ada)
+            assert r.json()["organization"] == "acme"
+
+            # taken slug, bad slug, missing fields: nothing is created
+            again = {**body, "email": "bob@acme.example", "name": "Bob"}
+            assert (await c.post("/v1/auth/signup", json=again)).status_code == 409
+            bad = {**again, "organization": {"slug": "Bad Slug", "name": "x"}}
+            assert (await c.post("/v1/auth/signup", json=bad)).status_code == 422
+            r = await c.post(
+                "/v1/auth/login", json={"email": "bob@acme.example", "password": PASSWORD}
+            )
+            assert r.status_code == 401
+            nameless = {
+                "organization": {"slug": "b", "name": "B"},
+                "email": "bob@acme.example",
+                "password": PASSWORD,
+            }
+            assert (await c.post("/v1/auth/signup", json=nameless)).status_code == 422
+            no_password = {"organization": {"slug": "b", "name": "B"}, "email": "x@y.example"}
+            assert (await c.post("/v1/auth/signup", json=no_password)).status_code == 422
+
+            # an existing address: its password, and the organization joins the account
+            second = {
+                "organization": {"slug": "globex", "name": "Globex"},
+                "email": "ADA@acme.example",
+                "password": "wrong password!!",
+            }
+            assert (await c.post("/v1/auth/signup", json=second)).status_code == 401
+            r = await c.post("/v1/auth/signup", json={**second, "password": PASSWORD})
+            assert r.status_code == 201
+            assert [o["slug"] for o in r.json()["organizations"]] == ["acme", "globex"]
+
+            # signed in: the current account owns it
+            third = {"organization": {"slug": "initech", "name": "Initech"}}
+            r = await c.post("/v1/auth/signup", json=third, headers=ada)
+            assert r.status_code == 201
+            assert r.json()["organization"]["slug"] == "initech"
+            assert len(r.json()["organizations"]) == 3
+            events = (
+                await c.get("/v1/organizations/initech/audit", headers=bearer(r.json()["token"]))
+            ).json()["items"]
+            assert {(e["action"], e["actor"]) for e in events} == {
+                ("organization.create", "user:ada@acme.example"),
+                ("member.add", "user:ada@acme.example"),
+            }
+
+
+def _constant_graph(answer: str) -> dict[str, Any]:
+    """A rule set that always ends with the given output: tells two rule sets apart."""
+    return {
+        "rgdVersion": "1.0",
+        "ruleset": "rules",
+        "nodes": [
+            {"id": "start", "type": "start"},
+            {"id": "end", "type": "end", "outcome": "valid", "output": {"answer": answer}},
+        ],
+        "edges": [{"from": "start", "to": "end"}],
+    }
+
+
+async def test_workspace_slugs_are_unique_per_organization(
+    client: httpx.AsyncClient, clean_db: str, admin: dict[str, str]
+) -> None:
+    c = client
+    owners: dict[str, dict[str, str]] = {}
+    exec_keys: dict[str, dict[str, str]] = {}
+    for org in ("acme", "globex"):
+        await create_organization(clean_db, org, org.title())
+        await create_user(clean_db, f"owner@{org}.example", "Owner", PASSWORD, org, "owner")
+        owner = bearer((await login(c, f"owner@{org}.example"))["token"])
+        owners[org] = owner
+        # the same workspace slug and rule set key in both organizations
+        r = await c.post("/v1/workspaces", json={"slug": "rules", "name": org}, headers=owner)
+        assert r.status_code == 201, r.text
+        ws = "/v1/workspaces/rules"
+        await c.post(f"{ws}/entities", json={"key": "E", "name": "E"}, headers=owner)
+        await c.post(f"{ws}/entities/E/schemas", json={"samples": [{"a": 1}]}, headers=owner)
+        body = {"key": "check", "name": "C", "entity": "E", "graph": _constant_graph(org)}
+        assert (await c.post(f"{ws}/rulesets", json=body, headers=owner)).status_code == 201
+        r = await c.post(f"{ws}/rulesets/check/publish", json={"promoteTo": "prod"}, headers=owner)
+        assert r.status_code == 201, r.text
+        r = await c.post(f"{ws}/api-keys", json={"name": "app", "scopes": ["exec"]}, headers=owner)
+        exec_keys[org] = {"X-Api-Key": r.json()["key"]}
+
+    # within one organization the slug stays unique
+    r = await c.post("/v1/workspaces", json={"slug": "rules", "name": "x"}, headers=owners["acme"])
+    assert r.status_code == 409
+
+    # each owner sees and edits only their own
+    for org, owner in owners.items():
+        listed = (await c.get("/v1/workspaces", headers=owner)).json()
+        assert [(w["slug"], w["name"], w["organization"]) for w in listed] == [("rules", org, org)]
+
+    # same URL, each key runs its own organization's rules (after the NOTIFY-driven load)
+    async def deployed() -> bool:
+        for org, key in exec_keys.items():
+            r = await c.post("/v1/exec/rules/check", json={"input": {"a": 1}}, headers=key)
+            if r.status_code != 200 or r.json()["result"]["answer"] != org:
+                return False
+        return True
+
+    await eventually(deployed)
+    r = await c.post(
+        "/v1/exec/rules/check/versions/0.1.0", json={"input": {"a": 1}}, headers=exec_keys["globex"]
+    )
+    assert r.json()["result"]["answer"] == "globex"
+
+    # administrators: default organization unless X-Minos-Organization names another
+    names = {d["workspace"] for d in (await c.get("/v1/deployments", headers=admin)).json()}
+    assert names == {"acme/rules", "globex/rules"}
+    assert (
+        await c.post("/v1/exec/rules/check", json={"input": {}}, headers=admin)
+    ).status_code == 404
+    r = await c.post(
+        "/v1/exec/rules/check",
+        json={"input": {"a": 1}},
+        headers={**admin, "X-Minos-Organization": "acme"},
+    )
+    assert r.json()["result"]["answer"] == "acme"
+    assert (await c.get("/v1/workspaces/rules/rulesets", headers=admin)).status_code == 404
+    globex = {**admin, "X-Minos-Organization": "globex"}
+    assert [
+        x["key"] for x in (await c.get("/v1/workspaces/rules/rulesets", headers=globex)).json()
+    ] == ["check"]
+    assert len((await c.get("/v1/workspaces", headers=admin)).json()) == 2
+    assert len((await c.get("/v1/workspaces", headers=globex)).json()) == 1
+    nope = {**admin, "X-Minos-Organization": "nope"}
+    assert (await c.get("/v1/workspaces/rules/rulesets", headers=nope)).status_code == 404
+
+    # Swagger: documented with the URL clients call
+    doc = (await c.get("/v1/exec/openapi.json", headers=exec_keys["acme"])).json()
+    assert list(doc["paths"]) == ["/v1/exec/rules/check"]
+
+    # changing one organization's environment reaches only its deployment
+    r = await c.delete("/v1/workspaces/rules/rulesets/check/aliases/prod", headers=owners["acme"])
+    assert r.status_code == 204
+
+    async def undeployed() -> bool:
+        r = await c.post("/v1/exec/rules/check", json={"input": {}}, headers=exec_keys["acme"])
+        return r.status_code == 404
+
+    await eventually(undeployed)
+    r = await c.post("/v1/exec/rules/check", json={"input": {"a": 1}}, headers=exec_keys["globex"])
+    assert r.json()["result"]["answer"] == "globex"

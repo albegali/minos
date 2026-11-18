@@ -3,7 +3,7 @@ import { Add20Regular, Folder20Regular } from '@fluentui/react-icons'
 import { useState } from 'react'
 import { useNavigate } from 'react-router'
 
-import { useCreateWorkspace, useWorkspaces } from '../api/hooks'
+import { useCreateWorkspace, useOrganizations, useWorkspaces } from '../api/hooks'
 import { useAuth } from '../auth/store'
 import { ErrorBar, FormDialog, slugify } from '../components/forms'
 import { Page } from '../components/Shell'
@@ -17,7 +17,15 @@ export function WorkspacesPage() {
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const session = useAuth((s) => s.session)
+  const scope = useAuth((s) => s.organization)
+  const orgs = useOrganizations(!session)
   const { t } = useI18n()
+  // Without a session: the organization picked in the header (named when there are several).
+  const orgName = session
+    ? session.organization?.name
+    : (orgs.data?.length ?? 0) > 1
+      ? (orgs.data?.find((o) => o.slug === scope)?.name ?? scope)
+      : undefined
   // Signed-in users create workspaces as owners or admins of the organization; with an API
   // key the server decides (admin keys only).
   const orgRole = session?.organization?.role
@@ -25,7 +33,7 @@ export function WorkspacesPage() {
 
   return (
     <Page
-      title={session?.organization ? t('workspaces.titleIn', { org: session.organization.name }) : t('workspaces.title')}
+      title={orgName ? t('workspaces.titleIn', { org: orgName }) : t('workspaces.title')}
       actions={
         canCreate && (
         <FormDialog
@@ -47,7 +55,7 @@ export function WorkspacesPage() {
               }}
             />
           </Field>
-          <Field label={t('workspaces.slug')} hint={t('workspaces.slugHint')}>
+          <Field label={t('workspaces.slug')} hint={t('workspaces.slugHint')} required>
             <Input value={slug} onChange={(_, d) => setSlug(d.value)} />
           </Field>
         </FormDialog>

@@ -31,11 +31,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from minos.api.common import Principal
 from minos.control.keys import well_formed
-from minos.control.service import resolver_for, resolver_from
+from minos.control.service import qualified_name, resolver_for, resolver_from, split_name
 from minos.db import (
     ALWAYS,
     NOTIFY_CHANNEL,
     ApiClient,
+    Organization,
     Ruleset,
     RulesetAlias,
     RulesetVersion,
@@ -51,7 +52,9 @@ log = logging.getLogger(__name__)
 LOCAL_WORKSPACE = "local"
 DEFAULT_ENV = "prod"
 
-type Key = tuple[str, str, str]  # workspace, ruleset, env | semver
+type Key = tuple[str, str, str]  # workspace (qualified name), ruleset, env | semver
+"""Workspaces are named as in :func:`minos.control.service.qualified_name`: the slug in the
+``default`` organization, ``<org>/<slug>`` in the others."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,7 +241,9 @@ def _bounded_put[V](items: dict[str, V], key: str, value: V, limit: int) -> None
 
 _ALIAS_QUERY = (
     select(
+        Organization.slug.label("org"),
         Workspace.slug,
+        Workspace.id.label("workspace_id"),
         Ruleset.key,
         RulesetAlias.env,
         RulesetAlias.effective_from,
@@ -246,6 +251,7 @@ _ALIAS_QUERY = (
         RulesetVersion.graph,
         SchemaVersion.resolved_schema,
     )
+    .join(Organization, Organization.id == Workspace.organization_id)
     .join(Ruleset, Ruleset.workspace_id == Workspace.id)
     .join(RulesetAlias, RulesetAlias.ruleset_id == Ruleset.id)
     .join(RulesetVersion, RulesetVersion.id == RulesetAlias.version_id)
@@ -254,12 +260,14 @@ _ALIAS_QUERY = (
 
 _HASH_QUERY = (
     select(
+        Organization.slug.label("org"),
         Workspace.slug,
         Ruleset.key,
         RulesetAlias.env,
         RulesetAlias.effective_from,
         RulesetVersion.hash,
     )
+    .join(Organization, Organization.id == Workspace.organization_id)
     .join(Ruleset, Ruleset.workspace_id == Workspace.id)
     .join(RulesetAlias, RulesetAlias.ruleset_id == Ruleset.id)
     .join(RulesetVersion, RulesetVersion.id == RulesetAlias.version_id)
@@ -313,7 +321,9 @@ class DbSync:
             rows = (await s.execute(_ALIAS_QUERY)).all()
         grouped: dict[Key, list[Any]] = {}
         for row in rows:
-            grouped.setdefault((row.slug, row.key, row.env), []).append(row)
+            grouped.setdefault((qualified_name(row.org, row.slug), row.key, row.env), []).append(
+                row
+            )
         schedules: dict[Key, Schedule] = {}
         for key, entries in grouped.items():
             try:
@@ -329,7 +339,7 @@ class DbSync:
         out = []
         for row in entries:
             async with self.sessions() as s:
-                resolve = await resolver_for(s, ws, row.graph)
+                resolve = await resolver_for(s, row.workspace_id, row.graph)
             out.append((row.effective_from, build(ws, row.graph, row.resolved_schema, resolve)))
         return tuple(out)
 
@@ -338,7 +348,13 @@ class DbSync:
         # one to finish installs the latest state, never an older snapshot.
         lock = self._reload_locks.setdefault((ws, rs, env), asyncio.Lock())
         async with lock:
-            q = _ALIAS_QUERY.where(Workspace.slug == ws, Ruleset.key == rs, RulesetAlias.env == env)
+            org, slug = split_name(ws)
+            q = _ALIAS_QUERY.where(
+                Organization.slug == org,
+                Workspace.slug == slug,
+                Ruleset.key == rs,
+                RulesetAlias.env == env,
+            )
             async with self.sessions() as s:
                 rows = (await s.execute(q)).all()
             try:
@@ -357,13 +373,16 @@ class DbSync:
         missing_until = self._missing_versions.get((ws, rs, semver))
         if missing_until is not None and missing_until > time.monotonic():
             return None  # asked again within seconds: no database query
+        org, slug = split_name(ws)
         q = (
-            select(RulesetVersion.graph, SchemaVersion.resolved_schema)
+            select(RulesetVersion.graph, SchemaVersion.resolved_schema, Workspace.id)
             .join(Ruleset, Ruleset.id == RulesetVersion.ruleset_id)
             .join(Workspace, Workspace.id == Ruleset.workspace_id)
+            .join(Organization, Organization.id == Workspace.organization_id)
             .outerjoin(SchemaVersion, SchemaVersion.id == RulesetVersion.schema_version_id)
             .where(
-                Workspace.slug == ws,
+                Organization.slug == org,
+                Workspace.slug == slug,
                 Ruleset.key == rs,
                 RulesetVersion.semver == semver,
                 RulesetVersion.status != "archived",
@@ -377,7 +396,7 @@ class DbSync:
             self._missing_versions[(ws, rs, semver)] = time.monotonic() + 5
             return None
         async with self.sessions() as s:
-            resolve = await resolver_for(s, ws, row.graph)
+            resolve = await resolver_for(s, row.id, row.graph)
         dep = build(ws, row.graph, row.resolved_schema, resolve)
         self.registry.put_version((ws, rs, semver), dep)
         return dep
@@ -389,14 +408,28 @@ class DbSync:
         if hit:
             return principal
         q = (
-            select(ApiClient.name, ApiClient.workspace_id, ApiClient.scopes, Workspace.slug)
+            select(
+                ApiClient.name,
+                ApiClient.workspace_id,
+                ApiClient.scopes,
+                Workspace.slug,
+                Workspace.organization_id,
+                Organization.slug.label("org"),
+            )
             .outerjoin(Workspace, Workspace.id == ApiClient.workspace_id)
+            .outerjoin(Organization, Organization.id == Workspace.organization_id)
             .where(ApiClient.key_hash == key_hash, ApiClient.revoked_at.is_(None))
         )
         async with self.sessions() as s:
             row = (await s.execute(q)).first()
         if row is not None:
-            principal = Principal(row.name, row.workspace_id, frozenset(row.scopes), row.slug)
+            principal = Principal(
+                row.name,
+                row.workspace_id,
+                frozenset(row.scopes),
+                qualified_name(row.org, row.slug) if row.slug else None,
+                organization_id=row.organization_id,
+            )
         self.keys.put(key_hash, principal)
         return principal
 
@@ -446,7 +479,8 @@ class DbSync:
         async with self.sessions() as s:
             rows = (await s.execute(_HASH_QUERY)).all()
         wanted: dict[Key, list[tuple[dt.date, str]]] = {}
-        for ws, rs, env, start, digest in rows:
+        for org, slug, rs, env, start, digest in rows:
+            ws = qualified_name(org, slug)
             if ws == LOCAL_WORKSPACE:  # served from files; the slug is reserved
                 continue
             wanted.setdefault((ws, rs, env), []).append((start, digest))

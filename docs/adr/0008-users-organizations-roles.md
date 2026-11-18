@@ -15,8 +15,16 @@ institution) on one installation, each with its own people and rules.
 
 - **Organizations** are the tenants. Every workspace belongs to one; the workspaces that existed
   before move into a `default` organization, which is also where admin keys and open
-  installations create workspaces when they name none. Workspace slugs stay unique in the whole
-  installation, because execution URLs (`/v1/exec/{workspace}/...`) carry them.
+  installations create workspaces when they name none (its id is fixed:
+  `00000000-0000-0000-0000-000000000001`). Organization slugs are unique in the installation;
+  **workspace slugs only within their organization**, so two tenants can both have `rules`.
+  URLs do not change (`/v1/workspaces/{ws}/...`, `/v1/exec/{ws}/{ruleset}`): the organization
+  comes from the caller, never from the URL. A session works in its organization; a `manage` or
+  `exec` key in the organization of its workspace; administrators (admin keys, open
+  installations) in `default`, or in the one they name with the `X-Minos-Organization` header,
+  which the Studio sends after choosing an organization in its header. Inside the execution
+  plane (deployment list, NOTIFY messages) a workspace is named by its slug in `default` and
+  `<organization>/<slug>` elsewhere, so existing installations see no change.
 - **Users** are people: one password, **any number of e-mail addresses**, each of which signs in.
   Membership is per user, so whichever address someone types they see all their organizations.
   A session works in **one organization at a time**: chosen at sign-in when the user has only
@@ -60,8 +68,11 @@ institution) on one installation, each with its own people and rules.
 - An identity provider (OIDC / Entra ID) can be added later as another way to start the same
   session: accounts without a password (`password_hash` is nullable) and addresses matched to
   users as today.
-- No self-service sign-up and no organization creation from the Studio: organizations are created
-  by installation administrators (`minos.cli create-organization`, or `POST /v1/organizations`
-  with an admin key), and their first owner with `minos.cli create-user ... --role owner`.
+- Organizations are created by installation administrators (`minos.cli create-organization`, or
+  `POST /v1/organizations` with an admin key, first owner with `minos.cli create-user ... --role
+  owner`) or, with `MINOS_ALLOW_SIGNUP=true`, registered from the Studio by anyone who reaches it:
+  a new account, an existing one (with its password) or the signed-in one becomes the owner. Off
+  by default: an institution usually decides who gets an organization, and with sign-up on,
+  nothing limits how many organizations someone creates.
 - No password reset by e-mail: an administrator re-invites, or sets a password from the command
   line. The login throttle is per process: behind several replicas the limit multiplies.

@@ -271,6 +271,7 @@ def install_cors(app: FastAPI, cfg: Settings) -> None:
                 "If-Match",
                 "X-Request-Id",
                 "X-Minos-Via",
+                "X-Minos-Organization",
             ],
             expose_headers=[
                 "ETag",
