@@ -80,6 +80,13 @@ class Settings:
     publish_requires_tests: bool = False
     """Refuse to publish a rule set without tests (MINOS_PUBLISH_REQUIRES_TESTS); recommended
     in production."""
+    session_hours: float = 12
+    """How long a Studio sign-in lasts (MINOS_SESSION_HOURS)."""
+    invitation_days: float = 7
+    """How long an invitation link can be used (MINOS_INVITATION_DAYS)."""
+    audit_retention_days: float = 90
+    """``minos.cli prune-audit`` deletes draft-save events older than this
+    (MINOS_AUDIT_RETENTION_DAYS); publications, environments, keys and members are kept."""
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -96,4 +103,7 @@ class Settings:
             exec_time_limit_ms=_number("MINOS_EXEC_TIME_LIMIT_MS", 1000, minimum=1),
             publish_requires_tests=_bool("MINOS_PUBLISH_REQUIRES_TESTS", False),
             allowed_hosts=_hosts(os.environ.get("MINOS_ALLOWED_HOSTS")),
+            session_hours=_number("MINOS_SESSION_HOURS", 12, minimum=0.1),
+            invitation_days=_number("MINOS_INVITATION_DAYS", 7, minimum=0.1),
+            audit_retention_days=_number("MINOS_AUDIT_RETENTION_DAYS", 90, minimum=1),
         )

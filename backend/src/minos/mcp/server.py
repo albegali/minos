@@ -65,6 +65,7 @@ def http_api(base_url: str, api_key: str | None = None) -> ApiFactory:
         sent = dict(headers)
         if api_key and not sent:
             sent["Authorization"] = f"Bearer {api_key}"
+        sent["X-Minos-Via"] = "mcp"
         async with httpx.AsyncClient(base_url=base_url, headers=sent, timeout=30) as client:
             yield client
 

@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
-from typing import Any, Final
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from typing import Any, Final, Literal, cast
 
 import orjson
 from fastapi import FastAPI, Request
@@ -12,7 +13,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from minos.control.errors import Forbidden, Unauthorized
+from minos.control.errors import Forbidden, NotFound, Unauthorized
+from minos.control.identity import Actor, Via, at_least
+from minos.db import Workspace
 from minos.settings import Settings
 
 
@@ -35,19 +38,32 @@ def problem(status: int, title: str, detail: str, **extra: Any) -> Response:
 
 @dataclass(frozen=True, slots=True)
 class Principal:
-    """The caller, as identified by its API key."""
+    """The caller: an API key (machines), a signed-in user (Studio), or nobody on an open
+    installation (``DEV_PRINCIPAL``, an administrator)."""
 
     name: str
+    """Key name, or the user's primary e-mail address."""
     workspace_id: uuid.UUID | None
     scopes: frozenset[str]
     workspace: str | None = None
     """Slug of the key's workspace (``None`` for global admin keys)."""
+    kind: Literal["apikey", "user"] = "apikey"
+    user_id: uuid.UUID | None = None
+    organization_id: uuid.UUID | None = None
+    """Users: the organization their session works in."""
+    org_role: str | None = None
+    workspace_roles: Mapping[uuid.UUID, str] = field(default_factory=dict)
+    """Users: their own role in the workspaces of the organization."""
+    via: Via = "api"
 
     @property
-    def actor(self) -> str:
-        return f"apikey:{self.name}"
+    def actor(self) -> Actor:
+        if self.kind == "user":
+            return Actor(f"user:{self.name}", self.via)
+        return Actor(f"apikey:{self.name}", self.via)
 
     def is_admin(self) -> bool:
+        """Administrator of the installation (admin key, or an open installation)."""
         return "admin" in self.scopes
 
     def can_execute(self, workspace: str) -> bool:
@@ -56,14 +72,61 @@ class Principal:
     def require(self, scope: str, workspace_id: uuid.UUID | None = None) -> None:
         if self.is_admin():
             return
+        if self.kind == "user":
+            raise Forbidden("this needs an administrator of the installation (an admin key)")
         if scope not in self.scopes:
             raise Forbidden(f"the API key lacks the {scope!r} scope")
         if workspace_id is not None and workspace_id != self.workspace_id:
             raise Forbidden("the API key belongs to another workspace")
 
+    def org_role_in(self, organization_id: uuid.UUID) -> str | None:
+        """Role in an organization: admins of the installation act as owners."""
+        if self.is_admin():
+            return "owner"
+        if self.kind == "user" and organization_id == self.organization_id:
+            return self.org_role
+        return None
+
+    def role_in(self, ws: Workspace) -> str | None:
+        """Workspace role: a ``manage`` key is admin of its workspace; organization owners and
+        admins are admins of all its workspaces."""
+        if self.is_admin():
+            return "admin"
+        if self.kind == "apikey":
+            return "admin" if "manage" in self.scopes and ws.id == self.workspace_id else None
+        if ws.organization_id != self.organization_id or self.org_role is None:
+            return None
+        if self.org_role in ("owner", "admin"):
+            return "admin"
+        return self.workspace_roles.get(ws.id)
+
+    def require_role(self, ws: Workspace, needed: str) -> str:
+        role = self.role_in(ws)
+        if role is None:
+            if self.kind == "user" and ws.organization_id != self.organization_id:
+                # Other tenants' workspaces do not exist for this user.
+                raise NotFound(f"workspace {ws.slug!r} not found")
+            if self.kind == "apikey":
+                if "manage" not in self.scopes:
+                    raise Forbidden("the API key lacks the 'manage' scope")
+                raise Forbidden("the API key belongs to another workspace")
+            raise Forbidden(f"you have no role in workspace {ws.slug!r}")
+        if not at_least(role, needed):
+            raise Forbidden(
+                f"this needs the {needed!r} role in workspace {ws.slug!r} (you are {role!r})"
+            )
+        return role
+
 
 DEV_PRINCIPAL = Principal("dev", None, frozenset({"admin"}))
 """Caller identity when API keys are not required (the default, open installation)."""
+
+
+def via_from(request: Request, default: Via = "api") -> Via:
+    """The channel a request says it comes from (``X-Minos-Via``: the Studio and the MCP server
+    set it); informational, for the audit."""
+    raw = request.headers.get("x-minos-via", "").strip().lower()
+    return cast(Via, raw) if raw in ("studio", "mcp", "api") else default
 
 
 def api_key_from(request: Request) -> str:
@@ -207,6 +270,7 @@ def install_cors(app: FastAPI, cfg: Settings) -> None:
                 "Content-Type",
                 "If-Match",
                 "X-Request-Id",
+                "X-Minos-Via",
             ],
             expose_headers=[
                 "ETag",

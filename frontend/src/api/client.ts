@@ -25,6 +25,8 @@ export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   body?: unknown
   headers?: Record<string, string>
+  /** Keep the session on a 401 (e.g. a wrong password while accepting an invitation). */
+  keepSessionOn401?: boolean
 }
 
 export interface ApiResponse<T> {
@@ -36,8 +38,9 @@ export interface ApiResponse<T> {
 export const BASE = (import.meta.env.VITE_MINOS_API as string | undefined) ?? ''
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {
-  const key = useAuth.getState().apiKey
-  const headers: Record<string, string> = { ...options.headers }
+  const key = useAuth.getState().token
+  // The audit records which channel a change came from.
+  const headers: Record<string, string> = { 'X-Minos-Via': 'studio', ...options.headers }
   if (key) headers.Authorization = `Bearer ${key}`
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
 
@@ -53,7 +56,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       body && typeof body === 'object' && 'status' in body
         ? (body as Problem)
         : { status: res.status, title: res.statusText, detail: text || res.statusText }
-    if (res.status === 401) useAuth.getState().logout()
+    if (res.status === 401 && !options.keepSessionOn401) useAuth.getState().logout()
     throw new ApiError(problem)
   }
   return { data: body as T, headers: res.headers }

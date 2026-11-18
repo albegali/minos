@@ -33,3 +33,5 @@ the Studio and CI use the Management API. Authentication must not add noticeable
   Studio reads `GET /v1/info` and opens without a login. API keys remain available to anyone who
   exposes the API on a network.
 - User login (OIDC) and roles: not planned.
+- **Update (ADR 0008):** users with e-mail and password, organizations and workspace roles were
+  added; API keys remain for machines. OIDC can be added on top of the same sessions.

@@ -1,8 +1,12 @@
 # Minos Studio · quick guide
 
 Minos Studio is the web rule editor. On an open installation (the default, for example with
-`docker compose up`) you go straight in; if the API requires keys, the Studio asks for an API key
-with scope `manage` or `admin`. The Studio speaks English and Italian: the menu at the top right
+`docker compose up`) you go straight in; if the API requires authentication, you sign in with your
+e-mail address and password (any address of your account) or, for administrators, an API key with
+scope `manage` or `admin`. If your account belongs to several organizations you choose one after
+signing in, and switch from the organization menu at the top; *Members and invitations* in the
+same menu lists the people and creates invitation links, and *Access* in a workspace gives members
+a role there (viewer, author, publisher, admin). The Studio speaks English and Italian: the menu at the top right
 switches language (the choice is remembered in the browser; the first time it follows the
 browser language). The typical path, without writing JSON:
 

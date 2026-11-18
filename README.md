@@ -63,7 +63,8 @@ curl -s -H 'Content-Type: application/json' -d "{\"input\": $(cat examples/input
 
 To start with an empty database set `MINOS_SEED_EXAMPLES: "false"` in `compose.yaml`;
 `docker compose down -v` wipes the data and the examples are reloaded on the next start. To require
-API keys, set `MINOS_REQUIRE_AUTH=true` (see [`docs/api.md`](docs/api.md)). The
+sign-in (people with e-mail and password, in organizations with roles) and API keys (machines),
+set `MINOS_REQUIRE_AUTH=true` (see [`docs/api.md`](docs/api.md)). The
 [Studio guide](docs/studio.md) walks through the whole path, from entity to publication.
 
 ### Development without Docker

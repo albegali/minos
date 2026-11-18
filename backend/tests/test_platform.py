@@ -246,7 +246,8 @@ async def test_full_lifecycle(
     assert [r["key"] for r in (await c.get(f"{WS}/rulesets", headers=admin)).json()] == [
         "studyplan-emba"
     ]
-    actions = [e["action"] for e in (await c.get(f"{WS}/audit", headers=admin)).json()]
+    events = (await c.get(f"{WS}/audit", headers=admin)).json()["items"]
+    actions = [e["action"] for e in events]
     assert {"ruleset.publish", "alias.set", "draft.save", "test.create"} <= set(actions)
 
     # alias removal undeploys

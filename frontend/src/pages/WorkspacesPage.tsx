@@ -4,9 +4,11 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router'
 
 import { useCreateWorkspace, useWorkspaces } from '../api/hooks'
+import { useAuth } from '../auth/store'
 import { ErrorBar, FormDialog, slugify } from '../components/forms'
 import { Page } from '../components/Shell'
 import { useI18n } from '../i18n'
+import { RoleLabel } from './OrganizationsPage'
 
 export function WorkspacesPage() {
   const { data, isLoading, error } = useWorkspaces()
@@ -14,12 +16,18 @@ export function WorkspacesPage() {
   const navigate = useNavigate()
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
+  const session = useAuth((s) => s.session)
   const { t } = useI18n()
+  // Signed-in users create workspaces as owners or admins of the organization; with an API
+  // key the server decides (admin keys only).
+  const orgRole = session?.organization?.role
+  const canCreate = !session || orgRole === 'owner' || orgRole === 'admin'
 
   return (
     <Page
-      title={t('workspaces.title')}
+      title={session?.organization ? t('workspaces.titleIn', { org: session.organization.name }) : t('workspaces.title')}
       actions={
+        canCreate && (
         <FormDialog
           title={t('workspaces.new')}
           submitLabel={t('common.create')}
@@ -43,6 +51,7 @@ export function WorkspacesPage() {
             <Input value={slug} onChange={(_, d) => setSlug(d.value)} />
           </Field>
         </FormDialog>
+        )
       }
     >
       {isLoading && <Spinner label={t('common.loading')} />}
@@ -51,7 +60,21 @@ export function WorkspacesPage() {
       <div className="card-grid">
         {data?.map((w) => (
           <Card key={w.slug} onClick={() => navigate(`/w/${w.slug}`)} className="clickable">
-            <CardHeader image={<Folder20Regular />} header={<Text weight="semibold">{w.name}</Text>} description={w.slug} />
+            <CardHeader
+              image={<Folder20Regular />}
+              header={<Text weight="semibold">{w.name}</Text>}
+              description={
+                <Text size={200}>
+                  {w.slug}
+                  {w.role && (
+                    <>
+                      {' · '}
+                      <RoleLabel role={w.role} />
+                    </>
+                  )}
+                </Text>
+              }
+            />
           </Card>
         ))}
       </div>

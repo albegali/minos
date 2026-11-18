@@ -27,6 +27,7 @@ from minos.schema import SchemaError, find_refs, repin_refs
 
 from . import service as svc
 from .errors import Invalid, NotFound
+from .identity import Actor
 
 FORMAT: Final = "minos-bundle/1"
 
@@ -101,7 +102,7 @@ async def _referenced_entities(
 
 
 async def _get_or_create_entity(
-    s: AsyncSession, actor: str, ws: Workspace, meta: dict[str, Any], key: str
+    s: AsyncSession, actor: Actor, ws: Workspace, meta: dict[str, Any], key: str
 ) -> tuple[Entity, bool]:
     try:
         return await svc.get_entity(s, ws, key), False
@@ -113,7 +114,7 @@ async def _get_or_create_entity(
 
 
 async def _import_entities(
-    s: AsyncSession, actor: str, ws: Workspace, entities: list[Any]
+    s: AsyncSession, actor: Actor, ws: Workspace, entities: list[Any]
 ) -> dict[tuple[str, int], int]:
     """Bring the referenced entity versions of a bundle into ``ws``: reuse an identical
     version, or add one. Returns ``(key, version in the bundle) -> version in ws``."""
@@ -149,7 +150,9 @@ def _require(bundle: Any, key: str, kind: type) -> Any:
     return value
 
 
-async def import_bundle(s: AsyncSession, actor: str, ws: Workspace, bundle: Any) -> dict[str, Any]:
+async def import_bundle(
+    s: AsyncSession, actor: Actor, ws: Workspace, bundle: Any
+) -> dict[str, Any]:
     """Create or update the entity, schema, rule set draft and tests of a bundle.
 
     The rule set lands as a draft (never published automatically); tests with the same name
@@ -217,7 +220,7 @@ async def import_bundle(s: AsyncSession, actor: str, ws: Workspace, bundle: Any)
             t.get("expected") or {},
             t.get("referenceDate"),
         )
-    await svc.audit(s, actor, "ruleset.import", f"{ws.slug}/{key}", ws.id, {"tests": len(tests)})
+    await svc.audit(s, actor, "ruleset.import", f"{ws.slug}/{key}", ws, {"tests": len(tests)})
     return {
         "ruleset": key,
         "created": created,
